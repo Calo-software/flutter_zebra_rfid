@@ -1,0 +1,26 @@
+name: flutter_zebra_rfid
+description: "Flutter wrapper for Zebra RFID SDK for iOS and Android"
+version: 0.0.1
+homepage:
+
+environment:
+  sdk: '>=3.4.4 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+  plugin:
+    platforms:
+      android:
+        package: nz.calo.flutter_zebra_rfid
+        pluginClass: FlutterZebraRfidPlugin
+      ios:
+        pluginClass: FlutterZebraRfidPlugin
