@@ -1,1 +1,2 @@
 rootProject.name = 'flutter_zebra_rfid'
+include ':RFIDAPI3Library'
