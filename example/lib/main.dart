@@ -31,8 +31,9 @@ class _MyAppState extends State<MyApp> {
     // Platform messages may fail, so we use a try/catch PlatformException.
     // We also handle the message potentially returning null.
     try {
-      platformVersion =
-          await _flutterZebraRfidPlugin.getPlatformVersion() ?? 'Unknown platform version';
+      final readers = await _flutterZebraRfidPlugin
+          .getAvailableReaders(ReaderConnectionType.usb);
+      print(readers);
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
     }
@@ -43,7 +44,7 @@ class _MyAppState extends State<MyApp> {
     if (!mounted) return;
 
     setState(() {
-      _platformVersion = platformVersion;
+      // _platformVersion = platformVersion;
     });
   }
 
@@ -52,10 +53,18 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Plugin example app'),
+          title: const Text('Zebra API3 example app'),
         ),
-        body: Center(
-          child: Text('Running on: $_platformVersion\n'),
+        body: Column(
+          children: [
+            Center(
+              child: Text('Running on: $_platformVersion\n'),
+            ),
+            ElevatedButton(
+              onPressed: () => initPlatformState(),
+              child: Text('Action!'),
+            )
+          ],
         ),
       ),
     );

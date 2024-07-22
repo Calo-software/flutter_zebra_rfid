@@ -1,51 +1,72 @@
 package nz.calo.flutter_zebra_rfid.rfid
 
+import ReaderConnectionType
 import android.content.Context
 import android.util.Log
 import com.zebra.rfid.api3.*
 import java.util.*
 
+
+fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT {
+    return when(type) {
+        ReaderConnectionType.BLUETOOTH -> ENUM_TRANSPORT.BLUETOOTH
+        ReaderConnectionType.USB -> ENUM_TRANSPORT.SERVICE_USB
+    }
+}
+
 class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEventsListener {
 
     private val TAG: String = "FlutterZebraRfidPlugin"
 
-    private lateinit var readers: Readers
+    private var readers: Readers? = null
     private var availableRFIDReaderList: ArrayList<ReaderDevice>? = null
     private var readerDevice: ReaderDevice? = null
     lateinit var reader: RFIDReader
+    private var currentConnectionType: ReaderConnectionType? = null
 
-    fun connect(context: Context /*, scanConnectionMode : ScanConnectionEnum */): Boolean {
-        // Init
-        readers = Readers(context, ENUM_TRANSPORT.ALL)
-
-        try {
-            if (readers != null) {
-                availableRFIDReaderList = readers.GetAvailableRFIDReaderList()
-                if (availableRFIDReaderList != null && availableRFIDReaderList!!.size != 0) {
-                    // get first reader from list
-                    readerDevice = availableRFIDReaderList!![0]
-                    reader = readerDevice!!.rfidReader
-                    if (!reader!!.isConnected) {
-                        Log.d(TAG, "RFID Reader Connecting...")
-                        reader!!.connect()
-                        configureReader(/*scanConnectionMode*/)
-                        Log.d(TAG, "RFID Reader Connected!")
-                        return true
-                    }
-                }
-            }
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
+    fun getAvailableReaderList(context: Context, connectionType: ReaderConnectionType): List<String>{
+        if (readers == null || connectionType != currentConnectionType) {
+            readers?.Dispose()
+            readers = Readers(context, readerConnectionTypeToTransport(connectionType))
         }
-        Log.d(TAG, "RFID Reader connection error!")
-        return false
+
+        currentConnectionType = connectionType
+        availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
+        return availableRFIDReaderList!!.map { it.getName() }
     }
+
+//    fun connect(context: Context /*, scanConnectionMode : ScanConnectionEnum */): Boolean {
+//        // Init
+//        readers = Readers(context, ENUM_TRANSPORT.ALL)
+//
+//        try {
+//            if (readers != null) {
+//                availableRFIDReaderList = readers.GetAvailableRFIDReaderList()
+//                if (availableRFIDReaderList != null && availableRFIDReaderList!!.size != 0) {
+//                    // get first reader from list
+//                    readerDevice = availableRFIDReaderList!![0]
+//                    reader = readerDevice!!.rfidReader
+//                    if (!reader!!.isConnected) {
+//                        Log.d(TAG, "RFID Reader Connecting...")
+//                        reader!!.connect()
+//                        configureReader(/*scanConnectionMode*/)
+//                        Log.d(TAG, "RFID Reader Connected!")
+//                        return true
+//                    }
+//                }
+//            }
+//        } catch (e: InvalidUsageException) {
+//            e.printStackTrace()
+//        } catch (e: OperationFailureException) {
+//            e.printStackTrace()
+//        } catch (e: OperationFailureException) {
+//            e.printStackTrace()
+//        } catch (e: InvalidUsageException) {
+//            e.printStackTrace()
+//        }
+//        Log.d(TAG, "RFID Reader connection error!")
+//        return false
+//    }
 
     private fun configureReader(/*scanConnectionMode : ScanConnectionEnum*/) {
         if (reader.isConnected) {
@@ -159,7 +180,7 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
                 reader.Events?.removeEventsListener(this)
                 reader.disconnect()
                 reader.Dispose()
-                readers.Dispose()
+                readers?.Dispose()
             }
         } catch (e: InvalidUsageException) {
             e.printStackTrace()
@@ -169,4 +190,6 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
             e.printStackTrace()
         }
     }
+
+
 }
