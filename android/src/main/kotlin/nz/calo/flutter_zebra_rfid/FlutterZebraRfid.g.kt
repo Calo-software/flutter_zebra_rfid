@@ -31,6 +31,9 @@ private fun wrapError(exception: Throwable): List<Any?> {
   }
 }
 
+private fun createConnectionError(channelName: String): FlutterError {
+  return FlutterError("channel-error",  "Unable to establish connection on channel: '$channelName'.", "")}
+
 /**
  * Error class for passing custom error details to Flutter via a thrown PlatformException.
  * @property code The error code.
@@ -53,12 +56,31 @@ enum class ReaderConnectionType(val raw: Int) {
     }
   }
 }
+
+enum class ConnectionStatus(val raw: Int) {
+  CONNECTING(0),
+  CONNECTED(1),
+  DISCONNECTING(2),
+  DISCONNECTED(3),
+  ERROR(4);
+
+  companion object {
+    fun ofRaw(raw: Int): ConnectionStatus? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
 private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
       129.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionType.ofRaw(it)
+        }
+      }
+      130.toByte() -> {
+        return (readValue(buffer) as Int?)?.let {
+          ConnectionStatus.ofRaw(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -70,6 +92,10 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(129)
         writeValue(stream, value.raw)
       }
+      is ConnectionStatus -> {
+        stream.write(130)
+        writeValue(stream, value.raw)
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -78,7 +104,12 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
 
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface FlutterZebraRfid {
+  /** Returns list with names of available readers for specified `connectionType`. */
   fun getAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<List<String>>) -> Unit)
+  /** Connects to a reader with `readerName` name. */
+  fun connectReader(readerName: String, callback: (Result<Boolean>) -> Unit)
+  /** Disconnects a reader with `readerName` name. */
+  fun disconnectReader(callback: (Result<Boolean>) -> Unit)
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -109,6 +140,70 @@ interface FlutterZebraRfid {
           channel.setMessageHandler(null)
         }
       }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val readerNameArg = args[0] as String
+            api.connectReader(readerNameArg) { result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.disconnectReader{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/** Generated class from Pigeon that represents Flutter messages that can be called from Kotlin. */
+class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, private val messageChannelSuffix: String = "") {
+  companion object {
+    /** The codec used by FlutterZebraRfidCallbacks. */
+    val codec: MessageCodec<Any?> by lazy {
+      FlutterZebraRfidPigeonCodec
+    }
+  }
+  fun onReaderConnectionStatusChanged(statusArg: ConnectionStatus, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(statusArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
     }
   }
 }

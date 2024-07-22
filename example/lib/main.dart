@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
+import 'package:flutter_zebra_rfid/flutter_zebra_rfid.g.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,36 +15,14 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String _platformVersion = 'Unknown';
-  final _flutterZebraRfidPlugin = FlutterZebraRfid();
+  final _flutterZebraRfidApi = FlutterZebraRfidApi();
+
+  List<String> _availableReaders = [];
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    initPlatformState();
-  }
-
-  // Platform messages are asynchronous, so we initialize in an async method.
-  Future<void> initPlatformState() async {
-    String platformVersion;
-    // Platform messages may fail, so we use a try/catch PlatformException.
-    // We also handle the message potentially returning null.
-    try {
-      final readers = await _flutterZebraRfidPlugin
-          .getAvailableReaders(ReaderConnectionType.usb);
-      print(readers);
-    } on PlatformException {
-      platformVersion = 'Failed to get platform version.';
-    }
-
-    // If the widget was removed from the tree while the asynchronous platform
-    // message was in flight, we want to discard the reply rather than calling
-    // setState to update our non-existent appearance.
-    if (!mounted) return;
-
-    setState(() {
-      // _platformVersion = platformVersion;
-    });
   }
 
   @override
@@ -55,18 +32,76 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('Zebra API3 example app'),
         ),
-        body: Column(
-          children: [
-            Center(
-              child: Text('Running on: $_platformVersion\n'),
+        body: Padding(
+          padding: const EdgeInsets.all(24),
+          child: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _ReadersContainer(availableReaders: _availableReaders),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    setState(() => _isLoading = true);
+                    final readers =
+                        await _flutterZebraRfidApi.getAvailableReaders(
+                      connectionType: ReaderConnectionType.usb,
+                    );
+                    setState(() {
+                      _isLoading = false;
+                      _availableReaders = readers;
+                    });
+                  },
+                  child: const Text('Get Reader List'),
+                )
+              ],
             ),
-            ElevatedButton(
-              onPressed: () => initPlatformState(),
-              child: Text('Action!'),
-            )
-          ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _ReadersContainer extends StatelessWidget {
+  const _ReadersContainer({
+    required this.availableReaders,
+  });
+
+  final List<String> availableReaders;
+
+  @override
+  Widget build(BuildContext context) {
+    if (availableReaders.isEmpty) {
+      return const Center(
+        child: Text('No RFID readers detected!'),
+      );
+    }
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 16),
+          child: Text('Detected readers'),
+        ),
+        Container(
+          decoration: BoxDecoration(border: Border.all(color: Colors.black)),
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: availableReaders.length,
+            itemBuilder: (context, index) {
+              final item = availableReaders[index];
+              return Container(
+                padding: const EdgeInsets.all(8),
+                child: Text(item),
+              );
+            },
+            separatorBuilder: (context, index) =>
+                Container(height: 1, color: Colors.grey),
+          ),
+        ),
+      ],
     );
   }
 }

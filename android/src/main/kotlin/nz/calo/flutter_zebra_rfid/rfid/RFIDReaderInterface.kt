@@ -8,7 +8,7 @@ import java.util.*
 
 
 fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT {
-    return when(type) {
+    return when (type) {
         ReaderConnectionType.BLUETOOTH -> ENUM_TRANSPORT.BLUETOOTH
         ReaderConnectionType.USB -> ENUM_TRANSPORT.SERVICE_USB
     }
@@ -24,15 +24,61 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
     lateinit var reader: RFIDReader
     private var currentConnectionType: ReaderConnectionType? = null
 
-    fun getAvailableReaderList(context: Context, connectionType: ReaderConnectionType): List<String>{
-        if (readers == null || connectionType != currentConnectionType) {
-            readers?.Dispose()
+    fun getAvailableReaderList(
+        context: Context,
+        connectionType: ReaderConnectionType
+    ): List<String> {
+        if (readers == null) {
             readers = Readers(context, readerConnectionTypeToTransport(connectionType))
+        }
+
+        if (connectionType != currentConnectionType) {
+            readers!!.setTransport(readerConnectionTypeToTransport(connectionType))
         }
 
         currentConnectionType = connectionType
         availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
         return availableRFIDReaderList!!.map { it.getName() }
+    }
+
+    fun connectReader(readerName: String): Boolean {
+        try {
+            if (availableRFIDReaderList != null) {
+                val readerDevices = availableRFIDReaderList!!.filter { it.name == readerName }
+                if (readerDevices.isEmpty()) return false
+
+                readerDevice = readerDevices.first()
+                if (!reader!!.isConnected) {
+                    Log.d(TAG, "RFID Reader Connecting...")
+                    reader!!.connect()
+                    configureReader(/*scanConnectionMode*/)
+                    Log.d(TAG, "RFID Reader Connected!")
+                    return true
+                }
+            }
+        } catch (e: InvalidUsageException) {
+            e.printStackTrace()
+        } catch (e: OperationFailureException) {
+            e.printStackTrace()
+        } catch (e: OperationFailureException) {
+            e.printStackTrace()
+        } catch (e: InvalidUsageException) {
+            e.printStackTrace()
+        }
+        Log.d(TAG, "RFID Reader connection error!")
+        return false
+    }
+
+    fun disconnectCurrentReader(): Boolean {
+        if (reader == null) {
+            Log.d(TAG, "No connected RFID Reader!")
+            return false
+        }
+
+        if (reader!!.isConnected) {
+            reader!!.disconnect()
+        }
+        return true
     }
 
 //    fun connect(context: Context /*, scanConnectionMode : ScanConnectionEnum */): Boolean {
@@ -89,10 +135,9 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
 
                 // Terminal scan, use trigger for scanning!
                 //if(scanConnectionMode == ScanConnectionEnum.TerminalScan)
-                    reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SCAN)
+//                reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SCAN)
                 //else
-                 //   reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SLED_SCAN)
-
+                //   reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SLED_SCAN)
 
 
             } catch (e: InvalidUsageException) {
@@ -110,13 +155,18 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
             if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
                 try {
                     // Read all memory banks
-                    val memoryBanksToRead = arrayOf(MEMORY_BANK.MEMORY_BANK_EPC, MEMORY_BANK.MEMORY_BANK_TID, MEMORY_BANK.MEMORY_BANK_USER);
+                    val memoryBanksToRead = arrayOf(
+                        MEMORY_BANK.MEMORY_BANK_EPC,
+                        MEMORY_BANK.MEMORY_BANK_TID,
+                        MEMORY_BANK.MEMORY_BANK_USER
+                    );
                     for (bank in memoryBanksToRead) {
                         val ta = TagAccess()
                         val sequence = ta.Sequence(ta)
                         val op = sequence.Operation()
                         op.accessOperationCode = ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ
-                        op.ReadAccessParams.memoryBank = bank ?: throw IllegalArgumentException("bank must not be null")
+                        op.ReadAccessParams.memoryBank =
+                            bank ?: throw IllegalArgumentException("bank must not be null")
                         reader.Actions.TagAccess.OperationSequence.add(op)
                     }
 
@@ -154,9 +204,14 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
                 for (tagData in tagValueList!!) {
                     if (tagData.opCode == ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ) {
                         when (tagData.memoryBank.ordinal) {
-                            MEMORY_BANK.MEMORY_BANK_EPC.ordinal -> epc = getMemBankData(tagData.memoryBankData, tagData.opStatus)
-                            MEMORY_BANK.MEMORY_BANK_TID.ordinal -> tid = getMemBankData(tagData.memoryBankData, tagData.opStatus)
-                            MEMORY_BANK.MEMORY_BANK_USER.ordinal -> usr = getMemBankData(tagData.memoryBankData, tagData.opStatus)
+                            MEMORY_BANK.MEMORY_BANK_EPC.ordinal -> epc =
+                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
+
+                            MEMORY_BANK.MEMORY_BANK_TID.ordinal -> tid =
+                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
+
+                            MEMORY_BANK.MEMORY_BANK_USER.ordinal -> usr =
+                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
                         }
                     }
                 }
@@ -166,8 +221,8 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener) : RfidEvent
         }
     }
 
-    fun getMemBankData(memoryBankData : String?, opStatus : ACCESS_OPERATION_STATUS) : String {
-        return if(opStatus != ACCESS_OPERATION_STATUS.ACCESS_SUCCESS){
+    fun getMemBankData(memoryBankData: String?, opStatus: ACCESS_OPERATION_STATUS): String {
+        return if (opStatus != ACCESS_OPERATION_STATUS.ACCESS_SUCCESS) {
             opStatus.toString()
         } else
             memoryBankData!!

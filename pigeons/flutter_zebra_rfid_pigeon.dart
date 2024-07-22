@@ -9,13 +9,35 @@ import 'package:pigeon/pigeon.dart';
     dartPackageName: 'flutter_zebra_rfid',
   ),
 )
+@HostApi()
+abstract class FlutterZebraRfid {
+  /// Returns list with names of available readers for specified `connectionType`.
+  @async
+  List<String> getAvailableReaders(ReaderConnectionType connectionType);
+
+  /// Connects to a reader with `readerName` name.
+  @async
+  bool connectReader(String readerName);
+
+  /// Disconnects a reader with `readerName` name.
+  @async
+  bool disconnectReader();
+}
+
+@FlutterApi()
+abstract class FlutterZebraRfidCallbacks {
+  void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
+}
+
 enum ReaderConnectionType {
   bluetooth,
   usb,
 }
 
-@HostApi()
-abstract class FlutterZebraRfid {
-  @async
-  List<String> getAvailableReaders(ReaderConnectionType connectionType);
+enum ReaderConnectionStatus {
+  connecting,
+  connected,
+  disconnecting,
+  disconnected,
+  error,
 }

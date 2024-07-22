@@ -15,9 +15,27 @@ PlatformException _createConnectionError(String channelName) {
   );
 }
 
+List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty = false}) {
+  if (empty) {
+    return <Object?>[];
+  }
+  if (error == null) {
+    return <Object?>[result];
+  }
+  return <Object?>[error.code, error.message, error.details];
+}
+
 enum ReaderConnectionType {
   bluetooth,
   usb,
+}
+
+enum ConnectionStatus {
+  connecting,
+  connected,
+  disconnecting,
+  disconnected,
+  error,
 }
 
 
@@ -27,6 +45,9 @@ class _PigeonCodec extends StandardMessageCodec {
   void writeValue(WriteBuffer buffer, Object? value) {
     if (value is ReaderConnectionType) {
       buffer.putUint8(129);
+      writeValue(buffer, value.index);
+    } else     if (value is ConnectionStatus) {
+      buffer.putUint8(130);
       writeValue(buffer, value.index);
     } else {
       super.writeValue(buffer, value);
@@ -39,6 +60,9 @@ class _PigeonCodec extends StandardMessageCodec {
       case 129: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionType.values[value];
+      case 130: 
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : ConnectionStatus.values[value];
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -58,6 +82,7 @@ class FlutterZebraRfid {
 
   final String __pigeon_messageChannelSuffix;
 
+  /// Returns list with names of available readers for specified `connectionType`.
   Future<List<String?>> getAvailableReaders(ReaderConnectionType connectionType) async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.getAvailableReaders$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
@@ -82,6 +107,97 @@ class FlutterZebraRfid {
       );
     } else {
       return (__pigeon_replyList[0] as List<Object?>?)!.cast<String?>();
+    }
+  }
+
+  /// Connects to a reader with `readerName` name.
+  Future<bool> connectReader(String readerName) async {
+    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader$__pigeon_messageChannelSuffix';
+    final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+      __pigeon_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: __pigeon_binaryMessenger,
+    );
+    final List<Object?>? __pigeon_replyList =
+        await __pigeon_channel.send(<Object?>[readerName]) as List<Object?>?;
+    if (__pigeon_replyList == null) {
+      throw _createConnectionError(__pigeon_channelName);
+    } else if (__pigeon_replyList.length > 1) {
+      throw PlatformException(
+        code: __pigeon_replyList[0]! as String,
+        message: __pigeon_replyList[1] as String?,
+        details: __pigeon_replyList[2],
+      );
+    } else if (__pigeon_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (__pigeon_replyList[0] as bool?)!;
+    }
+  }
+
+  /// Disconnects a reader with `readerName` name.
+  Future<bool> disconnectReader() async {
+    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader$__pigeon_messageChannelSuffix';
+    final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+      __pigeon_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: __pigeon_binaryMessenger,
+    );
+    final List<Object?>? __pigeon_replyList =
+        await __pigeon_channel.send(null) as List<Object?>?;
+    if (__pigeon_replyList == null) {
+      throw _createConnectionError(__pigeon_channelName);
+    } else if (__pigeon_replyList.length > 1) {
+      throw PlatformException(
+        code: __pigeon_replyList[0]! as String,
+        message: __pigeon_replyList[1] as String?,
+        details: __pigeon_replyList[2],
+      );
+    } else if (__pigeon_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (__pigeon_replyList[0] as bool?)!;
+    }
+  }
+}
+
+abstract class FlutterZebraRfidCallbacks {
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  void onReaderConnectionStatusChanged(ConnectionStatus status);
+
+  static void setUp(FlutterZebraRfidCallbacks? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
+    messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final ConnectionStatus? arg_status = (args[0] as ConnectionStatus?);
+          assert(arg_status != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged was null, expected non-null ConnectionStatus.');
+          try {
+            api.onReaderConnectionStatusChanged(arg_status!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
     }
   }
 }
