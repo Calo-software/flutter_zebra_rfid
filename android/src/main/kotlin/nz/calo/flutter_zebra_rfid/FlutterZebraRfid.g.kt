@@ -57,7 +57,7 @@ enum class ReaderConnectionType(val raw: Int) {
   }
 }
 
-enum class ConnectionStatus(val raw: Int) {
+enum class ReaderConnectionStatus(val raw: Int) {
   CONNECTING(0),
   CONNECTED(1),
   DISCONNECTING(2),
@@ -65,7 +65,7 @@ enum class ConnectionStatus(val raw: Int) {
   ERROR(4);
 
   companion object {
-    fun ofRaw(raw: Int): ConnectionStatus? {
+    fun ofRaw(raw: Int): ReaderConnectionStatus? {
       return values().firstOrNull { it.raw == raw }
     }
   }
@@ -80,7 +80,7 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
       }
       130.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
-          ConnectionStatus.ofRaw(it)
+          ReaderConnectionStatus.ofRaw(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -92,7 +92,7 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(129)
         writeValue(stream, value.raw)
       }
-      is ConnectionStatus -> {
+      is ReaderConnectionStatus -> {
         stream.write(130)
         writeValue(stream, value.raw)
       }
@@ -105,7 +105,7 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface FlutterZebraRfid {
   /** Returns list with names of available readers for specified `connectionType`. */
-  fun getAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<List<String>>) -> Unit)
+  fun updateAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerName` name. */
   fun connectReader(readerName: String, callback: (Result<Boolean>) -> Unit)
   /** Disconnects a reader with `readerName` name. */
@@ -121,18 +121,17 @@ interface FlutterZebraRfid {
     fun setUp(binaryMessenger: BinaryMessenger, api: FlutterZebraRfid?, messageChannelSuffix: String = "") {
       val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.getAvailableReaders$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.updateAvailableReaders$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val connectionTypeArg = args[0] as ReaderConnectionType
-            api.getAvailableReaders(connectionTypeArg) { result: Result<List<String>> ->
+            api.updateAvailableReaders(connectionTypeArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
               } else {
-                val data = result.getOrNull()
-                reply.reply(wrapResult(data))
+                reply.reply(wrapResult(null))
               }
             }
           }
@@ -189,7 +188,24 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
       FlutterZebraRfidPigeonCodec
     }
   }
-  fun onReaderConnectionStatusChanged(statusArg: ConnectionStatus, callback: (Result<Unit>) -> Unit)
+  fun onAvailableReadersChanged(readersArg: List<String>, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(readersArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onReaderConnectionStatusChanged(statusArg: ReaderConnectionStatus, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged$separatedMessageChannelSuffix"

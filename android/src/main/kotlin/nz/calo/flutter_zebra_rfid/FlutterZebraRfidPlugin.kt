@@ -1,6 +1,7 @@
 package nz.calo.flutter_zebra_rfid
 
 import FlutterZebraRfid
+import FlutterZebraRfidCallbacks
 import ReaderConnectionType
 import android.content.Context
 import androidx.annotation.NonNull
@@ -12,9 +13,11 @@ import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 /** FlutterZebraRfidPlugin */
 class FlutterZebraRfidPlugin : FlutterPlugin, FlutterZebraRfid, IRFIDReaderListener {
     private lateinit var applicationContext: Context
+    private lateinit var rfidCallbacks: FlutterZebraRfidCallbacks
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        rfidInterface = RFIDReaderInterface(this)
+        rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
+        rfidInterface = RFIDReaderInterface(this, rfidCallbacks)
         applicationContext = flutterPluginBinding.applicationContext
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -25,21 +28,21 @@ class FlutterZebraRfidPlugin : FlutterPlugin, FlutterZebraRfid, IRFIDReaderListe
     }
 
     // FlutterZebraRfid overrides
-    override fun getAvailableReaders(
+    override fun updateAvailableReaders(
         connectionType: ReaderConnectionType,
-        callback: (Result<List<String>>) -> Unit
+        callback: (Result<Unit>) -> Unit
     ) {
         try {
-            val list =
-                rfidInterface!!.getAvailableReaderList(
-                    applicationContext,
-                    connectionType
-                )
-            callback(Result.success(list))
+            rfidInterface!!.getAvailableReaderList(
+                applicationContext,
+                connectionType
+            )
+            callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
     }
+
 
     override fun connectReader(readerName: String, callback: (Result<Boolean>) -> Unit) {
         return callback(Result.success(rfidInterface!!.connectReader(readerName)))

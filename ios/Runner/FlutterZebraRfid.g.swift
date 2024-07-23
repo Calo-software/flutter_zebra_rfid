@@ -73,7 +73,7 @@ enum ReaderConnectionType: Int {
   case usb = 1
 }
 
-enum ConnectionStatus: Int {
+enum ReaderConnectionStatus: Int {
   case connecting = 0
   case connected = 1
   case disconnecting = 2
@@ -91,10 +91,10 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
       }
       return enumResult
     case 130:
-      var enumResult: ConnectionStatus? = nil
+      var enumResult: ReaderConnectionStatus? = nil
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
-        enumResult = ConnectionStatus(rawValue: enumResultAsInt)
+        enumResult = ReaderConnectionStatus(rawValue: enumResultAsInt)
       }
       return enumResult
     default:
@@ -108,7 +108,7 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     if let value = value as? ReaderConnectionType {
       super.writeByte(129)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ConnectionStatus {
+    } else if let value = value as? ReaderConnectionStatus {
       super.writeByte(130)
       super.writeValue(value.rawValue)
     } else {
@@ -135,7 +135,7 @@ class FlutterZebraRfidPigeonCodec: FlutterStandardMessageCodec, @unchecked Senda
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol FlutterZebraRfid {
   /// Returns list with names of available readers for specified `connectionType`.
-  func getAvailableReaders(connectionType: ReaderConnectionType, completion: @escaping (Result<[String], Error>) -> Void)
+  func updateAvailableReaders(connectionType: ReaderConnectionType, completion: @escaping (Result<Void, Error>) -> Void)
   /// Connects to a reader with `readerName` name.
   func connectReader(readerName: String, completion: @escaping (Result<Bool, Error>) -> Void)
   /// Disconnects a reader with `readerName` name.
@@ -149,22 +149,22 @@ class FlutterZebraRfidSetup {
   static func setUp(binaryMessenger: FlutterBinaryMessenger, api: FlutterZebraRfid?, messageChannelSuffix: String = "") {
     let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
     /// Returns list with names of available readers for specified `connectionType`.
-    let getAvailableReadersChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.getAvailableReaders\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    let updateAvailableReadersChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.updateAvailableReaders\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      getAvailableReadersChannel.setMessageHandler { message, reply in
+      updateAvailableReadersChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
         let connectionTypeArg = args[0] as! ReaderConnectionType
-        api.getAvailableReaders(connectionType: connectionTypeArg) { result in
+        api.updateAvailableReaders(connectionType: connectionTypeArg) { result in
           switch result {
-          case .success(let res):
-            reply(wrapResult(res))
+          case .success:
+            reply(wrapResult(nil))
           case .failure(let error):
             reply(wrapError(error))
           }
         }
       }
     } else {
-      getAvailableReadersChannel.setMessageHandler(nil)
+      updateAvailableReadersChannel.setMessageHandler(nil)
     }
     /// Connects to a reader with `readerName` name.
     let connectReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
@@ -204,7 +204,8 @@ class FlutterZebraRfidSetup {
 }
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol FlutterZebraRfidCallbacksProtocol {
-  func onReaderConnectionStatusChanged(status statusArg: ConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onAvailableReadersChanged(readers readersArg: [String], completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -216,7 +217,25 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   var codec: FlutterZebraRfidPigeonCodec {
     return FlutterZebraRfidPigeonCodec.shared
   }
-  func onReaderConnectionStatusChanged(status statusArg: ConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onAvailableReadersChanged(readers readersArg: [String], completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([readersArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([statusArg] as [Any?]) { response in

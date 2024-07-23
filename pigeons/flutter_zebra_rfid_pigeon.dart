@@ -13,7 +13,7 @@ import 'package:pigeon/pigeon.dart';
 abstract class FlutterZebraRfid {
   /// Returns list with names of available readers for specified `connectionType`.
   @async
-  List<String> getAvailableReaders(ReaderConnectionType connectionType);
+  void updateAvailableReaders(ReaderConnectionType connectionType);
 
   /// Connects to a reader with `readerName` name.
   @async
@@ -26,6 +26,7 @@ abstract class FlutterZebraRfid {
 
 @FlutterApi()
 abstract class FlutterZebraRfidCallbacks {
+  void onAvailableReadersChanged(List<String> readers);
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
 }
 

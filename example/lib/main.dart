@@ -23,6 +23,10 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+
+    _flutterZebraRfidApi.onAvailableReadersChanged.listen((readers) {
+      setState(() => _availableReaders = readers);
+    });
   }
 
   @override
@@ -30,7 +34,7 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Zebra API3 example app'),
+          title: const Text('Zebra Reader API3 example app'),
         ),
         body: Padding(
           padding: const EdgeInsets.all(24),
@@ -45,14 +49,10 @@ class _MyAppState extends State<MyApp> {
                 ElevatedButton(
                   onPressed: () async {
                     setState(() => _isLoading = true);
-                    final readers =
-                        await _flutterZebraRfidApi.getAvailableReaders(
+                    await _flutterZebraRfidApi.updateAvailableReaders(
                       connectionType: ReaderConnectionType.usb,
                     );
-                    setState(() {
-                      _isLoading = false;
-                      _availableReaders = readers;
-                    });
+                    setState(() => _isLoading = false);
                   },
                   child: const Text('Get Reader List'),
                 )
