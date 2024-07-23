@@ -106,7 +106,7 @@ class FlutterZebraRfid {
   }
 
   /// Connects to a reader with `readerName` name.
-  Future<bool> connectReader(String readerName) async {
+  Future<void> connectReader(String readerName) async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -123,18 +123,13 @@ class FlutterZebraRfid {
         message: __pigeon_replyList[1] as String?,
         details: __pigeon_replyList[2],
       );
-    } else if (__pigeon_replyList[0] == null) {
-      throw PlatformException(
-        code: 'null-error',
-        message: 'Host platform returned null value for non-null return value.',
-      );
     } else {
-      return (__pigeon_replyList[0] as bool?)!;
+      return;
     }
   }
 
   /// Disconnects a reader with `readerName` name.
-  Future<bool> disconnectReader() async {
+  Future<void> disconnectReader() async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -151,13 +146,31 @@ class FlutterZebraRfid {
         message: __pigeon_replyList[1] as String?,
         details: __pigeon_replyList[2],
       );
-    } else if (__pigeon_replyList[0] == null) {
+    } else {
+      return;
+    }
+  }
+
+  /// Name of reader currently in use
+  Future<String?> currentReaderName() async {
+    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName$__pigeon_messageChannelSuffix';
+    final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+      __pigeon_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: __pigeon_binaryMessenger,
+    );
+    final List<Object?>? __pigeon_replyList =
+        await __pigeon_channel.send(null) as List<Object?>?;
+    if (__pigeon_replyList == null) {
+      throw _createConnectionError(__pigeon_channelName);
+    } else if (__pigeon_replyList.length > 1) {
       throw PlatformException(
-        code: 'null-error',
-        message: 'Host platform returned null value for non-null return value.',
+        code: __pigeon_replyList[0]! as String,
+        message: __pigeon_replyList[1] as String?,
+        details: __pigeon_replyList[2],
       );
     } else {
-      return (__pigeon_replyList[0] as bool?)!;
+      return (__pigeon_replyList[0] as String?);
     }
   }
 }

@@ -18,14 +18,29 @@ class _MyAppState extends State<MyApp> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
 
   List<String> _availableReaders = [];
+  ReaderConnectionStatus _connectionStatus =
+      ReaderConnectionStatus.disconnected;
+  String? _currentReaderName;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
 
-    _flutterZebraRfidApi.onAvailableReadersChanged.listen((readers) {
-      setState(() => _availableReaders = readers);
+    _flutterZebraRfidApi.onAvailableReadersChanged.listen((readers) async {
+      final readerName = await _flutterZebraRfidApi.currentReaderName;
+      setState(() {
+        _availableReaders = readers;
+        _currentReaderName = readerName;
+      });
+    });
+
+    _flutterZebraRfidApi.onReaderConnectionStatusChanged.listen((status) async {
+      final readerName = await _flutterZebraRfidApi.currentReaderName;
+      setState(() {
+        _connectionStatus = status;
+        _currentReaderName = readerName;
+      });
     });
   }
 
@@ -44,7 +59,17 @@ class _MyAppState extends State<MyApp> {
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : _ReadersContainer(availableReaders: _availableReaders),
+                      : _ReadersContainer(
+                          availableReaders: _availableReaders,
+                          connectionStatus: _connectionStatus,
+                          currentReaderName: _currentReaderName,
+                          onConnect: (name) =>
+                              _flutterZebraRfidApi.connectReader(
+                            readerName: name,
+                          ),
+                          onDisconnect: () =>
+                              _flutterZebraRfidApi.disconectCurrentReader(),
+                        ),
                 ),
                 ElevatedButton(
                   onPressed: () async {
@@ -68,12 +93,35 @@ class _MyAppState extends State<MyApp> {
 class _ReadersContainer extends StatelessWidget {
   const _ReadersContainer({
     required this.availableReaders,
+    required this.connectionStatus,
+    this.currentReaderName,
+    this.onConnect,
+    this.onDisconnect,
   });
 
   final List<String> availableReaders;
+  final ReaderConnectionStatus connectionStatus;
+  final String? currentReaderName;
+  final Function(String)? onConnect;
+  final VoidCallback? onDisconnect;
 
   @override
   Widget build(BuildContext context) {
+    Widget connectionStatusIcon() {
+      switch (connectionStatus) {
+        case ReaderConnectionStatus.connecting:
+        case ReaderConnectionStatus.disconnecting:
+          return const SizedBox(
+              width: 20, height: 20, child: CircularProgressIndicator());
+        case ReaderConnectionStatus.connected:
+          return const Icon(Icons.wifi_outlined, color: Colors.green);
+        case ReaderConnectionStatus.disconnected:
+          return const Icon(Icons.wifi_off_outlined, color: Colors.red);
+        default:
+          return Container();
+      }
+    }
+
     if (availableReaders.isEmpty) {
       return const Center(
         child: Text('No RFID readers detected!'),
@@ -92,9 +140,72 @@ class _ReadersContainer extends StatelessWidget {
             itemCount: availableReaders.length,
             itemBuilder: (context, index) {
               final item = availableReaders[index];
+              final isCurrentItem = item == currentReaderName;
+              final isConnected = isCurrentItem &&
+                  connectionStatus == ReaderConnectionStatus.connected;
               return Container(
-                padding: const EdgeInsets.all(8),
-                child: Text(item),
+                color: Colors.white,
+                child: GestureDetector(
+                  onTap: () {
+                    if (connectionStatus != ReaderConnectionStatus.connecting &&
+                        connectionStatus !=
+                            ReaderConnectionStatus.disconnecting) {
+                      showDialog(
+                        context: context,
+                        builder: (context) => Center(
+                          child: Wrap(
+                            children: [
+                              Container(
+                                color: Colors.white,
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  children: [
+                                    const Text('Reader'),
+                                    Text(item),
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: ElevatedButton(
+                                        onPressed: () {
+                                          if (isCurrentItem && isConnected) {
+                                            // disconnect
+                                            onDisconnect?.call();
+                                            Navigator.of(context).pop();
+                                          } else {
+                                            // connect
+                                            onConnect?.call(item);
+                                            Navigator.of(context).pop();
+                                          }
+                                        },
+                                        child: Text(isCurrentItem && isConnected
+                                            ? 'Disconnect'
+                                            : 'Connect'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(item),
+                        ),
+                      ),
+                      if (isCurrentItem)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: connectionStatusIcon(),
+                        )
+                    ],
+                  ),
+                ),
               );
             },
             separatorBuilder: (context, index) =>

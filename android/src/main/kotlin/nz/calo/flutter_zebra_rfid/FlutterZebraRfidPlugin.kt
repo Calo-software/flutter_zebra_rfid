@@ -43,13 +43,26 @@ class FlutterZebraRfidPlugin : FlutterPlugin, FlutterZebraRfid, IRFIDReaderListe
         }
     }
 
-
-    override fun connectReader(readerName: String, callback: (Result<Boolean>) -> Unit) {
-        return callback(Result.success(rfidInterface!!.connectReader(readerName)))
+    override fun connectReader(readerName: String, callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.connectReader(readerName)
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
     }
 
-    override fun disconnectReader(callback: (Result<Boolean>) -> Unit) {
-        return callback(Result.success(rfidInterface!!.disconnectCurrentReader()))
+    override fun disconnectReader(callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.disconnectCurrentReader()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun currentReaderName(): String? {
+        return rfidInterface!!.currentReaderName()
     }
 
 //    override fun onDestroy() {

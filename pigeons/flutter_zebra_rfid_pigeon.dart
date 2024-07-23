@@ -17,11 +17,14 @@ abstract class FlutterZebraRfid {
 
   /// Connects to a reader with `readerName` name.
   @async
-  bool connectReader(String readerName);
+  void connectReader(String readerName);
 
   /// Disconnects a reader with `readerName` name.
   @async
-  bool disconnectReader();
+  void disconnectReader();
+
+  /// Name of reader currently in use
+  String? currentReaderName();
 }
 
 @FlutterApi()

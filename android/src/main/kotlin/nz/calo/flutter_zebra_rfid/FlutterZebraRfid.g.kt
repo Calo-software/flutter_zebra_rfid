@@ -107,9 +107,11 @@ interface FlutterZebraRfid {
   /** Returns list with names of available readers for specified `connectionType`. */
   fun updateAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerName` name. */
-  fun connectReader(readerName: String, callback: (Result<Boolean>) -> Unit)
+  fun connectReader(readerName: String, callback: (Result<Unit>) -> Unit)
   /** Disconnects a reader with `readerName` name. */
-  fun disconnectReader(callback: (Result<Boolean>) -> Unit)
+  fun disconnectReader(callback: (Result<Unit>) -> Unit)
+  /** Name of reader currently in use */
+  fun currentReaderName(): String?
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -145,13 +147,12 @@ interface FlutterZebraRfid {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val readerNameArg = args[0] as String
-            api.connectReader(readerNameArg) { result: Result<Boolean> ->
+            api.connectReader(readerNameArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
               } else {
-                val data = result.getOrNull()
-                reply.reply(wrapResult(data))
+                reply.reply(wrapResult(null))
               }
             }
           }
@@ -163,15 +164,29 @@ interface FlutterZebraRfid {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.disconnectReader{ result: Result<Boolean> ->
+            api.disconnectReader{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
               } else {
-                val data = result.getOrNull()
-                reply.reply(wrapResult(data))
+                reply.reply(wrapResult(null))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.currentReaderName())
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

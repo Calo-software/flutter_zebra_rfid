@@ -137,9 +137,11 @@ protocol FlutterZebraRfid {
   /// Returns list with names of available readers for specified `connectionType`.
   func updateAvailableReaders(connectionType: ReaderConnectionType, completion: @escaping (Result<Void, Error>) -> Void)
   /// Connects to a reader with `readerName` name.
-  func connectReader(readerName: String, completion: @escaping (Result<Bool, Error>) -> Void)
+  func connectReader(readerName: String, completion: @escaping (Result<Void, Error>) -> Void)
   /// Disconnects a reader with `readerName` name.
-  func disconnectReader(completion: @escaping (Result<Bool, Error>) -> Void)
+  func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
+  /// Name of reader currently in use
+  func currentReaderName() throws -> String?
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -174,8 +176,8 @@ class FlutterZebraRfidSetup {
         let readerNameArg = args[0] as! String
         api.connectReader(readerName: readerNameArg) { result in
           switch result {
-          case .success(let res):
-            reply(wrapResult(res))
+          case .success:
+            reply(wrapResult(nil))
           case .failure(let error):
             reply(wrapError(error))
           }
@@ -190,8 +192,8 @@ class FlutterZebraRfidSetup {
       disconnectReaderChannel.setMessageHandler { _, reply in
         api.disconnectReader { result in
           switch result {
-          case .success(let res):
-            reply(wrapResult(res))
+          case .success:
+            reply(wrapResult(nil))
           case .failure(let error):
             reply(wrapError(error))
           }
@@ -199,6 +201,20 @@ class FlutterZebraRfidSetup {
       }
     } else {
       disconnectReaderChannel.setMessageHandler(nil)
+    }
+    /// Name of reader currently in use
+    let currentReaderNameChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      currentReaderNameChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.currentReaderName()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      currentReaderNameChannel.setMessageHandler(nil)
     }
   }
 }

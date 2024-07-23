@@ -23,7 +23,7 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
     private var readers: Readers? = null
     private var availableRFIDReaderList: ArrayList<ReaderDevice>? = null
     private var readerDevice: ReaderDevice? = null
-    lateinit var reader: RFIDReader
+    private var reader: RFIDReader? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var applicationContext: Context? = null
 
@@ -46,44 +46,48 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
         callbacks.onAvailableReadersChanged(readers) {}
     }
 
-    fun connectReader(readerName: String): Boolean {
+    fun connectReader(readerName: String) {
         try {
             if (availableRFIDReaderList != null) {
                 val readerDevices = availableRFIDReaderList!!.filter { it.name == readerName }
-                if (readerDevices.isEmpty()) return false
+                if (readerDevices.isEmpty()) throw Error("Reader not available to connect")
 
                 readerDevice = readerDevices.first()
+                reader = readerDevice!!.rfidReader
                 if (!reader!!.isConnected) {
+                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTING) {}
                     Log.d(TAG, "RFID Reader Connecting...")
                     reader!!.connect()
                     configureReader(/*scanConnectionMode*/)
                     Log.d(TAG, "RFID Reader Connected!")
-                    return true
+                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
+                } else {
+                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
                 }
+                return
             }
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
+        } catch (e: Exception) {
+            Log.d(TAG, "RFID Reader connection error: ${e.toString()}")
+            callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.ERROR) {}
         }
-        Log.d(TAG, "RFID Reader connection error!")
-        return false
     }
 
-    fun disconnectCurrentReader(): Boolean {
+    fun disconnectCurrentReader() {
+        callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTING) {}
+
         if (reader == null) {
             Log.d(TAG, "No connected RFID Reader!")
-            return false
+            return
         }
 
         if (reader!!.isConnected) {
             reader!!.disconnect()
         }
-        return true
+        callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTED) {}
+    }
+
+    fun currentReaderName(): String? {
+        return readerDevice?.name
     }
 
 //    fun connect(context: Context /*, scanConnectionMode : ScanConnectionEnum */): Boolean {
@@ -120,23 +124,23 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
 //    }
 
     private fun configureReader(/*scanConnectionMode : ScanConnectionEnum*/) {
-        if (reader.isConnected) {
+        if (reader!!.isConnected) {
             val triggerInfo = TriggerInfo()
             triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
             triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
             try {
                 // receive events from reader
-                reader.Events.addEventsListener(this)
+                reader!!.Events.addEventsListener(this)
                 // HH event
-                reader.Events.setHandheldEvent(true)
+                reader!!.Events.setHandheldEvent(true)
                 // tag event with tag data
-                reader.Events.setTagReadEvent(true)
+                reader!!.Events.setTagReadEvent(true)
                 // application will collect tag using getReadTags API
-                reader.Events.setAttachTagDataWithReadEvent(false)
+                reader!!.Events.setAttachTagDataWithReadEvent(false)
 
                 // set start and stop triggers
-                reader.Config.startTrigger = triggerInfo.StartTrigger
-                reader.Config.stopTrigger = triggerInfo.StopTrigger
+                reader!!.Config.startTrigger = triggerInfo.StartTrigger
+                reader!!.Config.stopTrigger = triggerInfo.StopTrigger
 
                 // Terminal scan, use trigger for scanning!
                 //if(scanConnectionMode == ScanConnectionEnum.TerminalScan)
@@ -172,17 +176,17 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
                         op.accessOperationCode = ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ
                         op.ReadAccessParams.memoryBank =
                             bank ?: throw IllegalArgumentException("bank must not be null")
-                        reader.Actions.TagAccess.OperationSequence.add(op)
+                        reader!!.Actions.TagAccess.OperationSequence.add(op)
                     }
 
-                    reader.Actions.TagAccess.OperationSequence.performSequence()
+                    reader!!.Actions.TagAccess.OperationSequence.performSequence()
 
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
             } else if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED) {
                 try {
-                    reader.Actions.TagAccess.OperationSequence.stopSequence()
+                    reader!!.Actions.TagAccess.OperationSequence.stopSequence()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -195,7 +199,7 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
         // Each access belong to a tag.
         // Therefore, as we are performing an access sequence on 3 Memory Banks, each tag could be reported 3 times
         // Each tag data represents a memory bank
-        val readTags = reader.Actions.getReadTags(100)
+        val readTags = reader?.Actions?.getReadTags(100)
         if (readTags != null) {
             val readTagsList = readTags.toList()
             val tagReadGroup = readTagsList.groupBy { it.tagID }.toMutableMap()
@@ -237,9 +241,9 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
     fun onDestroy() {
         try {
             if (reader != null) {
-                reader.Events?.removeEventsListener(this)
-                reader.disconnect()
-                reader.Dispose()
+                reader!!.Events?.removeEventsListener(this)
+                reader!!.disconnect()
+                reader!!.Dispose()
                 readers?.Dispose()
             }
         } catch (e: InvalidUsageException) {
