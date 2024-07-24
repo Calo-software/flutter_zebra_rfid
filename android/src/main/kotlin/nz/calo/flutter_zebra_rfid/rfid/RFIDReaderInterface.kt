@@ -42,6 +42,7 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
 
         currentConnectionType = connectionType
         availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
+        Log.d(TAG, "Available readers: $availableRFIDReaderList")
         val readers = availableRFIDReaderList!!.map { it.name }
         callbacks.onAvailableReadersChanged(readers) {}
     }
@@ -138,9 +139,16 @@ class RFIDReaderInterface(private var listener: IRFIDReaderListener, private var
                 // application will collect tag using getReadTags API
                 reader!!.Events.setAttachTagDataWithReadEvent(false)
 
+                reader!!.Events.setBatteryEvent(true)
+                reader!!.Events.setInventoryStartEvent(true)
+                reader!!.Events.setInventoryStopEvent(true)
+                reader!!.Events.setReaderDisconnectEvent(true)
+                reader!!.Events.setAntennaEvent(true)
+
                 // set start and stop triggers
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
                 reader!!.Config.stopTrigger = triggerInfo.StopTrigger
+                reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
 
                 // Terminal scan, use trigger for scanning!
                 //if(scanConnectionMode == ScanConnectionEnum.TerminalScan)

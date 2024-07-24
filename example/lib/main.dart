@@ -21,6 +21,7 @@ class _MyAppState extends State<MyApp> {
   ReaderConnectionStatus _connectionStatus =
       ReaderConnectionStatus.disconnected;
   String? _currentReaderName;
+  ReaderConnectionType _connectionType = ReaderConnectionType.usb;
   bool _isLoading = false;
 
   @override
@@ -71,16 +72,41 @@ class _MyAppState extends State<MyApp> {
                               _flutterZebraRfidApi.disconectCurrentReader(),
                         ),
                 ),
-                ElevatedButton(
-                  onPressed: () async {
-                    setState(() => _isLoading = true);
-                    await _flutterZebraRfidApi.updateAvailableReaders(
-                      connectionType: ReaderConnectionType.usb,
-                    );
-                    setState(() => _isLoading = false);
-                  },
-                  child: const Text('Get Reader List'),
-                )
+                Row(
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 16),
+                        child: DropdownButton<ReaderConnectionType>(
+                          value: _connectionType,
+                          items: const [
+                            DropdownMenuItem(
+                              value: ReaderConnectionType.usb,
+                              child: Text('USB'),
+                            ),
+                            DropdownMenuItem(
+                              value: ReaderConnectionType.bluetooth,
+                              child: Text('Bluetooth'),
+                            ),
+                          ],
+                          onChanged: (value) => setState(
+                            () => _connectionType = value!,
+                          ),
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () async {
+                        setState(() => _isLoading = true);
+                        await _flutterZebraRfidApi.updateAvailableReaders(
+                          connectionType: _connectionType,
+                        );
+                        setState(() => _isLoading = false);
+                      },
+                      child: const Text('Get Reader List'),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
