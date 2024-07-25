@@ -5,7 +5,7 @@ import 'package:pigeon/pigeon.dart';
     dartOut: 'lib/flutter_zebra_rfid.g.dart',
     kotlinOut:
         'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraRfid.g.kt',
-    swiftOut: 'ios/Runner/FlutterZebraRfid.g.swift',
+    swiftOut: 'ios/Classes/FlutterZebraRfid.g.swift',
     dartPackageName: 'flutter_zebra_rfid',
   ),
 )
@@ -17,7 +17,7 @@ abstract class FlutterZebraRfid {
 
   /// Connects to a reader with `readerName` name.
   @async
-  void connectReader(String readerName);
+  void connectReader(int readerId);
 
   /// Disconnects a reader with `readerName` name.
   @async
@@ -29,7 +29,7 @@ abstract class FlutterZebraRfid {
 
 @FlutterApi()
 abstract class FlutterZebraRfidCallbacks {
-  void onAvailableReadersChanged(List<String> readers);
+  void onAvailableReadersChanged(List<RfidReader> readers);
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
 }
 
@@ -44,4 +44,10 @@ enum ReaderConnectionStatus {
   disconnecting,
   disconnected,
   error,
+}
+
+class RfidReader {
+  RfidReader({required this.name, required this.id});
+  final String? name;
+  final int id;
 }

@@ -38,16 +38,45 @@ enum ReaderConnectionStatus {
   error,
 }
 
+class RfidReader {
+  RfidReader({
+    this.name,
+    required this.id,
+  });
+
+  String? name;
+
+  int id;
+
+  Object encode() {
+    return <Object?>[
+      name,
+      id,
+    ];
+  }
+
+  static RfidReader decode(Object result) {
+    result as List<Object?>;
+    return RfidReader(
+      name: result[0] as String?,
+      id: result[1]! as int,
+    );
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
   void writeValue(WriteBuffer buffer, Object? value) {
-    if (value is ReaderConnectionType) {
+    if (value is RfidReader) {
       buffer.putUint8(129);
+      writeValue(buffer, value.encode());
+    } else     if (value is ReaderConnectionType) {
+      buffer.putUint8(130);
       writeValue(buffer, value.index);
     } else     if (value is ReaderConnectionStatus) {
-      buffer.putUint8(130);
+      buffer.putUint8(131);
       writeValue(buffer, value.index);
     } else {
       super.writeValue(buffer, value);
@@ -58,9 +87,11 @@ class _PigeonCodec extends StandardMessageCodec {
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
       case 129: 
+        return RfidReader.decode(readValue(buffer)!);
+      case 130: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionType.values[value];
-      case 130: 
+      case 131: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionStatus.values[value];
       default:
@@ -106,7 +137,7 @@ class FlutterZebraRfid {
   }
 
   /// Connects to a reader with `readerName` name.
-  Future<void> connectReader(String readerName) async {
+  Future<void> connectReader(int readerId) async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -114,7 +145,7 @@ class FlutterZebraRfid {
       binaryMessenger: __pigeon_binaryMessenger,
     );
     final List<Object?>? __pigeon_replyList =
-        await __pigeon_channel.send(<Object?>[readerName]) as List<Object?>?;
+        await __pigeon_channel.send(<Object?>[readerId]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -178,7 +209,7 @@ class FlutterZebraRfid {
 abstract class FlutterZebraRfidCallbacks {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
-  void onAvailableReadersChanged(List<String?> readers);
+  void onAvailableReadersChanged(List<RfidReader?> readers);
 
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
 
@@ -195,9 +226,9 @@ abstract class FlutterZebraRfidCallbacks {
           assert(message != null,
           'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null.');
           final List<Object?> args = (message as List<Object?>?)!;
-          final List<String?>? arg_readers = (args[0] as List<Object?>?)?.cast<String?>();
+          final List<RfidReader?>? arg_readers = (args[0] as List<Object?>?)?.cast<RfidReader?>();
           assert(arg_readers != null,
-              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null, expected non-null List<String?>.');
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null, expected non-null List<RfidReader?>.');
           try {
             api.onAvailableReadersChanged(arg_readers!);
             return wrapResponse(empty: true);

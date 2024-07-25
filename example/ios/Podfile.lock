@@ -20,9 +20,9 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
-  flutter_zebra_rfid: afbd31aa29cf15d612f9c390e427a91a4cf7d8cb
+  flutter_zebra_rfid: 24cee8717abd0b355eaa98eda5e3db5d70b3aeb3
   integration_test: ce0a3ffa1de96d1a89ca0ac26fca7ea18a749ef4
 
-PODFILE CHECKSUM: 819463e6a0290f5a72f145ba7cde16e8b6ef0796
+PODFILE CHECKSUM: 7be2f5f74864d463a8ad433546ed1de7e0f29aef
 
 COCOAPODS: 1.15.2

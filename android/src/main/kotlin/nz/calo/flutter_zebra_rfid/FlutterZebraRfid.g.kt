@@ -70,15 +70,42 @@ enum class ReaderConnectionStatus(val raw: Int) {
     }
   }
 }
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class RfidReader (
+  val name: String? = null,
+  val id: Long
+
+) {
+  companion object {
+    @Suppress("LocalVariableName")
+    fun fromList(__pigeon_list: List<Any?>): RfidReader {
+      val name = __pigeon_list[0] as String?
+      val id = __pigeon_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
+      return RfidReader(name, id)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      name,
+      id,
+    )
+  }
+}
 private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
       129.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RfidReader.fromList(it)
+        }
+      }
+      130.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionType.ofRaw(it)
         }
       }
-      130.toByte() -> {
+      131.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionStatus.ofRaw(it)
         }
@@ -88,12 +115,16 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   }
   override fun writeValue(stream: ByteArrayOutputStream, value: Any?)   {
     when (value) {
-      is ReaderConnectionType -> {
+      is RfidReader -> {
         stream.write(129)
+        writeValue(stream, value.toList())
+      }
+      is ReaderConnectionType -> {
+        stream.write(130)
         writeValue(stream, value.raw)
       }
       is ReaderConnectionStatus -> {
-        stream.write(130)
+        stream.write(131)
         writeValue(stream, value.raw)
       }
       else -> super.writeValue(stream, value)
@@ -107,7 +138,7 @@ interface FlutterZebraRfid {
   /** Returns list with names of available readers for specified `connectionType`. */
   fun updateAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerName` name. */
-  fun connectReader(readerName: String, callback: (Result<Unit>) -> Unit)
+  fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
   /** Disconnects a reader with `readerName` name. */
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Name of reader currently in use */
@@ -146,8 +177,8 @@ interface FlutterZebraRfid {
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val readerNameArg = args[0] as String
-            api.connectReader(readerNameArg) { result: Result<Unit> ->
+            val readerIdArg = args[0].let { num -> if (num is Int) num.toLong() else num as Long }
+            api.connectReader(readerIdArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -203,7 +234,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
       FlutterZebraRfidPigeonCodec
     }
   }
-  fun onAvailableReadersChanged(readersArg: List<String>, callback: (Result<Unit>) -> Unit)
+  fun onAvailableReadersChanged(readersArg: List<RfidReader>, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged$separatedMessageChannelSuffix"
