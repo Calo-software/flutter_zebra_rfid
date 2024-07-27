@@ -182,9 +182,9 @@ class FlutterZebraRfid {
     }
   }
 
-  /// Name of reader currently in use
-  Future<String?> currentReaderName() async {
-    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName$__pigeon_messageChannelSuffix';
+  /// Reader currently in use
+  Future<RfidReader?> currentReader() async {
+    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
       pigeonChannelCodec,
@@ -201,7 +201,7 @@ class FlutterZebraRfid {
         details: __pigeon_replyList[2],
       );
     } else {
-      return (__pigeon_replyList[0] as String?);
+      return (__pigeon_replyList[0] as RfidReader?);
     }
   }
 }

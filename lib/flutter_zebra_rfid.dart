@@ -8,7 +8,7 @@ class FlutterZebraRfidApi {
       _callbacks.connectionStatusChanged;
 
   /// Behaviour subject wrapping reader list updates callback from the plugin
-  BehaviorSubject<List<String>> get onAvailableReadersChanged =>
+  BehaviorSubject<List<RfidReader>> get onAvailableReadersChanged =>
       _callbacks.availableReadersChanged;
 
   /// Triggers reader list refresh for specified `connectionType`
@@ -18,14 +18,14 @@ class FlutterZebraRfidApi {
       _api.updateAvailableReaders(connectionType);
 
   /// Connect a reader with `readerName`
-  Future<void> connectReader({required String readerName}) =>
-      _api.connectReader(readerName);
+  Future<void> connectReader({required int readerId}) =>
+      _api.connectReader(readerId);
 
   /// Dicsonnect current reader
   Future<void> disconectCurrentReader() => _api.disconnectReader();
 
-  /// Returns name of reader currently in use (or null if none in use)
-  Future<String?> get currentReaderName => _api.currentReaderName();
+  /// Returns reader currently in use (or null if none in use)
+  Future<RfidReader?> get currentReader => _api.currentReader();
 
   final _api = FlutterZebraRfid();
   final _callbacks = _FlutterZebraRfidCallbacksImpl();
@@ -42,11 +42,11 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
       connectionStatusChanged.add(status);
 
   @override
-  void onAvailableReadersChanged(List<String?> readers) =>
-      availableReadersChanged.add(readers.map((e) => e as String).toList());
+  void onAvailableReadersChanged(List<RfidReader?> readers) =>
+      availableReadersChanged.add(readers.map((e) => e as RfidReader).toList());
 
   final connectionStatusChanged = BehaviorSubject<ReaderConnectionStatus>()
     ..add(ReaderConnectionStatus.disconnected);
 
-  final availableReadersChanged = BehaviorSubject<List<String>>()..add([]);
+  final availableReadersChanged = BehaviorSubject<List<RfidReader>>()..add([]);
 }

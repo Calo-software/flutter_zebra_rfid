@@ -168,8 +168,8 @@ protocol FlutterZebraRfid {
   func connectReader(readerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
   /// Disconnects a reader with `readerName` name.
   func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
-  /// Name of reader currently in use
-  func currentReaderName() throws -> String?
+  /// Reader currently in use
+  func currentReader() throws -> RfidReader?
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -230,19 +230,19 @@ class FlutterZebraRfidSetup {
     } else {
       disconnectReaderChannel.setMessageHandler(nil)
     }
-    /// Name of reader currently in use
-    let currentReaderNameChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    /// Reader currently in use
+    let currentReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      currentReaderNameChannel.setMessageHandler { _, reply in
+      currentReaderChannel.setMessageHandler { _, reply in
         do {
-          let result = try api.currentReaderName()
+          let result = try api.currentReader()
           reply(wrapResult(result))
         } catch {
           reply(wrapError(error))
         }
       }
     } else {
-      currentReaderNameChannel.setMessageHandler(nil)
+      currentReaderChannel.setMessageHandler(nil)
     }
   }
 }

@@ -17,10 +17,10 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
 
-  List<String> _availableReaders = [];
+  List<RfidReader> _availableReaders = [];
   ReaderConnectionStatus _connectionStatus =
       ReaderConnectionStatus.disconnected;
-  String? _currentReaderName;
+  RfidReader? _currentReader;
   ReaderConnectionType _connectionType = ReaderConnectionType.usb;
   bool _isLoading = false;
 
@@ -29,18 +29,18 @@ class _MyAppState extends State<MyApp> {
     super.initState();
 
     _flutterZebraRfidApi.onAvailableReadersChanged.listen((readers) async {
-      final readerName = await _flutterZebraRfidApi.currentReaderName;
+      final reader = await _flutterZebraRfidApi.currentReader;
       setState(() {
         _availableReaders = readers;
-        _currentReaderName = readerName;
+        _currentReader = reader;
       });
     });
 
     _flutterZebraRfidApi.onReaderConnectionStatusChanged.listen((status) async {
-      final readerName = await _flutterZebraRfidApi.currentReaderName;
+      final reader = await _flutterZebraRfidApi.currentReader;
       setState(() {
         _connectionStatus = status;
-        _currentReaderName = readerName;
+        _currentReader = reader;
       });
     });
   }
@@ -63,10 +63,9 @@ class _MyAppState extends State<MyApp> {
                       : _ReadersContainer(
                           availableReaders: _availableReaders,
                           connectionStatus: _connectionStatus,
-                          currentReaderName: _currentReaderName,
-                          onConnect: (name) =>
-                              _flutterZebraRfidApi.connectReader(
-                            readerName: name,
+                          currentReader: _currentReader,
+                          onConnect: (id) => _flutterZebraRfidApi.connectReader(
+                            readerId: id,
                           ),
                           onDisconnect: () =>
                               _flutterZebraRfidApi.disconectCurrentReader(),
@@ -120,15 +119,15 @@ class _ReadersContainer extends StatelessWidget {
   const _ReadersContainer({
     required this.availableReaders,
     required this.connectionStatus,
-    this.currentReaderName,
+    this.currentReader,
     this.onConnect,
     this.onDisconnect,
   });
 
-  final List<String> availableReaders;
+  final List<RfidReader> availableReaders;
   final ReaderConnectionStatus connectionStatus;
-  final String? currentReaderName;
-  final Function(String)? onConnect;
+  final RfidReader? currentReader;
+  final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
 
   @override
@@ -166,7 +165,7 @@ class _ReadersContainer extends StatelessWidget {
             itemCount: availableReaders.length,
             itemBuilder: (context, index) {
               final item = availableReaders[index];
-              final isCurrentItem = item == currentReaderName;
+              final isCurrentItem = item.id == currentReader?.id;
               final isConnected = isCurrentItem &&
                   connectionStatus == ReaderConnectionStatus.connected;
               return Container(
@@ -187,7 +186,7 @@ class _ReadersContainer extends StatelessWidget {
                                 child: Column(
                                   children: [
                                     const Text('Reader'),
-                                    Text(item),
+                                    Text(item.name ?? item.id.toString()),
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
                                       child: ElevatedButton(
@@ -198,7 +197,7 @@ class _ReadersContainer extends StatelessWidget {
                                             Navigator.of(context).pop();
                                           } else {
                                             // connect
-                                            onConnect?.call(item);
+                                            onConnect?.call(item.id);
                                             Navigator.of(context).pop();
                                           }
                                         },
@@ -221,7 +220,7 @@ class _ReadersContainer extends StatelessWidget {
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.all(8),
-                          child: Text(item),
+                          child: Text(item.name ?? item.id.toString()),
                         ),
                       ),
                       if (isCurrentItem)

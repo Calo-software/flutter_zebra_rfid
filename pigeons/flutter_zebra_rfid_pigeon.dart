@@ -23,8 +23,8 @@ abstract class FlutterZebraRfid {
   @async
   void disconnectReader();
 
-  /// Name of reader currently in use
-  String? currentReaderName();
+  /// Reader currently in use
+  RfidReader? currentReader();
 }
 
 @FlutterApi()

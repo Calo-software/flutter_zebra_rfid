@@ -141,8 +141,8 @@ interface FlutterZebraRfid {
   fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
   /** Disconnects a reader with `readerName` name. */
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
-  /** Name of reader currently in use */
-  fun currentReaderName(): String?
+  /** Reader currently in use */
+  fun currentReader(): RfidReader?
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -209,11 +209,11 @@ interface FlutterZebraRfid {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReaderName$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
-              listOf(api.currentReaderName())
+              listOf(api.currentReader())
             } catch (exception: Throwable) {
               wrapError(exception)
             }
