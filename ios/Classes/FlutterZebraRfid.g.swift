@@ -103,19 +103,44 @@ struct RfidReader {
     ]
   }
 }
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct RfidTag {
+  var id: String
+  var rssi: Int64
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ __pigeon_list: [Any?]) -> RfidTag? {
+    let id = __pigeon_list[0] as! String
+    let rssi = __pigeon_list[1] is Int64 ? __pigeon_list[1] as! Int64 : Int64(__pigeon_list[1] as! Int32)
+
+    return RfidTag(
+      id: id,
+      rssi: rssi
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      id,
+      rssi,
+    ]
+  }
+}
 private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
     case 129:
       return RfidReader.fromList(self.readValue() as! [Any?])
     case 130:
+      return RfidTag.fromList(self.readValue() as! [Any?])
+    case 131:
       var enumResult: ReaderConnectionType? = nil
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
         enumResult = ReaderConnectionType(rawValue: enumResultAsInt)
       }
       return enumResult
-    case 131:
+    case 132:
       var enumResult: ReaderConnectionStatus? = nil
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
@@ -133,11 +158,14 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     if let value = value as? RfidReader {
       super.writeByte(129)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderConnectionType {
+    } else if let value = value as? RfidTag {
       super.writeByte(130)
+      super.writeValue(value.toList())
+    } else if let value = value as? ReaderConnectionType {
+      super.writeByte(131)
       super.writeValue(value.rawValue)
     } else if let value = value as? ReaderConnectionStatus {
-      super.writeByte(131)
+      super.writeByte(132)
       super.writeValue(value.rawValue)
     } else {
       super.writeValue(value)
@@ -250,6 +278,7 @@ class FlutterZebraRfidSetup {
 protocol FlutterZebraRfidCallbacksProtocol {
   func onAvailableReadersChanged(readers readersArg: [RfidReader], completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -283,6 +312,24 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([statusArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([tagsArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

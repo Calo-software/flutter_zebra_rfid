@@ -3,7 +3,10 @@ package nz.calo.flutter_zebra_rfid.rfid
 import ReaderConnectionType
 import FlutterZebraRfidCallbacks
 import RfidReader
+import RfidTag
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.zebra.rfid.api3.*
 import com.zebra.rfid.api3.Readers.RFIDReaderEventHandler
@@ -18,7 +21,6 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
 }
 
 class RFIDReaderInterface(
-    private var listener: IRFIDReaderListener,
     private var callbacks: FlutterZebraRfidCallbacks
 ) : RfidEventsListener, RFIDReaderEventHandler {
 
@@ -56,7 +58,7 @@ class RFIDReaderInterface(
     fun connectReader(readerId: Long) {
         try {
             if (availableRFIDReaderList != null) {
-                if (availableRFIDReaderList!!.size <= readerId)  throw Error("Reader not available to connect")
+                if (availableRFIDReaderList!!.size <= readerId) throw Error("Reader not available to connect")
 
                 readerDevice = availableRFIDReaderList!![readerId.toInt()]
                 reader = readerDevice!!.rfidReader
@@ -94,7 +96,10 @@ class RFIDReaderInterface(
 
     fun currentReader(): RfidReader? {
         if (readerDevice != null) {
-            return RfidReader(readerDevice!!.name, availableRFIDReaderList!!.indexOf(readerDevice!!).toLong())
+            return RfidReader(
+                readerDevice!!.name,
+                availableRFIDReaderList!!.indexOf(readerDevice!!).toLong()
+            )
         }
         return null
     }
@@ -184,33 +189,44 @@ class RFIDReaderInterface(
         // Each tag data represents a memory bank
         val readTags = reader?.Actions?.getReadTags(100)
         if (readTags != null) {
-            Log.d(TAG, "Tags read: $readTags")
-            val readTagsList = readTags.toList()
-            val tagReadGroup = readTagsList.groupBy { it.tagID }.toMutableMap()
-
-            var epc = ""
-            var tid = ""
-            var usr = ""
-            for (tagKey in tagReadGroup.keys) {
-                val tagValueList = tagReadGroup[tagKey]
-
-                for (tagData in tagValueList!!) {
-                    if (tagData.opCode == ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ) {
-                        when (tagData.memoryBank.ordinal) {
-                            MEMORY_BANK.MEMORY_BANK_EPC.ordinal -> epc =
-                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
-
-                            MEMORY_BANK.MEMORY_BANK_TID.ordinal -> tid =
-                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
-
-                            MEMORY_BANK.MEMORY_BANK_USER.ordinal -> usr =
-                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
-                        }
-                    }
+            try {
+                Log.d(TAG, "Tags read: $readTags")
+                Handler(Looper.getMainLooper()).post {
+                    callbacks.onTagsRead(readTags.map {
+                        RfidTag(
+                            it.tagID,
+                            it.peakRSSI.toLong()
+                        )
+                    }) {}
                 }
-                var myTag = "EPC ${epc}\nTID ${tid}\nUSER ${usr}\n"
-                listener.newTagRead(myTag)
+            } catch (e: Exception) {
+                Log.d(TAG, "Error $e")
             }
+//            val readTagsList = readTags.toList()
+//            val tagReadGroup = readTagsList.groupBy { it.tagID }.toMutableMap()
+
+//            var epc = ""
+//            var tid = ""
+//            var usr = ""
+//            for (tagKey in tagReadGroup.keys) {
+//                val tagValueList = tagReadGroup[tagKey]
+//
+//                for (tagData in tagValueList!!) {
+//                    if (tagData.opCode == ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ) {
+//                        when (tagData.memoryBank.ordinal) {
+//                            MEMORY_BANK.MEMORY_BANK_EPC.ordinal -> epc =
+//                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
+//
+//                            MEMORY_BANK.MEMORY_BANK_TID.ordinal -> tid =
+//                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
+//
+//                            MEMORY_BANK.MEMORY_BANK_USER.ordinal -> usr =
+//                                getMemBankData(tagData.memoryBankData, tagData.opStatus)
+//                        }
+//                    }
+//                }
+//                var myTag = "EPC ${epc}\nTID ${tid}\nUSER ${usr}\n"
+//            }
         }
     }
 

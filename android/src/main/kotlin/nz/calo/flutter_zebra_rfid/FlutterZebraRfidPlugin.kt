@@ -17,7 +17,6 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.PluginRegistry
-import nz.calo.flutter_zebra_rfid.rfid.IRFIDReaderListener
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 
@@ -26,8 +25,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     PluginRegistry.RequestPermissionsResultListener,
     PluginRegistry.ActivityResultListener,
     ActivityAware,
-    FlutterZebraRfid,
-    IRFIDReaderListener {
+    FlutterZebraRfid {
 
     private val TAG: String = "FlutterZebraRfidPlugin"
 
@@ -45,7 +43,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
-        rfidInterface = RFIDReaderInterface(this, rfidCallbacks)
+        rfidInterface = RFIDReaderInterface(rfidCallbacks)
         applicationContext = flutterPluginBinding.applicationContext
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -208,10 +206,6 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 //    }
 
     // Zebra API3 overrides
-    override fun newTagRead(epc: String?) {
-        TODO("Not yet implemented")
-    }
-
     private fun dispose() {
         if (rfidInterface != null) {
             rfidInterface!!.onDestroy()

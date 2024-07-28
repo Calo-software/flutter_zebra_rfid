@@ -31,6 +31,7 @@ abstract class FlutterZebraRfid {
 abstract class FlutterZebraRfidCallbacks {
   void onAvailableReadersChanged(List<RfidReader> readers);
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
+  void onTagsRead(List<RfidTag> tags);
 }
 
 enum ReaderConnectionType {
@@ -50,4 +51,14 @@ class RfidReader {
   RfidReader({required this.name, required this.id});
   final String? name;
   final int id;
+}
+
+class RfidTag {
+  RfidTag({
+    required this.id,
+    required this.rssi,
+  });
+
+  final String id;
+  final int rssi;
 }

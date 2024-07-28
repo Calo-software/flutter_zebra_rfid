@@ -11,6 +11,9 @@ class FlutterZebraRfidApi {
   BehaviorSubject<List<RfidReader>> get onAvailableReadersChanged =>
       _callbacks.availableReadersChanged;
 
+  /// Behaviour subject wrapping tags read callback from the plugin
+  BehaviorSubject<List<RfidTag>> get onTagsRead => _callbacks.tagsRead;
+
   /// Triggers reader list refresh for specified `connectionType`
   Future<void> updateAvailableReaders({
     required ReaderConnectionType connectionType,
@@ -45,8 +48,17 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   void onAvailableReadersChanged(List<RfidReader?> readers) =>
       availableReadersChanged.add(readers.map((e) => e as RfidReader).toList());
 
+  @override
+  void onTagsRead(List<RfidTag?> tags) {
+    print('Tags: $tags');
+    tagsRead.add(
+      tags.map((e) => e as RfidTag).toList(),
+    );
+  }
+
   final connectionStatusChanged = BehaviorSubject<ReaderConnectionStatus>()
     ..add(ReaderConnectionStatus.disconnected);
 
-  final availableReadersChanged = BehaviorSubject<List<RfidReader>>()..add([]);
+  final availableReadersChanged = BehaviorSubject<List<RfidReader>>();
+  final tagsRead = BehaviorSubject<List<RfidTag>>();
 }

@@ -92,6 +92,28 @@ data class RfidReader (
     )
   }
 }
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class RfidTag (
+  val id: String,
+  val rssi: Long
+
+) {
+  companion object {
+    @Suppress("LocalVariableName")
+    fun fromList(__pigeon_list: List<Any?>): RfidTag {
+      val id = __pigeon_list[0] as String
+      val rssi = __pigeon_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
+      return RfidTag(id, rssi)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      rssi,
+    )
+  }
+}
 private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -101,11 +123,16 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         }
       }
       130.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RfidTag.fromList(it)
+        }
+      }
+      131.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionType.ofRaw(it)
         }
       }
-      131.toByte() -> {
+      132.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionStatus.ofRaw(it)
         }
@@ -119,12 +146,16 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(129)
         writeValue(stream, value.toList())
       }
-      is ReaderConnectionType -> {
+      is RfidTag -> {
         stream.write(130)
+        writeValue(stream, value.toList())
+      }
+      is ReaderConnectionType -> {
+        stream.write(131)
         writeValue(stream, value.raw)
       }
       is ReaderConnectionStatus -> {
-        stream.write(131)
+        stream.write(132)
         writeValue(stream, value.raw)
       }
       else -> super.writeValue(stream, value)
@@ -257,6 +288,23 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(statusArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onTagsRead(tagsArg: List<RfidTag>, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(tagsArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))

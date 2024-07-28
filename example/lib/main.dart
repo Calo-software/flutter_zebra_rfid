@@ -18,6 +18,7 @@ class _MyAppState extends State<MyApp> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
 
   List<RfidReader> _availableReaders = [];
+  List<RfidTag> _readTags = [];
   ReaderConnectionStatus _connectionStatus =
       ReaderConnectionStatus.disconnected;
   RfidReader? _currentReader;
@@ -42,6 +43,10 @@ class _MyAppState extends State<MyApp> {
         _connectionStatus = status;
         _currentReader = reader;
       });
+    });
+
+    _flutterZebraRfidApi.onTagsRead.listen((tags) {
+      setState(() => _readTags = tags);
     });
   }
 
@@ -71,6 +76,44 @@ class _MyAppState extends State<MyApp> {
                               _flutterZebraRfidApi.disconectCurrentReader(),
                         ),
                 ),
+                if (_readTags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Text('Read tags:'),
+                        ),
+                        ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _readTags.length,
+                          itemBuilder: (context, index) {
+                            final item = _readTags[index];
+                            return Container(
+                              color: Colors.white,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Text(item.id),
+                                    ),
+                                  ),
+                                  Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8),
+                                      child: Text(item.rssi.toString()))
+                                ],
+                              ),
+                            );
+                          },
+                          separatorBuilder: (context, index) =>
+                              Container(height: 1, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
                 Row(
                   children: [
                     Expanded(

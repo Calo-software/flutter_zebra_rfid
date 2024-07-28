@@ -64,6 +64,32 @@ class RfidReader {
   }
 }
 
+class RfidTag {
+  RfidTag({
+    required this.id,
+    required this.rssi,
+  });
+
+  String id;
+
+  int rssi;
+
+  Object encode() {
+    return <Object?>[
+      id,
+      rssi,
+    ];
+  }
+
+  static RfidTag decode(Object result) {
+    result as List<Object?>;
+    return RfidTag(
+      id: result[0]! as String,
+      rssi: result[1]! as int,
+    );
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -72,11 +98,14 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is RfidReader) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderConnectionType) {
+    } else     if (value is RfidTag) {
       buffer.putUint8(130);
+      writeValue(buffer, value.encode());
+    } else     if (value is ReaderConnectionType) {
+      buffer.putUint8(131);
       writeValue(buffer, value.index);
     } else     if (value is ReaderConnectionStatus) {
-      buffer.putUint8(131);
+      buffer.putUint8(132);
       writeValue(buffer, value.index);
     } else {
       super.writeValue(buffer, value);
@@ -89,9 +118,11 @@ class _PigeonCodec extends StandardMessageCodec {
       case 129: 
         return RfidReader.decode(readValue(buffer)!);
       case 130: 
+        return RfidTag.decode(readValue(buffer)!);
+      case 131: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionType.values[value];
-      case 131: 
+      case 132: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionStatus.values[value];
       default:
@@ -213,6 +244,8 @@ abstract class FlutterZebraRfidCallbacks {
 
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
 
+  void onTagsRead(List<RfidTag?> tags);
+
   static void setUp(FlutterZebraRfidCallbacks? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
@@ -256,6 +289,31 @@ abstract class FlutterZebraRfidCallbacks {
               'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged was null, expected non-null ReaderConnectionStatus.');
           try {
             api.onReaderConnectionStatusChanged(arg_status!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        __pigeon_channel.setMessageHandler(null);
+      } else {
+        __pigeon_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final List<RfidTag?>? arg_tags = (args[0] as List<Object?>?)?.cast<RfidTag?>();
+          assert(arg_tags != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead was null, expected non-null List<RfidTag?>.');
+          try {
+            api.onTagsRead(arg_tags!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
