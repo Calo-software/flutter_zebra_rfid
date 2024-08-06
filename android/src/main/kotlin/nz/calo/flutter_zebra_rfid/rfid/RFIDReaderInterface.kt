@@ -1,5 +1,6 @@
 package nz.calo.flutter_zebra_rfid.rfid
 
+import BatteryData
 import ReaderConnectionType
 import FlutterZebraRfidCallbacks
 import RfidReader
@@ -69,6 +70,7 @@ class RFIDReaderInterface(
                     configureReader(/*scanConnectionMode*/)
                     Log.d(TAG, "RFID Reader Connected!")
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
+                    triggerDeviceStatus()
                 } else {
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
                 }
@@ -104,8 +106,15 @@ class RFIDReaderInterface(
         return null
     }
 
+    fun triggerDeviceStatus() {
+        if (readerDevice != null) {
+            return reader!!.Config.getDeviceStatus(true,  true, true)
+        }
+    }
+
     private fun configureReader(/*scanConnectionMode : ScanConnectionEnum*/) {
         if (reader!!.isConnected) {
+            Log.d(TAG, "Configuring...")
             val triggerInfo = TriggerInfo()
             triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
             triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
@@ -124,6 +133,8 @@ class RFIDReaderInterface(
                 reader!!.Events.setInventoryStopEvent(true)
                 reader!!.Events.setReaderDisconnectEvent(true)
                 reader!!.Events.setAntennaEvent(true)
+                reader!!.Events.setTemperatureAlarmEvent(true)
+                reader!!.Events.setPowerEvent(true)
 
                 // set start and stop triggers
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
@@ -137,10 +148,9 @@ class RFIDReaderInterface(
                 //   reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SLED_SCAN)
 
 
-            } catch (e: InvalidUsageException) {
-                e.printStackTrace()
-            } catch (e: OperationFailureException) {
-                e.printStackTrace()
+            } catch (e: Throwable) {
+                Log.d(TAG, "Error configuring reader: $e")
+                throw Error("Error configuring reader")
             }
         }
     }
@@ -148,38 +158,48 @@ class RFIDReaderInterface(
     // Status Event Notification
     override fun eventStatusNotify(rfidStatusEvents: RfidStatusEvents) {
         Log.d(TAG, "Status Notification: " + rfidStatusEvents.StatusEventData.statusEventType)
-        if (rfidStatusEvents.StatusEventData.statusEventType === STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT) {
-            if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
-                try {
-                    // Read all memory banks
-                    val memoryBanksToRead = arrayOf(
-                        MEMORY_BANK.MEMORY_BANK_EPC,
-                        MEMORY_BANK.MEMORY_BANK_TID,
-                        MEMORY_BANK.MEMORY_BANK_USER
-                    );
-                    for (bank in memoryBanksToRead) {
-                        val ta = TagAccess()
-                        val sequence = ta.Sequence(ta)
-                        val op = sequence.Operation()
-                        op.accessOperationCode = ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ
-                        op.ReadAccessParams.memoryBank =
-                            bank ?: throw IllegalArgumentException("bank must not be null")
-                        reader!!.Actions.TagAccess.OperationSequence.add(op)
-                    }
-
-                    reader!!.Actions.TagAccess.OperationSequence.performSequence()
-
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            } else if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED) {
-                try {
-                    reader!!.Actions.TagAccess.OperationSequence.stopSequence()
-                } catch (e: Exception) {
-                    e.printStackTrace()
+        when (rfidStatusEvents.StatusEventData.statusEventType) {
+            STATUS_EVENT_TYPE.BATTERY_EVENT -> {
+                val data = rfidStatusEvents.StatusEventData.BatteryData
+                val batteryData = BatteryData(data.level.toLong(), data.charging, data.cause)
+                Log.d(TAG, "Battery data - level: ${batteryData.level}, isCharging: ${batteryData.isCharging}, cause: ${batteryData.cause}")
+                Handler(Looper.getMainLooper()).post {
+                    callbacks.onBatteryDataReceived(batteryData) {}
                 }
             }
         }
+//        if (rfidStatusEvents.StatusEventData.statusEventType === STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT) {
+//            if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
+//                try {
+//                    // Read all memory banks
+//                    val memoryBanksToRead = arrayOf(
+//                        MEMORY_BANK.MEMORY_BANK_EPC,
+//                        MEMORY_BANK.MEMORY_BANK_TID,
+//                        MEMORY_BANK.MEMORY_BANK_USER
+//                    );
+//                    for (bank in memoryBanksToRead) {
+//                        val ta = TagAccess()
+//                        val sequence = ta.Sequence(ta)
+//                        val op = sequence.Operation()
+//                        op.accessOperationCode = ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ
+//                        op.ReadAccessParams.memoryBank =
+//                            bank ?: throw IllegalArgumentException("bank must not be null")
+//                        reader!!.Actions.TagAccess.OperationSequence.add(op)
+//                    }
+//
+//                    reader!!.Actions.TagAccess.OperationSequence.performSequence()
+//
+//                } catch (e: Exception) {
+//                    e.printStackTrace()
+//                }
+//            } else if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED) {
+//                try {
+//                    reader!!.Actions.TagAccess.OperationSequence.stopSequence()
+//                } catch (e: Exception) {
+//                    e.printStackTrace()
+//                }
+//            }
+//        }
     }
 
     // Read Event Notification

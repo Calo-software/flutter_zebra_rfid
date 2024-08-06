@@ -61,6 +61,10 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     func currentReaderName() throws -> String? {
         return nil
     }
+    
+    func currentReader() throws -> RfidReader? {
+        return nil
+    }
 
     // MARK:
     // Private

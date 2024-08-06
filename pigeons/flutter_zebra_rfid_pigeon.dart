@@ -23,6 +23,10 @@ abstract class FlutterZebraRfid {
   @async
   void disconnectReader();
 
+  /// Trigger device status
+  @async
+  void triggerDeviceStatus();
+
   /// Reader currently in use
   RfidReader? currentReader();
 }
@@ -32,6 +36,7 @@ abstract class FlutterZebraRfidCallbacks {
   void onAvailableReadersChanged(List<RfidReader> readers);
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
   void onTagsRead(List<RfidTag> tags);
+  void onBatteryDataReceived(BatteryData batteryData);
 }
 
 enum ReaderConnectionType {
@@ -61,4 +66,16 @@ class RfidTag {
 
   final String id;
   final int rssi;
+}
+
+class BatteryData {
+  BatteryData({
+    required this.level,
+    required this.isCharging,
+    required this.cause,
+  });
+
+  final int level;
+  final bool isCharging;
+  final String cause;
 }

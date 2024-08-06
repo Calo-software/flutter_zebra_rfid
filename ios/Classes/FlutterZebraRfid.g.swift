@@ -126,6 +126,33 @@ struct RfidTag {
     ]
   }
 }
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct BatteryData {
+  var level: Int64
+  var isCharging: Bool
+  var cause: String
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ __pigeon_list: [Any?]) -> BatteryData? {
+    let level = __pigeon_list[0] is Int64 ? __pigeon_list[0] as! Int64 : Int64(__pigeon_list[0] as! Int32)
+    let isCharging = __pigeon_list[1] as! Bool
+    let cause = __pigeon_list[2] as! String
+
+    return BatteryData(
+      level: level,
+      isCharging: isCharging,
+      cause: cause
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      level,
+      isCharging,
+      cause,
+    ]
+  }
+}
 private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -134,13 +161,15 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
     case 130:
       return RfidTag.fromList(self.readValue() as! [Any?])
     case 131:
+      return BatteryData.fromList(self.readValue() as! [Any?])
+    case 132:
       var enumResult: ReaderConnectionType? = nil
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
         enumResult = ReaderConnectionType(rawValue: enumResultAsInt)
       }
       return enumResult
-    case 132:
+    case 133:
       var enumResult: ReaderConnectionStatus? = nil
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
@@ -161,11 +190,14 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? RfidTag {
       super.writeByte(130)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderConnectionType {
+    } else if let value = value as? BatteryData {
       super.writeByte(131)
+      super.writeValue(value.toList())
+    } else if let value = value as? ReaderConnectionType {
+      super.writeByte(132)
       super.writeValue(value.rawValue)
     } else if let value = value as? ReaderConnectionStatus {
-      super.writeByte(132)
+      super.writeByte(133)
       super.writeValue(value.rawValue)
     } else {
       super.writeValue(value)
@@ -196,6 +228,8 @@ protocol FlutterZebraRfid {
   func connectReader(readerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
   /// Disconnects a reader with `readerName` name.
   func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
+  /// Trigger device status
+  func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void)
   /// Reader currently in use
   func currentReader() throws -> RfidReader?
 }
@@ -258,6 +292,22 @@ class FlutterZebraRfidSetup {
     } else {
       disconnectReaderChannel.setMessageHandler(nil)
     }
+    /// Trigger device status
+    let triggerDeviceStatusChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.triggerDeviceStatus\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      triggerDeviceStatusChannel.setMessageHandler { _, reply in
+        api.triggerDeviceStatus { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      triggerDeviceStatusChannel.setMessageHandler(nil)
+    }
     /// Reader currently in use
     let currentReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
@@ -279,6 +329,7 @@ protocol FlutterZebraRfidCallbacksProtocol {
   func onAvailableReadersChanged(readers readersArg: [RfidReader], completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -330,6 +381,24 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([tagsArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([batteryDataArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

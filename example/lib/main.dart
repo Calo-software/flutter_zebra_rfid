@@ -17,11 +17,14 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
 
+  // Status data
   List<RfidReader> _availableReaders = [];
   List<RfidTag> _readTags = [];
   ReaderConnectionStatus _connectionStatus =
       ReaderConnectionStatus.disconnected;
   RfidReader? _currentReader;
+  BatteryData? _batteryData;
+
   ReaderConnectionType _connectionType = ReaderConnectionType.usb;
   bool _isLoading = false;
 
@@ -45,9 +48,13 @@ class _MyAppState extends State<MyApp> {
       });
     });
 
-    _flutterZebraRfidApi.onTagsRead.listen((tags) {
-      setState(() => _readTags = tags);
-    });
+    _flutterZebraRfidApi.onTagsRead.listen(
+      (tags) => setState(() => _readTags = tags),
+    );
+
+    _flutterZebraRfidApi.onBatteryDataReceived.listen(
+      (batteryData) => setState(() => _batteryData = batteryData),
+    );
   }
 
   @override
@@ -69,11 +76,14 @@ class _MyAppState extends State<MyApp> {
                           availableReaders: _availableReaders,
                           connectionStatus: _connectionStatus,
                           currentReader: _currentReader,
+                          batteryData: _batteryData,
                           onConnect: (id) => _flutterZebraRfidApi.connectReader(
                             readerId: id,
                           ),
                           onDisconnect: () =>
                               _flutterZebraRfidApi.disconectCurrentReader(),
+                          onStatus: () =>
+                              _flutterZebraRfidApi.triggerDeviceStatus(),
                         ),
                 ),
                 if (_readTags.isNotEmpty)
@@ -81,8 +91,8 @@ class _MyAppState extends State<MyApp> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     child: Column(
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 16),
                           child: Text('Read tags:'),
                         ),
                         ListView.separated(
@@ -115,6 +125,7 @@ class _MyAppState extends State<MyApp> {
                     ),
                   ),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Expanded(
                       child: Padding(
@@ -162,16 +173,20 @@ class _ReadersContainer extends StatelessWidget {
   const _ReadersContainer({
     required this.availableReaders,
     required this.connectionStatus,
+    this.batteryData,
     this.currentReader,
     this.onConnect,
     this.onDisconnect,
+    this.onStatus,
   });
 
   final List<RfidReader> availableReaders;
   final ReaderConnectionStatus connectionStatus;
+  final BatteryData? batteryData;
   final RfidReader? currentReader;
   final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
+  final VoidCallback? onStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -188,6 +203,36 @@ class _ReadersContainer extends StatelessWidget {
         default:
           return Container();
       }
+    }
+
+    Widget batteryStatusIcon() {
+      if (batteryData == null) return const Icon(Icons.battery_unknown);
+      if (batteryData!.isCharging) {
+        return const Icon(Icons.battery_charging_full, color: Colors.green);
+      }
+      final level = batteryData!.level;
+      if (level == 0) {
+        return const Icon(Icons.battery_0_bar);
+      }
+      if (level < 15) {
+        return const Icon(Icons.battery_1_bar);
+      }
+      if (level < 30) {
+        return const Icon(Icons.battery_2_bar);
+      }
+      if (level < 45) {
+        return const Icon(Icons.battery_3_bar);
+      }
+      if (level < 60) {
+        return const Icon(Icons.battery_4_bar);
+      }
+      if (level < 75) {
+        return const Icon(Icons.battery_5_bar);
+      }
+      if (level < 90) {
+        return const Icon(Icons.battery_6_bar);
+      }
+      return const Icon(Icons.battery_full);
     }
 
     if (availableReaders.isEmpty) {
@@ -232,21 +277,39 @@ class _ReadersContainer extends StatelessWidget {
                                     Text(item.name ?? item.id.toString()),
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
-                                      child: ElevatedButton(
-                                        onPressed: () {
-                                          if (isCurrentItem && isConnected) {
-                                            // disconnect
-                                            onDisconnect?.call();
-                                            Navigator.of(context).pop();
-                                          } else {
-                                            // connect
-                                            onConnect?.call(item.id);
-                                            Navigator.of(context).pop();
-                                          }
-                                        },
-                                        child: Text(isCurrentItem && isConnected
-                                            ? 'Disconnect'
-                                            : 'Connect'),
+                                      child: Wrap(
+                                        children: [
+                                          ElevatedButton(
+                                            onPressed: () {
+                                              if (isCurrentItem &&
+                                                  isConnected) {
+                                                // disconnect
+                                                onDisconnect?.call();
+                                                Navigator.of(context).pop();
+                                              } else {
+                                                // connect
+                                                onConnect?.call(item.id);
+                                                Navigator.of(context).pop();
+                                              }
+                                            },
+                                            child: Text(
+                                                isCurrentItem && isConnected
+                                                    ? 'Disconnect'
+                                                    : 'Connect'),
+                                          ),
+                                          if (isCurrentItem && isConnected)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  left: 8),
+                                              child: ElevatedButton(
+                                                onPressed: () {
+                                                  onStatus?.call();
+                                                  Navigator.of(context).pop();
+                                                },
+                                                child: const Text('Status'),
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -266,11 +329,16 @@ class _ReadersContainer extends StatelessWidget {
                           child: Text(item.name ?? item.id.toString()),
                         ),
                       ),
-                      if (isCurrentItem)
+                      if (isCurrentItem) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: connectionStatusIcon(),
+                        ),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: connectionStatusIcon(),
-                        )
+                          child: batteryStatusIcon(),
+                        ),
+                      ]
                     ],
                   ),
                 ),

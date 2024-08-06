@@ -196,6 +196,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
+    override fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.triggerDeviceStatus()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
     override fun currentReader(): RfidReader? {
         return rfidInterface!!.currentReader()
     }
