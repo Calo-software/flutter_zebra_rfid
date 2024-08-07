@@ -18,11 +18,11 @@ class _MyAppState extends State<MyApp> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
 
   // Status data
-  List<RfidReader> _availableReaders = [];
+  List<Reader> _availableReaders = [];
   List<RfidTag> _readTags = [];
   ReaderConnectionStatus _connectionStatus =
       ReaderConnectionStatus.disconnected;
-  RfidReader? _currentReader;
+  Reader? _currentReader;
   BatteryData? _batteryData;
 
   ReaderConnectionType _connectionType = ReaderConnectionType.usb;
@@ -45,6 +45,21 @@ class _MyAppState extends State<MyApp> {
       setState(() {
         _connectionStatus = status;
         _currentReader = reader;
+
+        if (status == ReaderConnectionStatus.connected) {
+          // configure reader
+          _flutterZebraRfidApi.configureReader(
+              config: ReaderConfig(
+                transmitPowerIndex:
+                    299, //_currentReader?.info?.transmitPowerLevels.length-1,
+                beeperVolume: ReaderBeeperVolume.quiet,
+                enableDynamicPower: true,
+                enableLedBlink: true,
+                // batchMode: ReaderConfigBatchMode.auto,
+                // scanBatchMode: ReaderConfigBatchMode.auto,
+              ),
+              shouldPersist: false);
+        }
       });
     });
 
@@ -77,9 +92,8 @@ class _MyAppState extends State<MyApp> {
                           connectionStatus: _connectionStatus,
                           currentReader: _currentReader,
                           batteryData: _batteryData,
-                          onConnect: (id) => _flutterZebraRfidApi.connectReader(
-                            readerId: id,
-                          ),
+                          onConnect: (id) =>
+                              _flutterZebraRfidApi.connectReader(readerId: id),
                           onDisconnect: () =>
                               _flutterZebraRfidApi.disconectCurrentReader(),
                           onStatus: () =>
@@ -180,10 +194,10 @@ class _ReadersContainer extends StatelessWidget {
     this.onStatus,
   });
 
-  final List<RfidReader> availableReaders;
+  final List<Reader> availableReaders;
   final ReaderConnectionStatus connectionStatus;
   final BatteryData? batteryData;
-  final RfidReader? currentReader;
+  final Reader? currentReader;
   final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
   final VoidCallback? onStatus;

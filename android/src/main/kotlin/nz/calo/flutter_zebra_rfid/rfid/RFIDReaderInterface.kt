@@ -3,7 +3,9 @@ package nz.calo.flutter_zebra_rfid.rfid
 import BatteryData
 import ReaderConnectionType
 import FlutterZebraRfidCallbacks
-import RfidReader
+import Reader
+import ReaderConfig
+import ReaderInfo
 import RfidTag
 import android.content.Context
 import android.os.Handler
@@ -31,6 +33,7 @@ class RFIDReaderInterface(
     private var availableRFIDReaderList: ArrayList<ReaderDevice>? = null
     private var readerDevice: ReaderDevice? = null
     private var reader: RFIDReader? = null
+    private var readerInfo: ReaderInfo? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var applicationContext: Context? = null
 
@@ -51,12 +54,12 @@ class RFIDReaderInterface(
         availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
         Log.d(TAG, "Available readers: $availableRFIDReaderList")
         val readers = availableRFIDReaderList!!.mapIndexed { index, reader ->
-            RfidReader(reader.name, index.toLong())
+            Reader(reader.name, index.toLong())
         }
         callbacks.onAvailableReadersChanged(readers) {}
     }
 
-    fun connectReader(readerId: Long) {
+    fun connectReader(readerId: Long): ReaderInfo? {
         try {
             if (availableRFIDReaderList != null) {
                 if (availableRFIDReaderList!!.size <= readerId) throw Error("Reader not available to connect")
@@ -67,21 +70,94 @@ class RFIDReaderInterface(
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTING) {}
                     Log.d(TAG, "RFID Reader Connecting...")
                     reader!!.connect()
-                    configureReader(/*scanConnectionMode*/)
+                    setupReader()
                     Log.d(TAG, "RFID Reader Connected!")
+                    val capabilities = reader!!.ReaderCapabilities
+                    val levels = capabilities.transmitPowerLevelValues
+                    readerInfo = ReaderInfo(
+                        levels.asList(),
+                        capabilities.firwareVersion,
+                        capabilities.modelName,
+                        capabilities.scannerName,
+                        capabilities.serialNumber,
+                    )
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
                     triggerDeviceStatus()
                 } else {
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
                 }
-                return
+                return null
             }
         } catch (e: Exception) {
             Log.d(TAG, "RFID Reader connection error: ${e.toString()}")
             callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.ERROR) {}
         }
+        return null
     }
 
+    fun configureReader(config: ReaderConfig, shouldPersist: Boolean) {
+        if (reader == null) {
+            Log.d(TAG, "No connected to any Reader!")
+            throw Error("Not connected to any Reader")
+        }
+
+        // Transmit power
+        var powerIndex = config.transmitPowerIndex?.toInt()
+        val maxIndex = reader!!.ReaderCapabilities.transmitPowerLevelValues.size-1
+        // set to max by default
+        if (powerIndex == null || powerIndex > maxIndex) powerIndex = maxIndex
+        val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
+        antennaRfConfig.setrfModeTableIndex(0)
+        antennaRfConfig.tari = 0
+        antennaRfConfig.transmitPowerIndex = powerIndex
+        reader!!.Config.Antennas.setAntennaRfConfig(1, antennaRfConfig)
+
+        // Beeper volume
+        val beeperVolume = config.beeperVolume
+        if (beeperVolume != null) {
+            when (beeperVolume) {
+                ReaderBeeperVolume.QUIET -> reader!!.Config.beeperVolume = BEEPER_VOLUME.QUIET_BEEP
+                ReaderBeeperVolume.LOW -> reader!!.Config.beeperVolume = BEEPER_VOLUME.LOW_BEEP
+                ReaderBeeperVolume.MEDIUM -> reader!!.Config.beeperVolume = BEEPER_VOLUME.MEDIUM_BEEP
+                ReaderBeeperVolume.HIGH -> reader!!.Config.beeperVolume = BEEPER_VOLUME.HIGH_BEEP
+            }
+        }
+
+        // Dynamic power
+        val enableDynamicPower = config.enableDynamicPower
+        if (enableDynamicPower != null) {
+            reader!!.Config.dpoState = if (enableDynamicPower) DYNAMIC_POWER_OPTIMIZATION.ENABLE else DYNAMIC_POWER_OPTIMIZATION.DISABLE
+        }
+
+        // LED blink
+        val enableLedBlink = config.enableLedBlink
+        if (enableLedBlink != null) {
+            reader!!.Config.setLedBlinkEnable(enableLedBlink)
+        }
+
+        val batchMode = config.batchMode
+        if (batchMode != null) {
+            val mode = when (batchMode) {
+                ReaderConfigBatchMode.AUTO -> BATCH_MODE.AUTO
+                ReaderConfigBatchMode.ENABLED -> BATCH_MODE.ENABLE
+                ReaderConfigBatchMode.DISABLED -> BATCH_MODE.DISABLE
+            }
+            reader!!.Config.setBatchMode(mode)
+        }
+
+        val scanBatchMode = config.scanBatchMode
+        if (scanBatchMode != null) {
+            val mode = when (scanBatchMode) {
+                ReaderConfigBatchMode.AUTO -> SCAN_BATCH_MODE.AUTO
+                ReaderConfigBatchMode.ENABLED -> SCAN_BATCH_MODE.ENABLE
+                ReaderConfigBatchMode.DISABLED -> SCAN_BATCH_MODE.DISABLE
+            }
+            reader!!.Config.setScanBatchMode(mode)
+        }
+
+        if (shouldPersist) reader!!.Config.saveConfig()
+
+    }
     fun disconnectCurrentReader() {
         callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTING) {}
 
@@ -96,11 +172,12 @@ class RFIDReaderInterface(
         callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTED) {}
     }
 
-    fun currentReader(): RfidReader? {
+    fun currentReader(): Reader? {
         if (readerDevice != null) {
-            return RfidReader(
+            return Reader(
                 readerDevice!!.name,
-                availableRFIDReaderList!!.indexOf(readerDevice!!).toLong()
+                availableRFIDReaderList!!.indexOf(readerDevice!!).toLong(),
+                readerInfo
             )
         }
         return null
@@ -108,11 +185,11 @@ class RFIDReaderInterface(
 
     fun triggerDeviceStatus() {
         if (readerDevice != null) {
-            return reader!!.Config.getDeviceStatus(true,  true, true)
+            return reader!!.Config.getDeviceStatus(true, true, true)
         }
     }
 
-    private fun configureReader(/*scanConnectionMode : ScanConnectionEnum*/) {
+    private fun setupReader() {
         if (reader!!.isConnected) {
             Log.d(TAG, "Configuring...")
             val triggerInfo = TriggerInfo()
@@ -142,11 +219,7 @@ class RFIDReaderInterface(
                 reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
 
                 // Terminal scan, use trigger for scanning!
-                //if(scanConnectionMode == ScanConnectionEnum.TerminalScan)
-//                reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SCAN)
-                //else
-                //   reader.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SLED_SCAN)
-
+                reader!!.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SCAN)
 
             } catch (e: Throwable) {
                 Log.d(TAG, "Error configuring reader: $e")
@@ -162,7 +235,10 @@ class RFIDReaderInterface(
             STATUS_EVENT_TYPE.BATTERY_EVENT -> {
                 val data = rfidStatusEvents.StatusEventData.BatteryData
                 val batteryData = BatteryData(data.level.toLong(), data.charging, data.cause)
-                Log.d(TAG, "Battery data - level: ${batteryData.level}, isCharging: ${batteryData.isCharging}, cause: ${batteryData.cause}")
+                Log.d(
+                    TAG,
+                    "Battery data - level: ${batteryData.level}, isCharging: ${batteryData.isCharging}, cause: ${batteryData.cause}"
+                )
                 Handler(Looper.getMainLooper()).post {
                     callbacks.onBatteryDataReceived(batteryData) {}
                 }

@@ -8,7 +8,7 @@ class FlutterZebraRfidApi {
       _callbacks.connectionStatusChanged;
 
   /// Behavior subject wrapping reader list updates callback from the plugin
-  BehaviorSubject<List<RfidReader>> get onAvailableReadersChanged =>
+  BehaviorSubject<List<Reader>> get onAvailableReadersChanged =>
       _callbacks.availableReadersChanged;
 
   /// Behavior subject wrapping tags read callback from the plugin
@@ -28,6 +28,14 @@ class FlutterZebraRfidApi {
   Future<void> connectReader({required int readerId}) =>
       _api.connectReader(readerId);
 
+  /// Configures the connected reader, if `shouldPersist` is true then the
+  /// configuration is stored in the reader
+  Future<void> configureReader({
+    required ReaderConfig config,
+    required bool shouldPersist,
+  }) =>
+      _api.configureReader(config, shouldPersist);
+
   /// Disconnects current reader
   Future<void> disconectCurrentReader() => _api.disconnectReader();
 
@@ -35,7 +43,7 @@ class FlutterZebraRfidApi {
   Future<void> triggerDeviceStatus() => _api.triggerDeviceStatus();
 
   /// Returns reader currently in use (or null if none in use)
-  Future<RfidReader?> get currentReader => _api.currentReader();
+  Future<Reader?> get currentReader => _api.currentReader();
 
   final _api = FlutterZebraRfid();
   final _callbacks = _FlutterZebraRfidCallbacksImpl();
@@ -52,8 +60,8 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
       connectionStatusChanged.add(status);
 
   @override
-  void onAvailableReadersChanged(List<RfidReader?> readers) =>
-      availableReadersChanged.add(readers.map((e) => e as RfidReader).toList());
+  void onAvailableReadersChanged(List<Reader?> readers) =>
+      availableReadersChanged.add(readers.map((e) => e as Reader).toList());
 
   @override
   void onTagsRead(List<RfidTag?> tags) {
@@ -69,7 +77,17 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   final connectionStatusChanged = BehaviorSubject<ReaderConnectionStatus>()
     ..add(ReaderConnectionStatus.disconnected);
 
-  final availableReadersChanged = BehaviorSubject<List<RfidReader>>();
+  final availableReadersChanged = BehaviorSubject<List<Reader>>();
   final tagsRead = BehaviorSubject<List<RfidTag>>();
   final batteryDataReceived = BehaviorSubject<BatteryData>();
+}
+
+extension ReaderInfoX on ReaderInfo {
+  String get asString => '''
+TransmitPowerLevels: ${transmitPowerLevels.first} - ${transmitPowerLevels.last}
+FirmwareVersion: $firmwareVersion
+ModelVersion: $modelVersion
+ScannerName: $scannerName
+SerialNumber: $serialNumber
+''';
 }

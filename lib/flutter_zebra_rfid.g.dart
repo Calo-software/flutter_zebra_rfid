@@ -38,28 +38,133 @@ enum ReaderConnectionStatus {
   error,
 }
 
-class RfidReader {
-  RfidReader({
+enum ReaderConfigBatchMode {
+  auto,
+  enabled,
+  disabled,
+}
+
+enum ReaderBeeperVolume {
+  quiet,
+  low,
+  medium,
+  high,
+}
+
+class Reader {
+  Reader({
     this.name,
     required this.id,
+    this.info,
   });
 
   String? name;
 
   int id;
 
+  ReaderInfo? info;
+
   Object encode() {
     return <Object?>[
       name,
       id,
+      info,
     ];
   }
 
-  static RfidReader decode(Object result) {
+  static Reader decode(Object result) {
     result as List<Object?>;
-    return RfidReader(
+    return Reader(
       name: result[0] as String?,
       id: result[1]! as int,
+      info: result[2] as ReaderInfo?,
+    );
+  }
+}
+
+class ReaderConfig {
+  ReaderConfig({
+    this.transmitPowerIndex,
+    this.beeperVolume,
+    this.enableDynamicPower,
+    this.enableLedBlink,
+    this.batchMode,
+    this.scanBatchMode,
+  });
+
+  int? transmitPowerIndex;
+
+  ReaderBeeperVolume? beeperVolume;
+
+  bool? enableDynamicPower;
+
+  bool? enableLedBlink;
+
+  ReaderConfigBatchMode? batchMode;
+
+  ReaderConfigBatchMode? scanBatchMode;
+
+  Object encode() {
+    return <Object?>[
+      transmitPowerIndex,
+      beeperVolume,
+      enableDynamicPower,
+      enableLedBlink,
+      batchMode,
+      scanBatchMode,
+    ];
+  }
+
+  static ReaderConfig decode(Object result) {
+    result as List<Object?>;
+    return ReaderConfig(
+      transmitPowerIndex: result[0] as int?,
+      beeperVolume: result[1] as ReaderBeeperVolume?,
+      enableDynamicPower: result[2] as bool?,
+      enableLedBlink: result[3] as bool?,
+      batchMode: result[4] as ReaderConfigBatchMode?,
+      scanBatchMode: result[5] as ReaderConfigBatchMode?,
+    );
+  }
+}
+
+class ReaderInfo {
+  ReaderInfo({
+    required this.transmitPowerLevels,
+    required this.firmwareVersion,
+    required this.modelVersion,
+    required this.scannerName,
+    required this.serialNumber,
+  });
+
+  List<Object?> transmitPowerLevels;
+
+  String firmwareVersion;
+
+  String modelVersion;
+
+  String scannerName;
+
+  String serialNumber;
+
+  Object encode() {
+    return <Object?>[
+      transmitPowerLevels,
+      firmwareVersion,
+      modelVersion,
+      scannerName,
+      serialNumber,
+    ];
+  }
+
+  static ReaderInfo decode(Object result) {
+    result as List<Object?>;
+    return ReaderInfo(
+      transmitPowerLevels: result[0]! as List<Object?>,
+      firmwareVersion: result[1]! as String,
+      modelVersion: result[2]! as String,
+      scannerName: result[3]! as String,
+      serialNumber: result[4]! as String,
     );
   }
 }
@@ -126,20 +231,32 @@ class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
   void writeValue(WriteBuffer buffer, Object? value) {
-    if (value is RfidReader) {
+    if (value is Reader) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    } else     if (value is RfidTag) {
+    } else     if (value is ReaderConfig) {
       buffer.putUint8(130);
       writeValue(buffer, value.encode());
-    } else     if (value is BatteryData) {
+    } else     if (value is ReaderInfo) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderConnectionType) {
+    } else     if (value is RfidTag) {
       buffer.putUint8(132);
+      writeValue(buffer, value.encode());
+    } else     if (value is BatteryData) {
+      buffer.putUint8(133);
+      writeValue(buffer, value.encode());
+    } else     if (value is ReaderConnectionType) {
+      buffer.putUint8(134);
       writeValue(buffer, value.index);
     } else     if (value is ReaderConnectionStatus) {
-      buffer.putUint8(133);
+      buffer.putUint8(135);
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderConfigBatchMode) {
+      buffer.putUint8(136);
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderBeeperVolume) {
+      buffer.putUint8(137);
       writeValue(buffer, value.index);
     } else {
       super.writeValue(buffer, value);
@@ -150,17 +267,27 @@ class _PigeonCodec extends StandardMessageCodec {
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
       case 129: 
-        return RfidReader.decode(readValue(buffer)!);
+        return Reader.decode(readValue(buffer)!);
       case 130: 
-        return RfidTag.decode(readValue(buffer)!);
+        return ReaderConfig.decode(readValue(buffer)!);
       case 131: 
-        return BatteryData.decode(readValue(buffer)!);
+        return ReaderInfo.decode(readValue(buffer)!);
       case 132: 
+        return RfidTag.decode(readValue(buffer)!);
+      case 133: 
+        return BatteryData.decode(readValue(buffer)!);
+      case 134: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionType.values[value];
-      case 133: 
+      case 135: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionStatus.values[value];
+      case 136: 
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : ReaderConfigBatchMode.values[value];
+      case 137: 
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : ReaderBeeperVolume.values[value];
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -203,7 +330,7 @@ class FlutterZebraRfid {
     }
   }
 
-  /// Connects to a reader with `readerName` name.
+  /// Connects to a reader with `readerId` ID.
   Future<void> connectReader(int readerId) async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
@@ -213,6 +340,29 @@ class FlutterZebraRfid {
     );
     final List<Object?>? __pigeon_replyList =
         await __pigeon_channel.send(<Object?>[readerId]) as List<Object?>?;
+    if (__pigeon_replyList == null) {
+      throw _createConnectionError(__pigeon_channelName);
+    } else if (__pigeon_replyList.length > 1) {
+      throw PlatformException(
+        code: __pigeon_replyList[0]! as String,
+        message: __pigeon_replyList[1] as String?,
+        details: __pigeon_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Configures reader with `config`.
+  Future<void> configureReader(ReaderConfig config, bool shouldPersist) async {
+    final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader$__pigeon_messageChannelSuffix';
+    final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
+      __pigeon_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: __pigeon_binaryMessenger,
+    );
+    final List<Object?>? __pigeon_replyList =
+        await __pigeon_channel.send(<Object?>[config, shouldPersist]) as List<Object?>?;
     if (__pigeon_replyList == null) {
       throw _createConnectionError(__pigeon_channelName);
     } else if (__pigeon_replyList.length > 1) {
@@ -273,7 +423,7 @@ class FlutterZebraRfid {
   }
 
   /// Reader currently in use
-  Future<RfidReader?> currentReader() async {
+  Future<Reader?> currentReader() async {
     final String __pigeon_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader$__pigeon_messageChannelSuffix';
     final BasicMessageChannel<Object?> __pigeon_channel = BasicMessageChannel<Object?>(
       __pigeon_channelName,
@@ -291,7 +441,7 @@ class FlutterZebraRfid {
         details: __pigeon_replyList[2],
       );
     } else {
-      return (__pigeon_replyList[0] as RfidReader?);
+      return (__pigeon_replyList[0] as Reader?);
     }
   }
 }
@@ -299,7 +449,7 @@ class FlutterZebraRfid {
 abstract class FlutterZebraRfidCallbacks {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
-  void onAvailableReadersChanged(List<RfidReader?> readers);
+  void onAvailableReadersChanged(List<Reader?> readers);
 
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
 
@@ -320,9 +470,9 @@ abstract class FlutterZebraRfidCallbacks {
           assert(message != null,
           'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null.');
           final List<Object?> args = (message as List<Object?>?)!;
-          final List<RfidReader?>? arg_readers = (args[0] as List<Object?>?)?.cast<RfidReader?>();
+          final List<Reader?>? arg_readers = (args[0] as List<Object?>?)?.cast<Reader?>();
           assert(arg_readers != null,
-              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null, expected non-null List<RfidReader?>.');
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged was null, expected non-null List<Reader?>.');
           try {
             api.onAvailableReadersChanged(arg_readers!);
             return wrapResponse(empty: true);

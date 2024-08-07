@@ -2,8 +2,9 @@ package nz.calo.flutter_zebra_rfid
 
 import FlutterZebraRfid
 import FlutterZebraRfidCallbacks
+import Reader
+import ReaderConfig
 import ReaderConnectionType
-import RfidReader
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -181,6 +182,18 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     override fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit) {
         try {
             rfidInterface!!.connectReader(readerId)
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun configureReader(
+        config: ReaderConfig,
+        shouldPersist: Boolean,
+        callback: (Result<Unit>) -> Unit
+    ) {
+        try {
+            rfidInterface!!.configureReader(config, shouldPersist)
             callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
@@ -205,7 +218,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
-    override fun currentReader(): RfidReader? {
+    override fun currentReader(): Reader? {
         return rfidInterface!!.currentReader()
     }
 

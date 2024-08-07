@@ -71,24 +71,117 @@ enum class ReaderConnectionStatus(val raw: Int) {
   }
 }
 
+enum class ReaderConfigBatchMode(val raw: Int) {
+  AUTO(0),
+  ENABLED(1),
+  DISABLED(2);
+
+  companion object {
+    fun ofRaw(raw: Int): ReaderConfigBatchMode? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
+enum class ReaderBeeperVolume(val raw: Int) {
+  QUIET(0),
+  LOW(1),
+  MEDIUM(2),
+  HIGH(3);
+
+  companion object {
+    fun ofRaw(raw: Int): ReaderBeeperVolume? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
-data class RfidReader (
+data class Reader (
   val name: String? = null,
-  val id: Long
+  val id: Long,
+  val info: ReaderInfo? = null
 
 ) {
   companion object {
     @Suppress("LocalVariableName")
-    fun fromList(__pigeon_list: List<Any?>): RfidReader {
+    fun fromList(__pigeon_list: List<Any?>): Reader {
       val name = __pigeon_list[0] as String?
       val id = __pigeon_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
-      return RfidReader(name, id)
+      val info = __pigeon_list[2] as ReaderInfo?
+      return Reader(name, id, info)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       name,
       id,
+      info,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class ReaderConfig (
+  val transmitPowerIndex: Long? = null,
+  val beeperVolume: ReaderBeeperVolume? = null,
+  val enableDynamicPower: Boolean? = null,
+  val enableLedBlink: Boolean? = null,
+  val batchMode: ReaderConfigBatchMode? = null,
+  val scanBatchMode: ReaderConfigBatchMode? = null
+
+) {
+  companion object {
+    @Suppress("LocalVariableName")
+    fun fromList(__pigeon_list: List<Any?>): ReaderConfig {
+      val transmitPowerIndex = __pigeon_list[0].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val beeperVolume = __pigeon_list[1] as ReaderBeeperVolume?
+      val enableDynamicPower = __pigeon_list[2] as Boolean?
+      val enableLedBlink = __pigeon_list[3] as Boolean?
+      val batchMode = __pigeon_list[4] as ReaderConfigBatchMode?
+      val scanBatchMode = __pigeon_list[5] as ReaderConfigBatchMode?
+      return ReaderConfig(transmitPowerIndex, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      transmitPowerIndex,
+      beeperVolume,
+      enableDynamicPower,
+      enableLedBlink,
+      batchMode,
+      scanBatchMode,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class ReaderInfo (
+  val transmitPowerLevels: List<Any?>,
+  val firmwareVersion: String,
+  val modelVersion: String,
+  val scannerName: String,
+  val serialNumber: String
+
+) {
+  companion object {
+    @Suppress("LocalVariableName")
+    fun fromList(__pigeon_list: List<Any?>): ReaderInfo {
+      val transmitPowerLevels = __pigeon_list[0] as List<Any?>
+      val firmwareVersion = __pigeon_list[1] as String
+      val modelVersion = __pigeon_list[2] as String
+      val scannerName = __pigeon_list[3] as String
+      val serialNumber = __pigeon_list[4] as String
+      return ReaderInfo(transmitPowerLevels, firmwareVersion, modelVersion, scannerName, serialNumber)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      transmitPowerLevels,
+      firmwareVersion,
+      modelVersion,
+      scannerName,
+      serialNumber,
     )
   }
 }
@@ -144,27 +237,47 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
     return when (type) {
       129.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidReader.fromList(it)
+          Reader.fromList(it)
         }
       }
       130.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidTag.fromList(it)
+          ReaderConfig.fromList(it)
         }
       }
       131.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BatteryData.fromList(it)
+          ReaderInfo.fromList(it)
         }
       }
       132.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RfidTag.fromList(it)
+        }
+      }
+      133.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BatteryData.fromList(it)
+        }
+      }
+      134.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionType.ofRaw(it)
         }
       }
-      133.toByte() -> {
+      135.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
           ReaderConnectionStatus.ofRaw(it)
+        }
+      }
+      136.toByte() -> {
+        return (readValue(buffer) as Int?)?.let {
+          ReaderConfigBatchMode.ofRaw(it)
+        }
+      }
+      137.toByte() -> {
+        return (readValue(buffer) as Int?)?.let {
+          ReaderBeeperVolume.ofRaw(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -172,24 +285,40 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   }
   override fun writeValue(stream: ByteArrayOutputStream, value: Any?)   {
     when (value) {
-      is RfidReader -> {
+      is Reader -> {
         stream.write(129)
         writeValue(stream, value.toList())
       }
-      is RfidTag -> {
+      is ReaderConfig -> {
         stream.write(130)
         writeValue(stream, value.toList())
       }
-      is BatteryData -> {
+      is ReaderInfo -> {
         stream.write(131)
         writeValue(stream, value.toList())
       }
-      is ReaderConnectionType -> {
+      is RfidTag -> {
         stream.write(132)
+        writeValue(stream, value.toList())
+      }
+      is BatteryData -> {
+        stream.write(133)
+        writeValue(stream, value.toList())
+      }
+      is ReaderConnectionType -> {
+        stream.write(134)
         writeValue(stream, value.raw)
       }
       is ReaderConnectionStatus -> {
-        stream.write(133)
+        stream.write(135)
+        writeValue(stream, value.raw)
+      }
+      is ReaderConfigBatchMode -> {
+        stream.write(136)
+        writeValue(stream, value.raw)
+      }
+      is ReaderBeeperVolume -> {
+        stream.write(137)
         writeValue(stream, value.raw)
       }
       else -> super.writeValue(stream, value)
@@ -202,14 +331,16 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
 interface FlutterZebraRfid {
   /** Returns list with names of available readers for specified `connectionType`. */
   fun updateAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<Unit>) -> Unit)
-  /** Connects to a reader with `readerName` name. */
+  /** Connects to a reader with `readerId` ID. */
   fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
+  /** Configures reader with `config`. */
+  fun configureReader(config: ReaderConfig, shouldPersist: Boolean, callback: (Result<Unit>) -> Unit)
   /** Disconnects a reader with `readerName` name. */
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
   fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit)
   /** Reader currently in use */
-  fun currentReader(): RfidReader?
+  fun currentReader(): Reader?
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -246,6 +377,26 @@ interface FlutterZebraRfid {
             val args = message as List<Any?>
             val readerIdArg = args[0].let { num -> if (num is Int) num.toLong() else num as Long }
             api.connectReader(readerIdArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val configArg = args[0] as ReaderConfig
+            val shouldPersistArg = args[1] as Boolean
+            api.configureReader(configArg, shouldPersistArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -318,7 +469,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
       FlutterZebraRfidPigeonCodec
     }
   }
-  fun onAvailableReadersChanged(readersArg: List<RfidReader>, callback: (Result<Unit>) -> Unit)
+  fun onAvailableReadersChanged(readersArg: List<Reader>, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged$separatedMessageChannelSuffix"
