@@ -1,5 +1,8 @@
 package nz.calo.flutter_zebra_rfid
 
+import BarcodeScanner
+import FlutterZebraBarcode
+import FlutterZebraBarcodeCallbacks
 import FlutterZebraRfid
 import FlutterZebraRfidCallbacks
 import Reader
@@ -18,6 +21,7 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.PluginRegistry
+import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 
@@ -26,12 +30,14 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     PluginRegistry.RequestPermissionsResultListener,
     PluginRegistry.ActivityResultListener,
     ActivityAware,
-    FlutterZebraRfid {
+    FlutterZebraRfid,
+    FlutterZebraBarcode {
 
     private val TAG: String = "FlutterZebraRfidPlugin"
 
     private lateinit var applicationContext: Context
     private lateinit var rfidCallbacks: FlutterZebraRfidCallbacks
+    private lateinit var scannerCallbacks: FlutterZebraBarcodeCallbacks
 
     private val operationsOnPermission: MutableMap<Int, OperationOnPermission> = HashMap()
     private var lastEventId = 1751
@@ -45,9 +51,12 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
         rfidInterface = RFIDReaderInterface(rfidCallbacks)
+        scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
+        scannerInterface = BarcodeScannerInterface(scannerCallbacks)
         applicationContext = flutterPluginBinding.applicationContext
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
+        FlutterZebraBarcode.setUp(flutterPluginBinding.binaryMessenger, this)
     }
 
 
@@ -106,34 +115,6 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         )
         lastEventId++
     }
-
-//    private fun requestPermission(result: IntentResult) {
-//        val permissionReceiver = object : BroadcastReceiver() {
-//            init {
-//                val intentFilter = IntentFilter()
-//                intentFilter.addAction(ACTION_PERMISSIONS_GRANTED)
-//                intentFilter.addAction(ACTION_PERMISSIONS_DENIED)
-//                applicationContext.registerReceiver(this, intentFilter)
-//            }
-//
-//            override fun onReceive(context: Context, intent: Intent) {
-//                when {
-//                    intent.action == ACTION_PERMISSIONS_GRANTED -> {
-//                        result.success(2)
-//                        context.unregisterReceiver(this)
-//                    }
-//                    intent.action == ACTION_PERMISSIONS_DENIED -> {
-//                        result.success(1)
-//                        context.unregisterReceiver(this)
-//                    }
-//
-//                }
-//            }
-//        }
-//        val intent = Intent(applicationContext, PushPermissionActivity::class.java)
-//        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK;
-//        applicationContext.startActivity(intent)
-//    }
 
     // FlutterZebraRfid overrides
     override fun updateAvailableReaders(
@@ -222,6 +203,52 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         return rfidInterface!!.currentReader()
     }
 
+    // =============================
+    // FlutterZebraBarcode overrides
+    // =============================
+    override fun updateAvailableScanners(callback: (Result<Unit>) -> Unit) {
+        try {
+            val permissions = ArrayList<String>()
+            if (Build.VERSION.SDK_INT >= 31) { // Android 12 (October 2021)
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+
+            if (Build.VERSION.SDK_INT <= 30) { // Android 11 (September 2020)
+                permissions.add(Manifest.permission.BLUETOOTH);
+            }
+            ensurePermissions(permissions,
+                object : OperationOnPermission {
+                    override fun op(granted: Boolean, permission: String?) {
+                        if (!granted) {
+                            callback(Result.failure(Error("You need to grant BLE permissions")))
+                            Log.e(TAG, "BLE permission not granted!")
+                            return
+                        }
+                        Log.e(TAG, "BLE permission granted, can continue...")
+                        scannerInterface!!.updateAvailableScanners(applicationContext)
+                        callback(Result.success(Unit))
+                    }
+                })
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun connectScanner(scannerId: Long, callback: (Result<Unit>) -> Unit) {
+        try {
+            scannerInterface!!.connectToScanner(scannerId.toInt())
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun currentScanner(): BarcodeScanner? {
+        return scannerInterface!!.currentScanner()
+    }
+
+
 //    override fun onDestroy() {
 //        super.onDestroy()
 //        dispose()
@@ -261,7 +288,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     companion object {
         private var rfidInterface: RFIDReaderInterface? = null
-        //    private var scannerInterface: BarcodeScannerInterface? = null
+        private var scannerInterface: BarcodeScannerInterface? = null
     }
 
     override fun onRequestPermissionsResult(
@@ -311,4 +338,5 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         activityBinding!!.removeRequestPermissionsResultListener(this)
         activityBinding = null
     }
+
 }

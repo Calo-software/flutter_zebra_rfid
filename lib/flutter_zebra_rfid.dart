@@ -1,10 +1,13 @@
+import 'package:flutter_zebra_rfid/shared_types.dart';
 import 'package:rxdart/subjects.dart';
 
 import 'flutter_zebra_rfid.g.dart';
 
+export 'flutter_zebra_rfid.g.dart';
+
 class FlutterZebraRfidApi {
   /// Behavior subject wrapping connection updates callback from the plugin
-  BehaviorSubject<ReaderConnectionStatus> get onReaderConnectionStatusChanged =>
+  BehaviorSubject<ConnectionStatus> get onReaderConnectionStatusChanged =>
       _callbacks.connectionStatusChanged;
 
   /// Behavior subject wrapping reader list updates callback from the plugin
@@ -57,7 +60,7 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   /// Implements connection updates callback from the plugin
   @override
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status) =>
-      connectionStatusChanged.add(status);
+      connectionStatusChanged.add(status.connectionStatus);
 
   @override
   void onAvailableReadersChanged(List<Reader?> readers) =>
@@ -74,8 +77,8 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   void onBatteryDataReceived(BatteryData batteryData) =>
       batteryDataReceived.add(batteryData);
 
-  final connectionStatusChanged = BehaviorSubject<ReaderConnectionStatus>()
-    ..add(ReaderConnectionStatus.disconnected);
+  final connectionStatusChanged = BehaviorSubject<ConnectionStatus>()
+    ..add(ConnectionStatus.disconnected);
 
   final availableReadersChanged = BehaviorSubject<List<Reader>>();
   final tagsRead = BehaviorSubject<List<RfidTag>>();
@@ -90,4 +93,14 @@ ModelVersion: $modelVersion
 ScannerName: $scannerName
 SerialNumber: $serialNumber
 ''';
+}
+
+extension ReaderConnectionStatusX on ReaderConnectionStatus {
+  ConnectionStatus get connectionStatus => switch (this) {
+        ReaderConnectionStatus.connecting => ConnectionStatus.connecting,
+        ReaderConnectionStatus.connected => ConnectionStatus.connected,
+        ReaderConnectionStatus.disconnecting => ConnectionStatus.disconnecting,
+        ReaderConnectionStatus.disconnected => ConnectionStatus.disconnected,
+        ReaderConnectionStatus.error => ConnectionStatus.error,
+      };
 }

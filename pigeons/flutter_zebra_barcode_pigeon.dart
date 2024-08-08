@@ -2,24 +2,24 @@ import 'package:pigeon/pigeon.dart';
 
 @ConfigurePigeon(
   PigeonOptions(
-    dartOut: 'lib/flutter_zebra_rfid.g.dart',
+    dartOut: 'lib/flutter_zebra_barcode.g.dart',
     kotlinOut:
-        'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraRfid.g.kt',
-    kotlinOptions: KotlinOptions(errorClassName: 'FlutterRfidError'),
-    swiftOut: 'ios/Classes/FlutterZebraRfid.g.swift',
-    dartPackageName: 'flutter_zebra_rfid',
+        'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraBarcode.g.kt',
+    kotlinOptions: KotlinOptions(errorClassName: 'FlutterBarcodeError'),
+    swiftOut: 'ios/Classes/FlutterZebraBarcode.g.swift',
+    dartPackageName: 'flutter_zebra_barcode',
   ),
 )
 @HostApi()
-abstract class FlutterZebraRfid {
+abstract class FlutterZebraBarcode {
   /// Returns list with names of available readers for specified `connectionType`.
   @async
-  void updateAvailableReaders(ReaderConnectionType connectionType);
+  void updateAvailableScanners();
 
   /// Connects to a reader with `readerId` ID.
   @async
-  void connectReader(int readerId);
-
+  void connectScanner(int scannerId);
+/*
   /// Configures reader with `config`.
   @async
   void configureReader(ReaderConfig config, bool shouldPersist);
@@ -31,25 +31,25 @@ abstract class FlutterZebraRfid {
   /// Trigger device status
   @async
   void triggerDeviceStatus();
-
+*/
   /// Reader currently in use
-  Reader? currentReader();
+  BarcodeScanner? currentScanner();
 }
 
 @FlutterApi()
-abstract class FlutterZebraRfidCallbacks {
-  void onAvailableReadersChanged(List<Reader> readers);
-  void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
-  void onTagsRead(List<RfidTag> tags);
-  void onBatteryDataReceived(BatteryData batteryData);
+abstract class FlutterZebraBarcodeCallbacks {
+  void onAvailableScannersChanged(List<BarcodeScanner> readers);
+  void onScannerConnectionStatusChanged(ScannerConnectionStatus status);
+  // void onBarcodesRead(List<RfidTag> tags);
+  // void onBatteryDataReceived(BatteryData batteryData);
 }
 
-enum ReaderConnectionType {
+enum ScannerConnectionType {
   bluetooth,
   usb,
 }
 
-enum ReaderConnectionStatus {
+enum ScannerConnectionStatus {
   connecting,
   connected,
   disconnecting,
@@ -57,17 +57,19 @@ enum ReaderConnectionStatus {
   error,
 }
 
-class Reader {
-  Reader({
+class BarcodeScanner {
+  BarcodeScanner({
     required this.name,
     required this.id,
-    this.info,
+    required this.model,
+    required this.serialNumber,
   });
   final String? name;
   final int id;
-  final ReaderInfo? info;
+  final String model;
+  final String serialNumber;
 }
-
+/*
 enum ReaderConfigBatchMode {
   auto,
   enabled,
@@ -135,3 +137,4 @@ class BatteryData {
   final bool isCharging;
   final String cause;
 }
+*/
