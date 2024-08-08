@@ -56,13 +56,17 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     
     /// Disconnects a reader with `readerName` name.
     func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void) {}
+
+    func configureReader(config: ReaderConfig, shouldPersist: Bool, completion: @escaping (Result<Void, Error>) -> Void) {}
+    
+    func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void) {}
     
     /// Name of reader currently in use
     func currentReaderName() throws -> String? {
         return nil
     }
     
-    func currentReader() throws -> RfidReader? {
+    func currentReader() throws -> Reader? {
         return nil
     }
 
@@ -74,7 +78,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     var _availableReaders: Array<srfidReaderInfo> = []
     
     func emitAvailableReaders() {
-        let readers = _availableReaders.map { RfidReader(name: $0.getReaderName(), id: Int64($0.getReaderID())) }
+        let readers = _availableReaders.map { Reader(name: $0.getReaderName(), id: Int64($0.getReaderID())) }
         _callbacks.onAvailableReadersChanged(readers: readers) { result in
         }
     }

@@ -12,7 +12,7 @@ import Foundation
 #endif
 
 /// Error class for passing custom error details to Dart side.
-final class PigeonError: Error {
+final class FlutterRfidError: Error {
   let code: String
   let message: String?
   let details: Any?
@@ -25,7 +25,7 @@ final class PigeonError: Error {
 
   var localizedDescription: String {
     return
-      "PigeonError(code: \(code), message: \(message ?? "<nil>"), details: \(details ?? "<nil>")"
+      "FlutterRfidError(code: \(code), message: \(message ?? "<nil>"), details: \(details ?? "<nil>")"
       }
 }
 
@@ -34,7 +34,7 @@ private func wrapResult(_ result: Any?) -> [Any?] {
 }
 
 private func wrapError(_ error: Any) -> [Any?] {
-  if let pigeonError = error as? PigeonError {
+  if let pigeonError = error as? FlutterRfidError {
     return [
       pigeonError.code,
       pigeonError.message,
@@ -55,8 +55,8 @@ private func wrapError(_ error: Any) -> [Any?] {
   ]
 }
 
-private func createConnectionError(withChannelName channelName: String) -> PigeonError {
-  return PigeonError(code: "channel-error", message: "Unable to establish connection on channel: '\(channelName)'.", details: "")
+private func createConnectionError(withChannelName channelName: String) -> FlutterRfidError {
+  return FlutterRfidError(code: "channel-error", message: "Unable to establish connection on channel: '\(channelName)'.", details: "")
 }
 
 private func isNullish(_ value: Any?) -> Bool {
@@ -468,10 +468,10 @@ class FlutterZebraRfidSetup {
 }
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol FlutterZebraRfidCallbacksProtocol {
-  func onAvailableReadersChanged(readers readersArg: [Reader], completion: @escaping (Result<Void, PigeonError>) -> Void)
-  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
-  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, PigeonError>) -> Void)
-  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onAvailableReadersChanged(readers readersArg: [Reader], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
+  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
+  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
+  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -483,7 +483,7 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   var codec: FlutterZebraRfidPigeonCodec {
     return FlutterZebraRfidPigeonCodec.shared
   }
-  func onAvailableReadersChanged(readers readersArg: [Reader], completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onAvailableReadersChanged(readers readersArg: [Reader], completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onAvailableReadersChanged\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([readersArg] as [Any?]) { response in
@@ -495,13 +495,13 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
         let code: String = listResponse[0] as! String
         let message: String? = nilOrValue(listResponse[1])
         let details: String? = nilOrValue(listResponse[2])
-        completion(.failure(PigeonError(code: code, message: message, details: details)))
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
       } else {
         completion(.success(Void()))
       }
     }
   }
-  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionStatusChanged\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([statusArg] as [Any?]) { response in
@@ -513,13 +513,13 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
         let code: String = listResponse[0] as! String
         let message: String? = nilOrValue(listResponse[1])
         let details: String? = nilOrValue(listResponse[2])
-        completion(.failure(PigeonError(code: code, message: message, details: details)))
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
       } else {
         completion(.success(Void()))
       }
     }
   }
-  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsRead\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([tagsArg] as [Any?]) { response in
@@ -531,13 +531,13 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
         let code: String = listResponse[0] as! String
         let message: String? = nilOrValue(listResponse[1])
         let details: String? = nilOrValue(listResponse[2])
-        completion(.failure(PigeonError(code: code, message: message, details: details)))
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
       } else {
         completion(.success(Void()))
       }
     }
   }
-  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([batteryDataArg] as [Any?]) { response in
@@ -549,7 +549,7 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
         let code: String = listResponse[0] as! String
         let message: String? = nilOrValue(listResponse[1])
         let details: String? = nilOrValue(listResponse[2])
-        completion(.failure(PigeonError(code: code, message: message, details: details)))
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
       } else {
         completion(.success(Void()))
       }

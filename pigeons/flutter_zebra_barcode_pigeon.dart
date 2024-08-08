@@ -7,6 +7,7 @@ import 'package:pigeon/pigeon.dart';
         'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraBarcode.g.kt',
     kotlinOptions: KotlinOptions(errorClassName: 'FlutterBarcodeError'),
     swiftOut: 'ios/Classes/FlutterZebraBarcode.g.swift',
+    swiftOptions: SwiftOptions(errorClassName: 'FlutterBarcodeError'),
     dartPackageName: 'flutter_zebra_barcode',
   ),
 )

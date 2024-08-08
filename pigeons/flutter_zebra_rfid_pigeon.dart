@@ -7,6 +7,7 @@ import 'package:pigeon/pigeon.dart';
         'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraRfid.g.kt',
     kotlinOptions: KotlinOptions(errorClassName: 'FlutterRfidError'),
     swiftOut: 'ios/Classes/FlutterZebraRfid.g.swift',
+    swiftOptions: SwiftOptions(errorClassName: 'FlutterRfidError'),
     dartPackageName: 'flutter_zebra_rfid',
   ),
 )
