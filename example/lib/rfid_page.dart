@@ -41,17 +41,17 @@ class _RfidPageState extends State<RfidPage> {
         _connectionStatus = status;
         _currentReader = reader;
 
-        if (status == ReaderConnectionStatus.connected) {
+        if (status == ConnectionStatus.connected) {
           // configure reader
           _flutterZebraRfidApi.configureReader(
               config: ReaderConfig(
                 transmitPowerIndex:
                     299, //_currentReader?.info?.transmitPowerLevels.length-1,
-                beeperVolume: ReaderBeeperVolume.quiet,
-                enableDynamicPower: true,
+                beeperVolume: ReaderBeeperVolume.medium,
+                enableDynamicPower: false,
                 enableLedBlink: true,
-                // batchMode: ReaderConfigBatchMode.auto,
-                // scanBatchMode: ReaderConfigBatchMode.auto,
+                batchMode: ReaderConfigBatchMode.auto,
+                scanBatchMode: ReaderConfigBatchMode.auto,
               ),
               shouldPersist: false);
         }

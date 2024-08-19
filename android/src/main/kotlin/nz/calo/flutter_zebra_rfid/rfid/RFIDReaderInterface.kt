@@ -193,8 +193,8 @@ class RFIDReaderInterface(
         if (reader!!.isConnected) {
             Log.d(TAG, "Configuring...")
             val triggerInfo = TriggerInfo()
-            triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
-            triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
+            triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_HANDHELD
+            triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_HANDHELD_WITH_TIMEOUT
             try {
                 // receive events from reader
                 reader!!.Events.addEventsListener(this)
@@ -212,6 +212,8 @@ class RFIDReaderInterface(
                 reader!!.Events.setAntennaEvent(true)
                 reader!!.Events.setTemperatureAlarmEvent(true)
                 reader!!.Events.setPowerEvent(true)
+                reader!!.Events.setWPAEvent(true);
+                reader!!.Events.setScanDataEvent(true);
 
                 // set start and stop triggers
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
@@ -219,14 +221,39 @@ class RFIDReaderInterface(
                 reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
 
                 // Terminal scan, use trigger for scanning!
-                reader!!.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_SCAN)
+                reader!!.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_RFID)
 
+                getReaderConfig();
             } catch (e: Throwable) {
                 Log.d(TAG, "Error configuring reader: $e")
                 throw Error("Error configuring reader")
             }
         }
     }
+
+    fun getReaderConfig() {
+    if (reader == null) {
+        Log.d(TAG, "Not connected to any Reader!")
+        throw Error("Not connected to any Reader")
+    }
+
+    try {
+         val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
+        val transmitPowerIndex = antennaRfConfig.transmitPowerIndex
+        val receiveSensitivityIndex = antennaRfConfig.receiveSensitivityIndex
+        val rfModeIndex = antennaRfConfig // Corrected property name
+        val tari = antennaRfConfig.tari
+
+        Log.d(TAG, "Reader Config:")
+        Log.d(TAG, "Transmit Power Index: $transmitPowerIndex")
+        Log.d(TAG, "Receive Sensitivity Index: $receiveSensitivityIndex")
+        Log.d(TAG, "RF Mode Table Index: $rfModeIndex")
+        Log.d(TAG, "Tari: $tari")
+    } catch (e: Exception) {
+        Log.d(TAG, "Error getting reader config: $e")
+        throw Error("Error getting reader config")
+    }
+}
 
     // Status Event Notification
     override fun eventStatusNotify(rfidStatusEvents: RfidStatusEvents) {
@@ -243,43 +270,80 @@ class RFIDReaderInterface(
                     callbacks.onBatteryDataReceived(batteryData) {}
                 }
             }
+            STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT -> {
+            Log.d(TAG, "Handheld trigger event detected")
+            try {
+                if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
+                    Log.d(TAG, "Handheld trigger pressed")
+                    performInventory();
+                    // Read all memory banks
+                    val memoryBanksToRead = arrayOf(
+                        MEMORY_BANK.MEMORY_BANK_EPC,
+                        MEMORY_BANK.MEMORY_BANK_TID,
+                        MEMORY_BANK.MEMORY_BANK_USER
+                    )
+                    for (bank in memoryBanksToRead) {
+                        val ta = TagAccess()
+                        val sequence = ta.Sequence(ta)
+                        Log.d(TAG, "Reading memory bank: $bank")
+                    }
+                } else {
+                    Log.d(TAG, "Handheld trigger released")
+                    stopInventory()
+                }
+            } catch (e: Throwable) {
+                Log.d(TAG, "Error handling handheld trigger event: $e")
+            }
         }
-//        if (rfidStatusEvents.StatusEventData.statusEventType === STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT) {
-//            if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
-//                try {
-//                    // Read all memory banks
-//                    val memoryBanksToRead = arrayOf(
-//                        MEMORY_BANK.MEMORY_BANK_EPC,
-//                        MEMORY_BANK.MEMORY_BANK_TID,
-//                        MEMORY_BANK.MEMORY_BANK_USER
-//                    );
-//                    for (bank in memoryBanksToRead) {
-//                        val ta = TagAccess()
-//                        val sequence = ta.Sequence(ta)
-//                        val op = sequence.Operation()
-//                        op.accessOperationCode = ACCESS_OPERATION_CODE.ACCESS_OPERATION_READ
-//                        op.ReadAccessParams.memoryBank =
-//                            bank ?: throw IllegalArgumentException("bank must not be null")
-//                        reader!!.Actions.TagAccess.OperationSequence.add(op)
-//                    }
-//
-//                    reader!!.Actions.TagAccess.OperationSequence.performSequence()
-//
-//                } catch (e: Exception) {
-//                    e.printStackTrace()
-//                }
-//            } else if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED) {
-//                try {
-//                    reader!!.Actions.TagAccess.OperationSequence.stopSequence()
-//                } catch (e: Exception) {
-//                    e.printStackTrace()
-//                }
-//            }
-//        }
+        else -> {
+            Log.d(TAG, "Unhandled status event type: ${rfidStatusEvents.StatusEventData.statusEventType}")
+        }
+        }
+    }
+
+    @Synchronized
+    fun performInventory() {
+        // check reader connection
+        if (!isReaderConnected()) return
+        try {
+            Log.d(TAG, "Perform inventory")
+            reader!!.Actions.Inventory.perform()
+        } catch (e: InvalidUsageException) {
+            e.printStackTrace()
+        } catch (e: OperationFailureException) {
+            e.printStackTrace()
+        }
+    }
+
+    @Synchronized
+    fun stopInventory() {
+        // check reader connection
+        if (!isReaderConnected()) return
+        try {
+            Log.d(TAG, "Stop inventory")
+            reader!!.Actions.Inventory.stop()
+            // reader!!.Actions.purgeTags()
+            Log.d(TAG, "Inventory stopped")
+            // Log tags scanned
+            val tags = reader!!.Actions.getReadTags(100)
+            Log.d(TAG, "Tags read: $tags")
+        } catch (e: InvalidUsageException) {
+            e.printStackTrace()
+        } catch (e: OperationFailureException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun isReaderConnected(): Boolean {
+        return if (reader!!.isConnected) true else {
+            Log.d(TAG, "READER NOT CONNECTED")
+            false
+        }
     }
 
     // Read Event Notification
     override fun eventReadNotify(e: RfidReadEvents) {
+        Log.d(TAG, "Read Event Notification")
         // Each access belong to a tag.
         // Therefore, as we are performing an access sequence on 3 Memory Banks, each tag could be reported 3 times
         // Each tag data represents a memory bank
