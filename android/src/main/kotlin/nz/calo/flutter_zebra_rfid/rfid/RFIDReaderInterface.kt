@@ -358,7 +358,7 @@ class RFIDReaderInterface(
                             it.tagID,
                             it.peakRSSI.toLong()
                         )
-                    }) {}
+                    })
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Error $e")
