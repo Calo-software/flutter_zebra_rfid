@@ -356,7 +356,7 @@ class RFIDReaderInterface(
                     callbacks.onTagsRead(readTags.map {
                         RfidTag(
                             it.tagID,
-                            it.peakRSSI.toLong(),
+                            it.peakRSSI.toLong()
                         )
                     }) {}
                 }
