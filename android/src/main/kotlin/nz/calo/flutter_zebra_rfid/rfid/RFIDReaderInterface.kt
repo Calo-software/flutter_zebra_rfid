@@ -193,8 +193,8 @@ class RFIDReaderInterface(
         if (reader!!.isConnected) {
             Log.d(TAG, "Configuring...")
             val triggerInfo = TriggerInfo()
-            triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_HANDHELD
-            triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_HANDHELD_WITH_TIMEOUT
+            triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
+            triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
             try {
                 // receive events from reader
                 reader!!.Events.addEventsListener(this)
@@ -212,8 +212,6 @@ class RFIDReaderInterface(
                 reader!!.Events.setAntennaEvent(true)
                 reader!!.Events.setTemperatureAlarmEvent(true)
                 reader!!.Events.setPowerEvent(true)
-                reader!!.Events.setWPAEvent(true);
-                reader!!.Events.setScanDataEvent(true);
 
                 // set start and stop triggers
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
@@ -223,7 +221,13 @@ class RFIDReaderInterface(
                 // Terminal scan, use trigger for scanning!
                 reader!!.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_RFID)
 
-                getReaderConfig();
+                val s1SingulationControl = reader!!.Config.Antennas.getSingulationControl(1)
+                s1SingulationControl.session = SESSION.SESSION_S0
+                s1SingulationControl.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
+                s1SingulationControl.Action.slFlag = SL_FLAG.SL_ALL
+                reader!!.Config.Antennas.setSingulationControl(1, s1SingulationControl)
+                reader!!.Actions.PreFilters.deleteAll()
+                
             } catch (e: Throwable) {
                 Log.d(TAG, "Error configuring reader: $e")
                 throw Error("Error configuring reader")
@@ -322,11 +326,8 @@ class RFIDReaderInterface(
         try {
             Log.d(TAG, "Stop inventory")
             reader!!.Actions.Inventory.stop()
-            // reader!!.Actions.purgeTags()
+            reader!!.Actions.purgeTags()
             Log.d(TAG, "Inventory stopped")
-            // Log tags scanned
-            val tags = reader!!.Actions.getReadTags(100)
-            Log.d(TAG, "Tags read: $tags")
         } catch (e: InvalidUsageException) {
             e.printStackTrace()
         } catch (e: OperationFailureException) {
@@ -355,7 +356,8 @@ class RFIDReaderInterface(
                     callbacks.onTagsRead(readTags.map {
                         RfidTag(
                             it.tagID,
-                            it.peakRSSI.toLong()
+                            it.peakRSSI.toLong(),
+                            it.
                         )
                     }) {}
                 }
