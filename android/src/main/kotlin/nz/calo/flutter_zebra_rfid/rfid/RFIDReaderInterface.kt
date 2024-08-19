@@ -357,7 +357,6 @@ class RFIDReaderInterface(
                         RfidTag(
                             it.tagID,
                             it.peakRSSI.toLong(),
-                            it.
                         )
                     }) {}
                 }
