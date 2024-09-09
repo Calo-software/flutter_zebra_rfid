@@ -214,19 +214,38 @@ class RFIDReaderInterface(
                 reader!!.Events.setPowerEvent(true)
 
                 // set start and stop triggers
+                reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
                 reader!!.Config.stopTrigger = triggerInfo.StopTrigger
-                reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
+
+
+                // set antenna configurations
+                val config: Antennas.AntennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
+
+                config.setrfModeTableIndex(0)
+                config.setTari(0)
+                reader!!.Config.Antennas.setAntennaRfConfig(1, config)
+
+                val s1_singulationControl: Antennas.SingulationControl =
+                    reader!!.Config.Antennas.getSingulationControl(1)
+                s1_singulationControl.setSession(SESSION.SESSION_S0)
+                s1_singulationControl.Action.setInventoryState(INVENTORY_STATE.INVENTORY_STATE_A)
+                s1_singulationControl.Action.setSLFlag(SL_FLAG.SL_ALL)
+                reader!!.Config.Antennas.setSingulationControl(1, s1_singulationControl)
+
+                // delete any prefilters
+                reader!!.Actions.PreFilters.deleteAll()
+
 
                 // Terminal scan, use trigger for scanning!
-                reader!!.Config.setKeylayoutType(ENUM_KEYLAYOUT_TYPE.UPPER_TRIGGER_FOR_RFID)
+//                reader!!.Config.setKeylayoutType(ENUM_NEW_KEYLAYOUT_TYPE.RFID, ENUM_NEW_KEYLAYOUT_TYPE.TERMINAL_SCAN)
 
-                val s1SingulationControl = reader!!.Config.Antennas.getSingulationControl(1)
-                s1SingulationControl.session = SESSION.SESSION_S0
-                s1SingulationControl.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
-                s1SingulationControl.Action.slFlag = SL_FLAG.SL_ALL
-                reader!!.Config.Antennas.setSingulationControl(1, s1SingulationControl)
-                reader!!.Actions.PreFilters.deleteAll()
+//                val s1SingulationControl = reader!!.Config.Antennas.getSingulationControl(1)
+//                s1SingulationControl.session = SESSION.SESSION_S0
+//                s1SingulationControl.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
+//                s1SingulationControl.Action.slFlag = SL_FLAG.SL_ALL
+//                reader!!.Config.Antennas.setSingulationControl(1, s1SingulationControl)
+//                reader!!.Actions.PreFilters.deleteAll()
                 
             } catch (e: Throwable) {
                 Log.d(TAG, "Error configuring reader: $e")
