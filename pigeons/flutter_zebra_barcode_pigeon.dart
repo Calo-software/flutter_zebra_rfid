@@ -41,8 +41,7 @@ abstract class FlutterZebraBarcode {
 abstract class FlutterZebraBarcodeCallbacks {
   void onAvailableScannersChanged(List<BarcodeScanner> readers);
   void onScannerConnectionStatusChanged(ScannerConnectionStatus status);
-  // void onBarcodesRead(List<RfidTag> tags);
-  // void onBatteryDataReceived(BatteryData batteryData);
+  void onBarcodeRead(Barcode barcode);
 }
 
 enum ScannerConnectionType {
@@ -67,75 +66,18 @@ class BarcodeScanner {
   });
   final String? name;
   final int id;
-  final String model;
-  final String serialNumber;
-}
-/*
-enum ReaderConfigBatchMode {
-  auto,
-  enabled,
-  disabled,
-}
-
-enum ReaderBeeperVolume {
-  quiet,
-  low,
-  medium,
-  high,
-}
-
-class ReaderConfig {
-  ReaderConfig({
-    this.transmitPowerIndex,
-    this.beeperVolume,
-    this.enableDynamicPower,
-    this.enableLedBlink,
-    this.batchMode,
-    this.scanBatchMode,
-  });
-  final int? transmitPowerIndex;
-  final ReaderBeeperVolume? beeperVolume;
-  final bool? enableDynamicPower;
-  final bool? enableLedBlink;
-  final ReaderConfigBatchMode? batchMode;
-  final ReaderConfigBatchMode? scanBatchMode;
-}
-
-class ReaderInfo {
-  ReaderInfo({
-    required this.transmitPowerLevels,
-    required this.firmwareVersion,
-    required this.modelVersion,
-    required this.scannerName,
-    required this.serialNumber,
-  });
-
-  final List transmitPowerLevels;
-  final String firmwareVersion;
-  final String modelVersion;
-  final String scannerName;
+  final String? model;
   final String serialNumber;
 }
 
-class RfidTag {
-  RfidTag({
-    required this.id,
-    required this.rssi,
+class Barcode {
+  Barcode({
+    required this.data,
+    required this.scannerId,
+    this.scannerType,
   });
 
-  final String id;
-  final int rssi;
+  final String data;
+  final int scannerId;
+  final int? scannerType;
 }
-
-class BatteryData {
-  BatteryData({
-    required this.level,
-    required this.isCharging,
-    required this.cause,
-  });
-
-  final int level;
-  final bool isCharging;
-  final String cause;
-}
-*/

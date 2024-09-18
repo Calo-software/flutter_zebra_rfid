@@ -122,10 +122,11 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         callback: (Result<Unit>) -> Unit
     ) {
         try {
-            if (connectionType == ReaderConnectionType.BLUETOOTH) {
+            if (connectionType == ReaderConnectionType.BLUETOOTH || connectionType == ReaderConnectionType.ALL) {
                 val permissions = ArrayList<String>()
                 if (Build.VERSION.SDK_INT >= 31) { // Android 12 (October 2021)
                     permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+                    permissions.add(Manifest.permission.BLUETOOTH_SCAN);
                 }
 
                 if (Build.VERSION.SDK_INT <= 30) { // Android 11 (September 2020)
@@ -264,28 +265,6 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 //        }
     }
 
-//    private fun configureDevice() {
-//
-//        // Configure BT barcode scanner
-//        if (scannerInterface == null)
-//            scannerInterface = BarcodeScannerInterface(this)
-//
-//        var availableScannerList = scannerInterface!!.getAvailableScanners(applicationContext)
-//        if (availableScannerList.size > 1) {
-//            val items = availableScannerList.map { x -> x.scannerName }.toTypedArray()
-//            var checkedItem = 0
-//
-//        } else if (availableScannerList.first() != null) {
-//            configureScanner(availableScannerList.first().scannerID)
-//        } else {
-//            Toast.makeText(
-//                applicationContext,
-//                "No available scanner",
-//                Toast.LENGTH_LONG
-//            ).show()
-//        }
-//    }
-
     companion object {
         private var rfidInterface: RFIDReaderInterface? = null
         private var scannerInterface: BarcodeScannerInterface? = null
@@ -338,5 +317,4 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         activityBinding!!.removeRequestPermissionsResultListener(this)
         activityBinding = null
     }
-
 }

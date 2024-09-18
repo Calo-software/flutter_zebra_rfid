@@ -20,6 +20,7 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
     return when (type) {
         ReaderConnectionType.BLUETOOTH -> ENUM_TRANSPORT.BLUETOOTH
         ReaderConnectionType.USB -> ENUM_TRANSPORT.SERVICE_USB
+        ReaderConnectionType.ALL -> ENUM_TRANSPORT.ALL
     }
 }
 

@@ -14,12 +14,8 @@ class FlutterZebraBarcodeApi {
   BehaviorSubject<List<BarcodeScanner>> get onAvailableScannersChanged =>
       _callbacks.availableScannersChanged;
 
-  /// Behavior subject wrapping tags read callback from the plugin
-  // BehaviorSubject<List<RfidTag>> get onTagsRead => _callbacks.tagsRead;
-
-  /// Behavior subject wrapping battery data updated
-  // BehaviorSubject<BatteryData> get onBatteryDataReceived =>
-  //     _callbacks.batteryDataReceived;
+  /// Behavior subject wrapping barcode read callback from the plugin
+  BehaviorSubject<Barcode> get onBarcodeRead => _callbacks.barcodeRead;
 
   /// Triggers reader list refresh
   Future<void> updateAvailableScanners() => _api.updateAvailableScanners();
@@ -28,21 +24,7 @@ class FlutterZebraBarcodeApi {
   Future<void> connectScanner({required int scannerId}) =>
       _api.connectScanner(scannerId);
 
-  /// Configures the connected reader, if `shouldPersist` is true then the
-  /// configuration is stored in the reader
-  // Future<void> configureReader({
-  //   required ReaderConfig config,
-  //   required bool shouldPersist,
-  // }) =>
-  //     _api.configureReader(config, shouldPersist);
-
-  /// Disconnects current reader
-  // Future<void> disconectCurrentReader() => _api.disconnectReader();
-
-  /// Triggers device status event
-  // Future<void> triggerDeviceStatus() => _api.triggerDeviceStatus();
-
-  /// Returns reader currently in use (or null if none in use)
+  /// Returns scanner in use (or null if none in use)
   Future<BarcodeScanner?> get currentScanner => _api.currentScanner();
 
   final _api = FlutterZebraBarcode();
@@ -65,34 +47,17 @@ class _FlutterZebraBarcodeCallbacksImpl
       availableScannersChanged
           .add(scanners.map((e) => e as BarcodeScanner).toList());
 
-  // @override
-  // void onTagsRead(List<RfidTag?> tags) {
-  //   tagsRead.add(
-  //     tags.map((e) => e as RfidTag).toList(),
-  //   );
-  // }
-
-  // @override
-  // void onBatteryDataReceived(BatteryData batteryData) =>
-  //     batteryDataReceived.add(batteryData);
+  @override
+  void onBarcodeRead(Barcode? barcode) {
+    if (barcode != null) barcodeRead.add(barcode);
+  }
 
   final connectionStatusChanged = BehaviorSubject<ConnectionStatus>()
     ..add(ConnectionStatus.disconnected);
 
   final availableScannersChanged = BehaviorSubject<List<BarcodeScanner>>();
-  // final tagsRead = BehaviorSubject<List<RfidTag>>();
-  // final batteryDataReceived = BehaviorSubject<BatteryData>();
+  final barcodeRead = BehaviorSubject<Barcode>();
 }
-
-// extension ReaderInfoX on ReaderInfo {
-//   String get asString => '''
-// TransmitPowerLevels: ${transmitPowerLevels.first} - ${transmitPowerLevels.last}
-// FirmwareVersion: $firmwareVersion
-// ModelVersion: $modelVersion
-// ScannerName: $scannerName
-// SerialNumber: $serialNumber
-// ''';
-// }
 
 extension ScannerConnectionStatusX on ScannerConnectionStatus {
   ConnectionStatus get connectionStatus => switch (this) {

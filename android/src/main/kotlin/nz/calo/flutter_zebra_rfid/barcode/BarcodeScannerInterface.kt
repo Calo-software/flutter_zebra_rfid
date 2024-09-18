@@ -1,8 +1,12 @@
 package nz.calo.flutter_zebra_rfid.barcode
 
+import Barcode
 import BarcodeScanner
 import FlutterZebraBarcodeCallbacks
+import ScannerConnectionStatus
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.zebra.rfid.api3.InvalidUsageException
 import com.zebra.rfid.api3.OperationFailureException
@@ -18,54 +22,63 @@ class BarcodeScannerInterface(
     private var sdkHandler: SDKHandler? = null
     private var availableScannerList: ArrayList<DCSScannerInfo> = ArrayList()
 
-    private var scanner: DCSScannerInfo? = null
+    private var currentScanner: DCSScannerInfo? = null
 
     fun updateAvailableScanners(context: Context) {
         if (sdkHandler == null)
             sdkHandler = SDKHandler(context)
 
-//        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
+        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
+//        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_LE)
         sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
 
         sdkHandler!!.dcssdkSetDelegate(this);
-        var notifications_mask = 0
-        notifications_mask =
-            notifications_mask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
+        var notificationsMask = 0
+        notificationsMask =
+            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
                     DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value)
-        notifications_mask =
-            notifications_mask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
+        notificationsMask =
+            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
                     DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value)
-        notifications_mask =
-            notifications_mask or DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
+        notificationsMask =
+            notificationsMask or DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
 
         // subscribe to events set in notification mask
-        sdkHandler!!.dcssdkSubsribeForEvents(notifications_mask)
+        sdkHandler!!.dcssdkSubsribeForEvents(notificationsMask)
         sdkHandler!!.dcssdkEnableAvailableScannersDetection(true)
 
-        sdkHandler!!.dcssdkGetAvailableScannersList(availableScannerList)
-        callbacks.onAvailableScannersChanged(availableScannerList.map {
-            BarcodeScanner(it.scannerName, it.scannerID.toLong(), it.scannerModel, it.scannerHWSerialNumber)
-        }) {}
+        getAvailableScannerList()
     }
 
     fun connectToScanner(scannerId: Int) {
         try {
             val scanner = availableScannerList.firstOrNull { x -> x.scannerID == scannerId }
                 ?: throw Error("Scanner not available")
+
+            if (scanner == currentScanner) {
+                Log.d(TAG, "Scanner ${scanner.scannerName} already connected!")
+                return
+            }
+
+            Log.d(TAG, "Connecting to scanner $scannerId")
+
+            if (scanner.isAutoCommunicationSessionReestablishment) {
+                // consider it connected as it should auto connect
+                Log.d(TAG, "Scanner set to auto-connect")
+            }
             if (scanner.isActive)
                 throw Error("Scanner is not active")
 
-            Log.d(TAG, "Connecting to scanner $scannerId")
+
             callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTING) {}
 
             // Connect
             var result = sdkHandler!!.dcssdkEstablishCommunicationSession(scanner.scannerID)
 
-            if(result == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
-                Log.d(TAG, "Connected to scanner $scannerId")
-                callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTED) {}
+            if (result == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                Log.d(TAG, "Connected to scanner ${scanner.scannerName}")
             } else {
-                Log.d(TAG, "Failed to connect to scanner $scannerId: $result")
+                Log.d(TAG, "Failed to connect to scanner ${scanner.scannerName}: $result")
                 callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
                 throw Error("Failed to connect")
             }
@@ -74,13 +87,14 @@ class BarcodeScannerInterface(
             throw Error("Failed to connect to scanner")
         }
     }
+
     fun currentScanner(): BarcodeScanner? {
-        if (scanner != null) {
+        if (currentScanner != null) {
             return BarcodeScanner(
-                scanner!!.scannerName,
-                scanner!!.scannerID.toLong(),
-                scanner!!.scannerModel,
-                scanner!!.scannerHWSerialNumber,
+                currentScanner!!.scannerName,
+                currentScanner!!.scannerID.toLong(),
+                currentScanner!!.scannerModel,
+                currentScanner!!.scannerHWSerialNumber,
             )
         }
         return null
@@ -100,20 +114,35 @@ class BarcodeScannerInterface(
         }
     }
 
-    override fun dcssdkEventScannerAppeared(p0: DCSScannerInfo?) {
+    override fun dcssdkEventScannerAppeared(scanner: DCSScannerInfo?) {
+        Log.d(TAG, "Scanner ${scanner?.scannerName} appeared")
+        getAvailableScannerList()
     }
 
-    override fun dcssdkEventScannerDisappeared(p0: Int) {
+    override fun dcssdkEventScannerDisappeared(scannerIndex: Int) {
+        val scanner = availableScannerList[scannerIndex]
+        Log.d(TAG, "Scanner ${scanner?.scannerName} disappeared")
+        getAvailableScannerList()
     }
 
-    override fun dcssdkEventCommunicationSessionEstablished(p0: DCSScannerInfo?) {
+    override fun dcssdkEventCommunicationSessionEstablished(scanner: DCSScannerInfo?) {
+        Log.d(TAG, "Scanner connected: ${scanner?.scannerName}")
+        currentScanner = scanner
+        callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTED) {}
     }
 
-    override fun dcssdkEventCommunicationSessionTerminated(p0: Int) {
+    override fun dcssdkEventCommunicationSessionTerminated(scannerId: Int) {
+        Log.d(TAG, "Scanner disconnected: $scannerId")
+        currentScanner = null
+        callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
     }
 
-    override fun dcssdkEventBarcode(p0: ByteArray?, p1: Int, p2: Int) {
-        val barcode = String(p0!!)
+    override fun dcssdkEventBarcode(barcodeData: ByteArray?, barcodeType: Int, scannerId: Int) {
+        val barcode = Barcode(String(barcodeData!!), scannerId.toLong(), barcodeType.toLong())
+        Log.d(TAG, "Barcode read ${barcode.data}")
+        Handler(Looper.getMainLooper()).post {
+            callbacks.onBarcodeRead(barcode) {}
+        }
     }
 
     override fun dcssdkEventImage(p0: ByteArray?, p1: Int) {
@@ -129,5 +158,16 @@ class BarcodeScannerInterface(
     }
 
     override fun dcssdkEventAuxScannerAppeared(p0: DCSScannerInfo?, p1: DCSScannerInfo?) {
+    }
+
+    // PRIVATE:
+    private fun getAvailableScannerList() {
+        sdkHandler!!.dcssdkGetAvailableScannersList(availableScannerList)
+        callbacks.onAvailableScannersChanged(availableScannerList.map {
+            BarcodeScanner(
+                it.scannerName, it.scannerID.toLong(),
+                it.scannerModel, it.scannerHWSerialNumber
+            )
+        }) {}
     }
 }

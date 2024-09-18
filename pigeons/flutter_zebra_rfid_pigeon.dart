@@ -48,6 +48,7 @@ abstract class FlutterZebraRfidCallbacks {
 enum ReaderConnectionType {
   bluetooth,
   usb,
+  all,
 }
 
 enum ReaderConnectionStatus {
