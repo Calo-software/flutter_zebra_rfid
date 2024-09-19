@@ -132,21 +132,21 @@ class ReaderConfig {
 class ReaderInfo {
   ReaderInfo({
     required this.transmitPowerLevels,
-    required this.firmwareVersion,
-    required this.modelVersion,
-    required this.scannerName,
-    required this.serialNumber,
+    this.firmwareVersion,
+    this.modelVersion,
+    this.scannerName,
+    this.serialNumber,
   });
 
   List<Object?> transmitPowerLevels;
 
-  String firmwareVersion;
+  String? firmwareVersion;
 
-  String modelVersion;
+  String? modelVersion;
 
-  String scannerName;
+  String? scannerName;
 
-  String serialNumber;
+  String? serialNumber;
 
   Object encode() {
     return <Object?>[
@@ -162,10 +162,10 @@ class ReaderInfo {
     result as List<Object?>;
     return ReaderInfo(
       transmitPowerLevels: result[0]! as List<Object?>,
-      firmwareVersion: result[1]! as String,
-      modelVersion: result[2]! as String,
-      scannerName: result[3]! as String,
-      serialNumber: result[4]! as String,
+      firmwareVersion: result[1] as String?,
+      modelVersion: result[2] as String?,
+      scannerName: result[3] as String?,
+      serialNumber: result[4] as String?,
     );
   }
 }

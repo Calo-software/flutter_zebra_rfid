@@ -168,20 +168,20 @@ struct ReaderConfig {
 /// Generated class from Pigeon that represents data sent in messages.
 struct ReaderInfo {
   var transmitPowerLevels: [Any?]
-  var firmwareVersion: String
-  var modelVersion: String
-  var scannerName: String
-  var serialNumber: String
+  var firmwareVersion: String? = nil
+  var modelVersion: String? = nil
+  var scannerName: String? = nil
+  var serialNumber: String? = nil
 
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> ReaderInfo? {
     let transmitPowerLevels = pigeonVar_list[0] as! [Any?]
-    let firmwareVersion = pigeonVar_list[1] as! String
-    let modelVersion = pigeonVar_list[2] as! String
-    let scannerName = pigeonVar_list[3] as! String
-    let serialNumber = pigeonVar_list[4] as! String
+    let firmwareVersion: String? = nilOrValue(pigeonVar_list[1])
+    let modelVersion: String? = nilOrValue(pigeonVar_list[2])
+    let scannerName: String? = nilOrValue(pigeonVar_list[3])
+    let serialNumber: String? = nilOrValue(pigeonVar_list[4])
 
     return ReaderInfo(
       transmitPowerLevels: transmitPowerLevels,

@@ -157,19 +157,19 @@ data class ReaderConfig (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class ReaderInfo (
   val transmitPowerLevels: List<Any?>,
-  val firmwareVersion: String,
-  val modelVersion: String,
-  val scannerName: String,
-  val serialNumber: String
+  val firmwareVersion: String? = null,
+  val modelVersion: String? = null,
+  val scannerName: String? = null,
+  val serialNumber: String? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): ReaderInfo {
       val transmitPowerLevels = pigeonVar_list[0] as List<Any?>
-      val firmwareVersion = pigeonVar_list[1] as String
-      val modelVersion = pigeonVar_list[2] as String
-      val scannerName = pigeonVar_list[3] as String
-      val serialNumber = pigeonVar_list[4] as String
+      val firmwareVersion = pigeonVar_list[1] as String?
+      val modelVersion = pigeonVar_list[2] as String?
+      val scannerName = pigeonVar_list[3] as String?
+      val serialNumber = pigeonVar_list[4] as String?
       return ReaderInfo(transmitPowerLevels, firmwareVersion, modelVersion, scannerName, serialNumber)
     }
   }

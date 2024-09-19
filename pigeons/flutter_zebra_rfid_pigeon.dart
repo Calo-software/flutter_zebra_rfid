@@ -110,10 +110,10 @@ class ReaderInfo {
   });
 
   final List transmitPowerLevels;
-  final String firmwareVersion;
-  final String modelVersion;
-  final String scannerName;
-  final String serialNumber;
+  final String? firmwareVersion;
+  final String? modelVersion;
+  final String? scannerName;
+  final String? serialNumber;
 }
 
 class RfidTag {
