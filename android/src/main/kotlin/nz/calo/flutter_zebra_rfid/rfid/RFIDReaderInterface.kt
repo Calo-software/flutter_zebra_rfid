@@ -237,17 +237,6 @@ class RFIDReaderInterface(
                 // delete any prefilters
                 reader!!.Actions.PreFilters.deleteAll()
 
-
-                // Terminal scan, use trigger for scanning!
-//                reader!!.Config.setKeylayoutType(ENUM_NEW_KEYLAYOUT_TYPE.RFID, ENUM_NEW_KEYLAYOUT_TYPE.TERMINAL_SCAN)
-
-//                val s1SingulationControl = reader!!.Config.Antennas.getSingulationControl(1)
-//                s1SingulationControl.session = SESSION.SESSION_S0
-//                s1SingulationControl.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
-//                s1SingulationControl.Action.slFlag = SL_FLAG.SL_ALL
-//                reader!!.Config.Antennas.setSingulationControl(1, s1SingulationControl)
-//                reader!!.Actions.PreFilters.deleteAll()
-                
             } catch (e: Throwable) {
                 Log.d(TAG, "Error configuring reader: $e")
                 throw Error("Error configuring reader")
@@ -262,7 +251,7 @@ class RFIDReaderInterface(
     }
 
     try {
-         val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
+        val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
         val transmitPowerIndex = antennaRfConfig.transmitPowerIndex
         val receiveSensitivityIndex = antennaRfConfig.receiveSensitivityIndex
         val rfModeIndex = antennaRfConfig // Corrected property name
