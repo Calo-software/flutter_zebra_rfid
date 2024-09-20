@@ -209,6 +209,8 @@ protocol FlutterZebraBarcode {
   func updateAvailableScanners(completion: @escaping (Result<Void, Error>) -> Void)
   /// Connects to a reader with `readerId` ID.
   func connectScanner(scannerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Disconnects a current scanner.
+  func disconnectScanner(completion: @escaping (Result<Void, Error>) -> Void)
   /// Reader currently in use
   func currentScanner() throws -> BarcodeScanner?
 }
@@ -252,6 +254,22 @@ class FlutterZebraBarcodeSetup {
       }
     } else {
       connectScannerChannel.setMessageHandler(nil)
+    }
+    /// Disconnects a current scanner.
+    let disconnectScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.disconnectScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disconnectScannerChannel.setMessageHandler { _, reply in
+        api.disconnectScanner { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disconnectScannerChannel.setMessageHandler(nil)
     }
     /// Reader currently in use
     let currentScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.currentScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)

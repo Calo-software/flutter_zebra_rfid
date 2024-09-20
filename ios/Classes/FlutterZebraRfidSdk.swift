@@ -15,8 +15,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         subscribeToEvents()
     }
     
-    // MARK:
-    // srfidSdkApiDelegate`
+    // MARK: srfidSdkApiDelegate`
     func srfidEventReaderAppeared(_ availableReader: srfidReaderInfo!) {
         updateReaders()
     }
@@ -85,13 +84,12 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         _logger.debug("Wifi scan event (reader \(readerID)): \(wlanScanObject)")
     }
     
-    // MARK:
-    // FlutterZebraRfid
+    // MARK: FlutterZebraRfid protocol
     func updateAvailableReaders(connectionType: ReaderConnectionType, completion: @escaping (Result<Void, Error>) -> Void) {
         updateReaders()
         completion(.success(()))
     }
-    
+
     /// Connects to a reader with `readerName` name.
     func connectReader(readerId: Int64, completion: @escaping (Result<Void, Error>) -> Void) {
         _logger.info("Connecting to reader: \(readerId)")
@@ -101,6 +99,8 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         if (result != SRFID_RESULT_SUCCESS) {
             _logger.error("Failed to connect to reader: \(readerId)")
             _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.disconnected) {_ in}
+            completion(.failure(FlutterRfidError(code: "0", message: "Failed to connect to reader", details: nil)))
+            return
         }
         completion(.success(()))
     }
@@ -108,14 +108,23 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     /// Disconnects a reader with `readerName` name.
     func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void) {
         _logger.info("Disconnecting reader \(self._srfidCurrentReader?.getReaderName() ?? "unknown")")
+        
+        let exception = FlutterRfidError(code: "0", message: "Failed to disconnect reader", details: nil)
+        
         if let id = _srfidCurrentReader?.getReaderID() {
-            _rfidApi.srfidTerminateCommunicationSession(id)
-        }
-        else {
+            let result = _rfidApi.srfidTerminateCommunicationSession(id)
+            if (result != SRFID_RESULT_SUCCESS) {
+                completion(.failure(exception))
+                return
+            }
+        } else {
             _logger.error("No active reader to disconnect")
             _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.disconnected) {_ in}
+            completion(.failure(exception))
+            return
         }
         completion(.success(()))
+
     }
 
     func configureReader(config: ReaderConfig, shouldPersist: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -347,6 +356,24 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     }
     
     func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void) {
+        let exception = FlutterRfidError(
+            code: "0",
+            message: "No connected reader",
+            details: nil
+        )
+        guard let readerId = _srfidCurrentReader?.getReaderID() else {
+            completion(.failure(exception))
+            return
+        }
+        let result = _rfidApi.srfidRequestDeviceStatus(Int32(readerId),
+                                          aBattery: true,
+                                          aTemperature: true,
+                                          aPower: true
+        )
+        if (result != SRFID_RESULT_SUCCESS) {
+            completion(.failure(exception))
+            return
+        }
         completion(.success(()))
     }
     

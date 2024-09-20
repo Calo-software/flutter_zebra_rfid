@@ -357,7 +357,7 @@ protocol FlutterZebraRfid {
   func connectReader(readerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
   /// Configures reader with `config`.
   func configureReader(config: ReaderConfig, shouldPersist: Bool, completion: @escaping (Result<Void, Error>) -> Void)
-  /// Disconnects a reader with `readerName` name.
+  /// Disconnects a current reader.
   func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
   /// Trigger device status
   func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void)
@@ -426,7 +426,7 @@ class FlutterZebraRfidSetup {
     } else {
       configureReaderChannel.setMessageHandler(nil)
     }
-    /// Disconnects a reader with `readerName` name.
+    /// Disconnects a current reader.
     let disconnectReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       disconnectReaderChannel.setMessageHandler { _, reply in

@@ -377,7 +377,7 @@ class FlutterZebraRfid {
     }
   }
 
-  /// Disconnects a reader with `readerName` name.
+  /// Disconnects a current reader.
   Future<void> disconnectReader() async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
