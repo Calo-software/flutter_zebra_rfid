@@ -177,6 +177,8 @@ interface FlutterZebraBarcode {
   fun updateAvailableScanners(callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerId` ID. */
   fun connectScanner(scannerId: Long, callback: (Result<Unit>) -> Unit)
+  /** Disconnects a current scanner. */
+  fun disconnectScanner(callback: (Result<Unit>) -> Unit)
   /** Reader currently in use */
   fun currentScanner(): BarcodeScanner?
 
@@ -213,6 +215,23 @@ interface FlutterZebraBarcode {
             val args = message as List<Any?>
             val scannerIdArg = args[0].let { num -> if (num is Int) num.toLong() else num as Long }
             api.connectScanner(scannerIdArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.disconnectScanner$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.disconnectScanner{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))

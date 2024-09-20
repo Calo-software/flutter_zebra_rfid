@@ -331,7 +331,7 @@ interface FlutterZebraRfid {
   fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
   /** Configures reader with `config`. */
   fun configureReader(config: ReaderConfig, shouldPersist: Boolean, callback: (Result<Unit>) -> Unit)
-  /** Disconnects a reader with `readerName` name. */
+  /** Disconnects a current reader. */
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
   fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit)

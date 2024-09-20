@@ -20,14 +20,15 @@ abstract class FlutterZebraBarcode {
   /// Connects to a reader with `readerId` ID.
   @async
   void connectScanner(int scannerId);
+
+  /// Disconnects a current scanner.
+  @async
+  void disconnectScanner();
+
 /*
   /// Configures reader with `config`.
   @async
   void configureReader(ReaderConfig config, bool shouldPersist);
-
-  /// Disconnects a reader with `readerName` name.
-  @async
-  void disconnectReader();
 
   /// Trigger device status
   @async

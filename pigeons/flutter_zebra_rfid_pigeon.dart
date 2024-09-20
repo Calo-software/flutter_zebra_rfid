@@ -25,7 +25,7 @@ abstract class FlutterZebraRfid {
   @async
   void configureReader(ReaderConfig config, bool shouldPersist);
 
-  /// Disconnects a reader with `readerName` name.
+  /// Disconnects a current reader.
   @async
   void disconnectReader();
 

@@ -88,6 +88,15 @@ class BarcodeScannerInterface(
         }
     }
 
+    fun disconnectCurrentScanner() {
+        if (currentScanner != null) {
+            val result = sdkHandler!!.dcssdkTerminateCommunicationSession(currentScanner!!.scannerID)
+            if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                throw Error("Failed to disconnect from current scanner")
+            }
+        }
+    }
+
     fun currentScanner(): BarcodeScanner? {
         if (currentScanner != null) {
             return BarcodeScanner(

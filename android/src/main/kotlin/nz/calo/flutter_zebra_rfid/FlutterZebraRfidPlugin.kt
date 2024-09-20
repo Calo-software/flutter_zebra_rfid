@@ -245,6 +245,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
+    override fun disconnectScanner(callback: (Result<Unit>) -> Unit) {
+        try {
+            scannerInterface!!.disconnectCurrentScanner()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
     override fun currentScanner(): BarcodeScanner? {
         return scannerInterface!!.currentScanner()
     }
