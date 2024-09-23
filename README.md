@@ -19,3 +19,8 @@ Notes:
     ...
 
 ```
+
+iOS
+- Enable Background modes: External accessory communication, Uses BLE accessories
+- Supported external accessory protocols:
+

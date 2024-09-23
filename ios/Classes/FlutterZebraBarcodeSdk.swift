@@ -3,14 +3,18 @@ import os
 @available(iOS 14.0, *)
 class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate {
     init(callbacks: FlutterZebraBarcodeCallbacksProtocol) {
+        _logger.debug("Starting Flutter Barcode SDK")
         _barcodeApi = SbtSdkFactory.createSbtSdkApiInstance()
          _callbacks = callbacks
          super.init()
 
+        subscribeToEvents()
+        
         _barcodeApi.sbtSetDelegate(self)
         _barcodeApi.sbtSetOperationalMode(Int32(SBT_OPMODE_ALL))
         
-         subscribeToEvents()
+        
+        updateScanners()
     }
 
     // MARK: FlutterZebraBarcode protocol
@@ -64,10 +68,10 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
             return nil
         }
         return BarcodeScanner(
-            id: _currentSbtScanner?.getScannerID(),
-            name: _currentSbtScanner?.getScannerName(),
-            model: _currentSbtScanner?.getScannerModel(),
-            serialNumber: _currentSbtScanner?.serialNo
+            name: scanner.getScannerName(),
+            id: Int64(scanner.getScannerID()),
+            model: scanner.getScannerModel(),
+            serialNumber: scanner.serialNo
         )
     }
     
@@ -125,10 +129,10 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
     private var _availableScannerList: NSMutableArray? = []
     
     private func subscribeToEvents() {
-        let mask = SBT_EVENT_SCANNER_APPEARANCE |
-        SBT_EVENT_SCANNER_DISAPPEARANCE | SBT_EVENT_SESSION_ESTABLISHMENT |
-        SBT_EVENT_SESSION_TERMINATION | SBT_EVENT_BARCODE | SBT_EVENT_IMAGE |
-        SBT_EVENT_VIDEO
+        let mask = Int32(SBT_EVENT_SCANNER_APPEARANCE) |
+        Int32(SBT_EVENT_SCANNER_DISAPPEARANCE) | Int32(SBT_EVENT_SESSION_ESTABLISHMENT) |
+              Int32(SBT_EVENT_SESSION_TERMINATION) | Int32(SBT_EVENT_BARCODE) | Int32(SBT_EVENT_IMAGE) |
+              Int32(SBT_EVENT_VIDEO)
         
         _barcodeApi.sbtSubsribe(forEvents: Int32(mask))
         _barcodeApi.sbtEnableBluetoothScannerDiscovery(true)
@@ -138,7 +142,7 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
     private func updateScanners() {
         _availableScannerList?.removeAllObjects()
         
-        var list: NSMutableArray? = nil
+        var list: NSMutableArray? = NSMutableArray()
         let availableResult = _barcodeApi.sbtGetAvailableScannersList(&list)
         if (availableResult == SBT_RESULT_SUCCESS) {
             _availableScannerList?.addObjects(from: list as! [Any])
@@ -148,7 +152,8 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
         if (activeResult == SBT_RESULT_SUCCESS) {
             _availableScannerList?.addObjects(from: list as! [Any])
         }
-        
+        _logger.debug("Found \(self._availableScannerList!.count) scanners")
+
         if let availableList = _availableScannerList {
             _callbacks.onAvailableScannersChanged(readers: availableList.map {
                 let scanner = $0 as! SbtScannerInfo

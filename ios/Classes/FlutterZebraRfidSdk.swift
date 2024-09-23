@@ -3,6 +3,7 @@ import os
 @available(iOS 14.0, *)
 class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     init(callbacks: FlutterZebraRfidCallbacksProtocol) {
+        _logger.debug("Starting Flutter RFID SDK")
         _rfidApi = srfidSdkFactory.createRfidSdkApiInstance()
         _callbacks = callbacks
         super.init()
@@ -10,7 +11,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         _rfidApi.srfidSetDelegate(self)
         
         _rfidApi.srfidSetOperationalMode(Int32(SRFID_OPMODE_ALL))
-        _rfidApi.srfidEnableDebugLog()
+//        _rfidApi.srfidEnableDebugLog()
         
         subscribeToEvents()
     }
@@ -26,11 +27,15 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     
     func srfidEventCommunicationSessionEstablished(_ activeReader: srfidReaderInfo!) {
         _srfidCurrentReader = activeReader
+        _currentReader = _availableReaders.first(where: { $0.id == activeReader.getReaderID()})
+        let asciiResult = _rfidApi.srfidEstablishAsciiConnection(activeReader.getReaderID(), aPassword: nil)
+
         _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.connected) {_ in}
     }
     
     func srfidEventCommunicationSessionTerminated(_ readerID: Int32) {
         _srfidCurrentReader = nil
+        _currentReader = nil
         _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.disconnected) {_ in}
     }
     
@@ -53,16 +58,23 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     func srfidEventMultiProximityNotify(_ readerID: Int32, aTagData tagData: srfidTagData!) {
         _logger.debug("Multi proximity event (reader \(readerID)): \(tagData)")
     }
-    
-    func srfidEventTriggerNotify(_ readerID: Int32, aTriggerEvent triggerEvent: SRFID_TRIGGEREVENT) throws {
+    func srfidEventTriggerNotify(_ readerID: Int32, aTriggerEvent triggerEvent: SRFID_TRIGGEREVENT) {
         _logger.debug("Trigger event (reader \(readerID)): \(triggerEvent.rawValue)")
         
         switch (triggerEvent) {
         case SRFID_TRIGGEREVENT_PRESSED:
-            try performInventory()
+            do {
+                try performInventory()
+            } catch let error {
+                _logger.debug("Perform inventory failed: \(error)")
+            }
             break
         case SRFID_TRIGGEREVENT_RELEASED:
-            try stopInventory()
+            do {
+                try stopInventory()
+            } catch let error {
+                _logger.debug("Stop inventory failed: \(error)")
+            }
             break
         default:
             break
@@ -97,11 +109,14 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         let result = _rfidApi.srfidEstablishCommunicationSession(Int32(readerId))
         
         if (result != SRFID_RESULT_SUCCESS) {
-            _logger.error("Failed to connect to reader: \(readerId)")
+            var log: NSString? = nil
+            _rfidApi.srfidRetrieveDebugLog(&log)
+            _logger.error("Failed to connect to reader: \(readerId) - \(Int(result.rawValue)): \(log)")
             _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.disconnected) {_ in}
             completion(.failure(FlutterRfidError(code: "0", message: "Failed to connect to reader", details: nil)))
             return
         }
+        
         completion(.success(()))
     }
     
@@ -475,6 +490,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         if let array = activeReaders as? [srfidReaderInfo] {
             _srfidAvailableReaders.append(contentsOf: array)
         }
+        _logger.debug("Found \(self._srfidAvailableReaders.count) readers")
         emitAvailableReaders()
     }
     
@@ -542,4 +558,4 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
             )
         }
     }
-}
+ }
