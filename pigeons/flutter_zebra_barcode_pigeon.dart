@@ -68,17 +68,17 @@ class BarcodeScanner {
   final String? name;
   final int id;
   final String? model;
-  final String serialNumber;
+  final String? serialNumber;
 }
 
 class Barcode {
   Barcode({
     required this.data,
     required this.scannerId,
-    this.scannerType,
+    this.barcodeType,
   });
 
   final String data;
   final int scannerId;
-  final int? scannerType;
+  final int? barcodeType;
 }

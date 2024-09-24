@@ -76,7 +76,7 @@ data class BarcodeScanner (
   val name: String? = null,
   val id: Long,
   val model: String? = null,
-  val serialNumber: String
+  val serialNumber: String? = null
 )
  {
   companion object {
@@ -84,7 +84,7 @@ data class BarcodeScanner (
       val name = pigeonVar_list[0] as String?
       val id = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
       val model = pigeonVar_list[2] as String?
-      val serialNumber = pigeonVar_list[3] as String
+      val serialNumber = pigeonVar_list[3] as String?
       return BarcodeScanner(name, id, model, serialNumber)
     }
   }
@@ -102,22 +102,22 @@ data class BarcodeScanner (
 data class Barcode (
   val data: String,
   val scannerId: Long,
-  val scannerType: Long? = null
+  val barcodeType: Long? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): Barcode {
       val data = pigeonVar_list[0] as String
       val scannerId = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
-      val scannerType = pigeonVar_list[2].let { num -> if (num is Int) num.toLong() else num as Long? }
-      return Barcode(data, scannerId, scannerType)
+      val barcodeType = pigeonVar_list[2].let { num -> if (num is Int) num.toLong() else num as Long? }
+      return Barcode(data, scannerId, barcodeType)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       data,
       scannerId,
-      scannerType,
+      barcodeType,
     )
   }
 }

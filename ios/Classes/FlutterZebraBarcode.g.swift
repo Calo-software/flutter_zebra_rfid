@@ -86,7 +86,7 @@ struct BarcodeScanner {
   var name: String? = nil
   var id: Int64
   var model: String? = nil
-  var serialNumber: String
+  var serialNumber: String? = nil
 
 
 
@@ -95,7 +95,7 @@ struct BarcodeScanner {
     let name: String? = nilOrValue(pigeonVar_list[0])
     let id = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
     let model: String? = nilOrValue(pigeonVar_list[2])
-    let serialNumber = pigeonVar_list[3] as! String
+    let serialNumber: String? = nilOrValue(pigeonVar_list[3])
 
     return BarcodeScanner(
       name: name,
@@ -118,7 +118,7 @@ struct BarcodeScanner {
 struct Barcode {
   var data: String
   var scannerId: Int64
-  var scannerType: Int64? = nil
+  var barcodeType: Int64? = nil
 
 
 
@@ -126,19 +126,19 @@ struct Barcode {
   static func fromList(_ pigeonVar_list: [Any?]) -> Barcode? {
     let data = pigeonVar_list[0] as! String
     let scannerId = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
-    let scannerType: Int64? = isNullish(pigeonVar_list[2]) ? nil : (pigeonVar_list[2] is Int64? ? pigeonVar_list[2] as! Int64? : Int64(pigeonVar_list[2] as! Int32))
+    let barcodeType: Int64? = isNullish(pigeonVar_list[2]) ? nil : (pigeonVar_list[2] is Int64? ? pigeonVar_list[2] as! Int64? : Int64(pigeonVar_list[2] as! Int32))
 
     return Barcode(
       data: data,
       scannerId: scannerId,
-      scannerType: scannerType
+      barcodeType: barcodeType
     )
   }
   func toList() -> [Any?] {
     return [
       data,
       scannerId,
-      scannerType,
+      barcodeType,
     ]
   }
 }

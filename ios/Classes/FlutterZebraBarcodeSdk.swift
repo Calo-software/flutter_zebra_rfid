@@ -89,7 +89,7 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
     func sbtEventCommunicationSessionEstablished(_ activeScanner: SbtScannerInfo!) {
         _logger.debug("Scanner connected: \(activeScanner.getScannerName())")
         _currentSbtScanner = activeScanner
-        _callbacks.onScannerConnectionStatusChanged(status: .disconnected) {_ in}
+        _callbacks.onScannerConnectionStatusChanged(status: .connected) {_ in}
     }
     
     func sbtEventCommunicationSessionTerminated(_ scannerID: Int32) {
@@ -99,12 +99,21 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
     }
     
     func sbtEventBarcode(_ barcodeData: String!, barcodeType: Int32, fromScanner scannerID: Int32) {
-        _logger.debug("Barcode scanned: \(barcodeData)")
-
+        // NOTE: this doesn't seem to return anything valid
+        _logger.debug("Barcode scanned: \(barcodeData ?? "unknown")")
     }
     
     func sbtEventBarcodeData(_ barcodeData: Data!, barcodeType: Int32, fromScanner scannerID: Int32) {
         _logger.debug("Barcode data scanned: \(barcodeData)")
+        if let data = barcodeData {
+            let barcode = String(decoding: data, as: UTF8.self)
+            _callbacks.onBarcodeRead(
+                barcode: Barcode(data: barcode,
+                                 scannerId: Int64(scannerID),
+                                 barcodeType: Int64(barcodeType)
+                                )
+            ) {_ in}
+        }
     }
     
     func sbtEventFirmwareUpdate(_ fwUpdateEventObj: FirmwareUpdateEvent!) {
@@ -161,7 +170,7 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
                     name: scanner.getScannerName(),
                     id: Int64(scanner.getScannerID()),
                     model: scanner.getScannerModel(),
-                    serialNumber: scanner.serialNo
+                    serialNumber: scanner.serialNo ?? String()
                 )
             }) {_ in}
 

@@ -43,7 +43,7 @@ class BarcodeScanner {
     this.name,
     required this.id,
     this.model,
-    required this.serialNumber,
+    this.serialNumber,
   });
 
   String? name;
@@ -52,7 +52,7 @@ class BarcodeScanner {
 
   String? model;
 
-  String serialNumber;
+  String? serialNumber;
 
   Object encode() {
     return <Object?>[
@@ -69,7 +69,7 @@ class BarcodeScanner {
       name: result[0] as String?,
       id: result[1]! as int,
       model: result[2] as String?,
-      serialNumber: result[3]! as String,
+      serialNumber: result[3] as String?,
     );
   }
 }
@@ -78,20 +78,20 @@ class Barcode {
   Barcode({
     required this.data,
     required this.scannerId,
-    this.scannerType,
+    this.barcodeType,
   });
 
   String data;
 
   int scannerId;
 
-  int? scannerType;
+  int? barcodeType;
 
   Object encode() {
     return <Object?>[
       data,
       scannerId,
-      scannerType,
+      barcodeType,
     ];
   }
 
@@ -100,7 +100,7 @@ class Barcode {
     return Barcode(
       data: result[0]! as String,
       scannerId: result[1]! as int,
-      scannerType: result[2] as int?,
+      barcodeType: result[2] as int?,
     );
   }
 }
