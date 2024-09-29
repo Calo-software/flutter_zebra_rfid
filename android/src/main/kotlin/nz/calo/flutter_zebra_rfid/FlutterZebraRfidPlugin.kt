@@ -8,6 +8,7 @@ import FlutterZebraRfidCallbacks
 import Reader
 import ReaderConfig
 import ReaderConnectionType
+import RfidTag
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -202,6 +203,24 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun currentReader(): Reader? {
         return rfidInterface!!.currentReader()
+    }
+
+    override fun startLocating(tags: List<RfidTag>, callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.startLocating(tags)
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun stopLocating(callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.stopLocating()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
     }
 
     // =============================

@@ -33,6 +33,14 @@ abstract class FlutterZebraRfid {
   @async
   void triggerDeviceStatus();
 
+  /// Start locating the specified `tags`.
+  @async
+  void startLocating({required List<RfidTag> tags});
+
+  /// Stop locating tags.
+  @async
+  void stopLocating();
+
   /// Reader currently in use
   Reader? currentReader();
 }
@@ -43,6 +51,7 @@ abstract class FlutterZebraRfidCallbacks {
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status);
   void onTagsRead(List<RfidTag> tags);
   void onBatteryDataReceived(BatteryData batteryData);
+  void onTagsLocated(List<RfidTag> tags);
 }
 
 enum ReaderConnectionType {
@@ -120,10 +129,12 @@ class RfidTag {
   RfidTag({
     required this.id,
     required this.rssi,
+    this.relativeDistance,
   });
 
   final String id;
   final int rssi;
+  final double? relativeDistance;
 }
 
 class BatteryData {

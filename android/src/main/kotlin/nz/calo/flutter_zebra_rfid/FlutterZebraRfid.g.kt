@@ -187,20 +187,23 @@ data class ReaderInfo (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class RfidTag (
   val id: String,
-  val rssi: Long
+  val rssi: Long,
+  val relativeDistance: Double? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): RfidTag {
       val id = pigeonVar_list[0] as String
       val rssi = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
-      return RfidTag(id, rssi)
+      val relativeDistance = pigeonVar_list[2] as Double?
+      return RfidTag(id, rssi, relativeDistance)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       id,
       rssi,
+      relativeDistance,
     )
   }
 }
@@ -335,6 +338,10 @@ interface FlutterZebraRfid {
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
   fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit)
+  /** Start locating the specified `tags`. */
+  fun startLocating(tags: List<RfidTag>, callback: (Result<Unit>) -> Unit)
+  /** Stop locating tags. */
+  fun stopLocating(callback: (Result<Unit>) -> Unit)
   /** Reader currently in use */
   fun currentReader(): Reader?
 
@@ -440,6 +447,42 @@ interface FlutterZebraRfid {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startLocating$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val tagsArg = args[0] as List<RfidTag>
+            api.startLocating(tagsArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.stopLocating$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.stopLocating{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
@@ -522,6 +565,23 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(batteryDataArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onTagsLocated(tagsArg: List<RfidTag>, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(tagsArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))

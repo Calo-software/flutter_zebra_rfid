@@ -21,6 +21,9 @@ class FlutterZebraRfidApi {
   BehaviorSubject<BatteryData> get onBatteryDataReceived =>
       _callbacks.batteryDataReceived;
 
+  /// Behavior subject wrapping tags locate callback from the plugin
+  BehaviorSubject<List<RfidTag>> get onTagsLocated => _callbacks.tagsLocated;
+
   /// Triggers reader list refresh for specified `connectionType`
   Future<void> updateAvailableReaders({
     required ReaderConnectionType connectionType,
@@ -44,6 +47,13 @@ class FlutterZebraRfidApi {
 
   /// Triggers device status event
   Future<void> triggerDeviceStatus() => _api.triggerDeviceStatus();
+
+  /// Start locating the specified `tags`.
+  Future<void> startLocating({required List<RfidTag> tags}) =>
+      _api.startLocating(tags: tags);
+
+  /// Start locating.
+  Future<void> stopLocating() => _api.stopLocating();
 
   /// Returns reader currently in use (or null if none in use)
   Future<Reader?> get currentReader => _api.currentReader();
@@ -77,12 +87,20 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   void onBatteryDataReceived(BatteryData batteryData) =>
       batteryDataReceived.add(batteryData);
 
+  @override
+  void onTagsLocated(List<RfidTag?> tags) {
+    tagsLocated.add(
+      tags.map((e) => e as RfidTag).toList(),
+    );
+  }
+
   final connectionStatusChanged = BehaviorSubject<ConnectionStatus>()
     ..add(ConnectionStatus.disconnected);
 
   final availableReadersChanged = BehaviorSubject<List<Reader>>();
   final tagsRead = BehaviorSubject<List<RfidTag>>();
   final batteryDataReceived = BehaviorSubject<BatteryData>();
+  final tagsLocated = BehaviorSubject<List<RfidTag>>();
 }
 
 extension ReaderInfoX on ReaderInfo {

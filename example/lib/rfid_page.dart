@@ -19,7 +19,7 @@ class _RfidPageState extends State<RfidPage> {
   Reader? _currentReader;
   BatteryData? _batteryData;
 
-  ReaderConnectionType _connectionType = ReaderConnectionType.usb;
+  ReaderConnectionType _connectionType = ReaderConnectionType.all;
   bool _isLoading = false;
 
   @override

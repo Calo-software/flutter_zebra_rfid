@@ -174,16 +174,20 @@ class RfidTag {
   RfidTag({
     required this.id,
     required this.rssi,
+    this.relativeDistance,
   });
 
   String id;
 
   int rssi;
 
+  double? relativeDistance;
+
   Object encode() {
     return <Object?>[
       id,
       rssi,
+      relativeDistance,
     ];
   }
 
@@ -192,6 +196,7 @@ class RfidTag {
     return RfidTag(
       id: result[0]! as String,
       rssi: result[1]! as int,
+      relativeDistance: result[2] as double?,
     );
   }
 }
@@ -423,6 +428,52 @@ class FlutterZebraRfid {
     }
   }
 
+  /// Start locating the specified `tags`.
+  Future<void> startLocating({required List<RfidTag?> tags}) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startLocating$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[tags]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Stop locating tags.
+  Future<void> stopLocating() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.stopLocating$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
   /// Reader currently in use
   Future<Reader?> currentReader() async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader$pigeonVar_messageChannelSuffix';
@@ -457,6 +508,8 @@ abstract class FlutterZebraRfidCallbacks {
   void onTagsRead(List<RfidTag?> tags);
 
   void onBatteryDataReceived(BatteryData batteryData);
+
+  void onTagsLocated(List<RfidTag?> tags);
 
   static void setUp(FlutterZebraRfidCallbacks? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
@@ -551,6 +604,31 @@ abstract class FlutterZebraRfidCallbacks {
               'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived was null, expected non-null BatteryData.');
           try {
             api.onBatteryDataReceived(arg_batteryData!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final List<RfidTag?>? arg_tags = (args[0] as List<Object?>?)?.cast<RfidTag?>();
+          assert(arg_tags != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated was null, expected non-null List<RfidTag?>.');
+          try {
+            api.onTagsLocated(arg_tags!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

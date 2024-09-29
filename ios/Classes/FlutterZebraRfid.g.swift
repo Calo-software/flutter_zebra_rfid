@@ -206,6 +206,7 @@ struct ReaderInfo {
 struct RfidTag {
   var id: String
   var rssi: Int64
+  var relativeDistance: Double? = nil
 
 
 
@@ -213,16 +214,19 @@ struct RfidTag {
   static func fromList(_ pigeonVar_list: [Any?]) -> RfidTag? {
     let id = pigeonVar_list[0] as! String
     let rssi = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
+    let relativeDistance: Double? = nilOrValue(pigeonVar_list[2])
 
     return RfidTag(
       id: id,
-      rssi: rssi
+      rssi: rssi,
+      relativeDistance: relativeDistance
     )
   }
   func toList() -> [Any?] {
     return [
       id,
       rssi,
+      relativeDistance,
     ]
   }
 }
@@ -361,6 +365,10 @@ protocol FlutterZebraRfid {
   func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
   /// Trigger device status
   func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void)
+  /// Start locating the specified `tags`.
+  func startLocating(tags: [RfidTag], completion: @escaping (Result<Void, Error>) -> Void)
+  /// Stop locating tags.
+  func stopLocating(completion: @escaping (Result<Void, Error>) -> Void)
   /// Reader currently in use
   func currentReader() throws -> Reader?
 }
@@ -458,6 +466,40 @@ class FlutterZebraRfidSetup {
     } else {
       triggerDeviceStatusChannel.setMessageHandler(nil)
     }
+    /// Start locating the specified `tags`.
+    let startLocatingChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startLocating\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      startLocatingChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let tagsArg = args[0] as! [RfidTag]
+        api.startLocating(tags: tagsArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      startLocatingChannel.setMessageHandler(nil)
+    }
+    /// Stop locating tags.
+    let stopLocatingChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.stopLocating\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      stopLocatingChannel.setMessageHandler { _, reply in
+        api.stopLocating { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      stopLocatingChannel.setMessageHandler(nil)
+    }
     /// Reader currently in use
     let currentReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.currentReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
@@ -480,6 +522,7 @@ protocol FlutterZebraRfidCallbacksProtocol {
   func onReaderConnectionStatusChanged(status statusArg: ReaderConnectionStatus, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
   func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
   func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
+  func onTagsLocated(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -549,6 +592,24 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([batteryDataArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onTagsLocated(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([tagsArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
