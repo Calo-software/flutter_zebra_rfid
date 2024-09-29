@@ -1,6 +1,6 @@
 name: flutter_zebra_rfid
 description: "Flutter wrapper for Zebra RFID SDK for iOS and Android"
-version: 0.0.2
+version: 0.0.3
 homepage: null
 
 environment:
