@@ -23,30 +23,13 @@ class BarcodeScannerInterface(
     private var availableScannerList: ArrayList<DCSScannerInfo> = ArrayList()
 
     private var currentScanner: DCSScannerInfo? = null
+    private var isInitialized: Boolean = false
 
     fun updateAvailableScanners(context: Context) {
-        if (sdkHandler == null)
-            sdkHandler = SDKHandler(context)
-
-        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
-//        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_LE)
-        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
-
-        sdkHandler!!.dcssdkSetDelegate(this);
-        var notificationsMask = 0
-        notificationsMask =
-            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value)
-        notificationsMask =
-            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value)
-        notificationsMask =
-            notificationsMask or DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
-
-        // subscribe to events set in notification mask
-        sdkHandler!!.dcssdkSubsribeForEvents(notificationsMask)
-        sdkHandler!!.dcssdkEnableAvailableScannersDetection(true)
-
+        if (!isInitialized) {
+            initialize(context)
+            isInitialized = true
+        }
         getAvailableScannerList()
     }
 
@@ -170,6 +153,30 @@ class BarcodeScannerInterface(
     }
 
     // PRIVATE:
+    private fun initialize(context: Context) {
+        if (sdkHandler == null)
+            sdkHandler = SDKHandler(context)
+
+        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
+//        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_LE)
+        sdkHandler!!.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
+
+        sdkHandler!!.dcssdkSetDelegate(this);
+        var notificationsMask = 0
+        notificationsMask =
+            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
+                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value)
+        notificationsMask =
+            notificationsMask or (DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
+                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value)
+        notificationsMask =
+            notificationsMask or DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
+
+        // subscribe to events set in notification mask
+        sdkHandler!!.dcssdkSubsribeForEvents(notificationsMask)
+        sdkHandler!!.dcssdkEnableAvailableScannersDetection(true)
+    }
+
     private fun getAvailableScannerList() {
         sdkHandler!!.dcssdkGetAvailableScannersList(availableScannerList)
         callbacks.onAvailableScannersChanged(availableScannerList.map {

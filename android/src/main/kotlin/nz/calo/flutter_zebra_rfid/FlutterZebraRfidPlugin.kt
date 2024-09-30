@@ -50,11 +50,12 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        applicationContext = flutterPluginBinding.applicationContext
+
         rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
-        rfidInterface = RFIDReaderInterface(rfidCallbacks)
+        rfidInterface = RFIDReaderInterface(rfidCallbacks, applicationContext)
         scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
         scannerInterface = BarcodeScannerInterface(scannerCallbacks)
-        applicationContext = flutterPluginBinding.applicationContext
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
         FlutterZebraBarcode.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -144,7 +145,6 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                             Log.e(TAG, "BLE permission granted, can continue...")
 
                             rfidInterface!!.getAvailableReaderList(
-                                applicationContext,
                                 connectionType
                             )
                             callback(Result.success(Unit))
@@ -152,7 +152,6 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                     })
             } else {
                 rfidInterface!!.getAvailableReaderList(
-                    applicationContext,
                     connectionType
                 )
                 callback(Result.success(Unit))

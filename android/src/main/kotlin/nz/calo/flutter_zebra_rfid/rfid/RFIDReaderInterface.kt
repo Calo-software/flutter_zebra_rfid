@@ -53,7 +53,8 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
 }
 
 class RFIDReaderInterface(
-    private var callbacks: FlutterZebraRfidCallbacks
+    private var callbacks: FlutterZebraRfidCallbacks,
+    private var applicationContext: Context
 ) : RfidEventsListener, RFIDReaderEventHandler {
 
     private val TAG: String = "FlutterZebraRfidPlugin"
@@ -64,16 +65,19 @@ class RFIDReaderInterface(
     private var reader: RFIDReader? = null
     private var readerInfo: ReaderInfo? = null
     private var currentConnectionType: ReaderConnectionType? = null
-    private var applicationContext: Context? = null
     private var isLocating: Boolean = false
 
+    init {
+        Log.d(TAG, "Initializing RFID SDK...")
+        Readers.attach(this)
+    }
+
     fun getAvailableReaderList(
-        context: Context,
         connectionType: ReaderConnectionType
     ) {
-        applicationContext = context
+
         if (readers == null) {
-            readers = Readers(context, readerConnectionTypeToTransport(connectionType))
+            readers = Readers(applicationContext, readerConnectionTypeToTransport(connectionType))
         }
 
         if (connectionType != currentConnectionType) {
@@ -112,6 +116,7 @@ class RFIDReaderInterface(
                         capabilities.serialNumber,
                     )
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
+
                     triggerDeviceStatus()
                 } else {
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
@@ -502,6 +507,7 @@ class RFIDReaderInterface(
                 reader!!.disconnect()
                 reader!!.Dispose()
                 readers?.Dispose()
+                Readers.deattach(this)
             }
         } catch (e: InvalidUsageException) {
             e.printStackTrace()
@@ -515,14 +521,14 @@ class RFIDReaderInterface(
     override fun RFIDReaderAppeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} appeared")
         if (applicationContext != null && currentConnectionType != null) {
-            getAvailableReaderList(applicationContext!!, currentConnectionType!!)
+            getAvailableReaderList(currentConnectionType!!)
         }
     }
 
     override fun RFIDReaderDisappeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} disappeared")
         if (applicationContext != null && currentConnectionType != null) {
-            getAvailableReaderList(applicationContext!!, currentConnectionType!!)
+            getAvailableReaderList(currentConnectionType!!)
         }
     }
 }
