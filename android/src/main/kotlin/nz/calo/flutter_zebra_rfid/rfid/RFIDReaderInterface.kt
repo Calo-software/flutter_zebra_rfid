@@ -95,6 +95,10 @@ class RFIDReaderInterface(
 
     fun connectReader(readerId: Long): ReaderInfo? {
         try {
+            if (readerId == currentReader()?.id) {
+                Log.d(TAG, "Reader $readerId already connected")
+                return currentReader()?.info
+            }
             if (availableRFIDReaderList != null) {
                 if (availableRFIDReaderList!!.size <= readerId) throw Error("Reader not available to connect")
 
@@ -309,24 +313,63 @@ class RFIDReaderInterface(
         }
     }
 
-    fun getReaderConfig() {
+    fun getReaderConfig(): ReaderConfig {
         if (reader == null) {
             Log.d(TAG, "Not connected to any Reader!")
             throw Error("Not connected to any Reader")
         }
 
         try {
+            Log.d(TAG, "Reader Config:")
+
             val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
             val transmitPowerIndex = antennaRfConfig.transmitPowerIndex
+            Log.d(TAG, "Transmit Power Index: $transmitPowerIndex")
+
             val receiveSensitivityIndex = antennaRfConfig.receiveSensitivityIndex
             val rfModeIndex = antennaRfConfig // Corrected property name
-            val tari = antennaRfConfig.tari
-
-            Log.d(TAG, "Reader Config:")
-            Log.d(TAG, "Transmit Power Index: $transmitPowerIndex")
             Log.d(TAG, "Receive Sensitivity Index: $receiveSensitivityIndex")
             Log.d(TAG, "RF Mode Table Index: $rfModeIndex")
+
+            val tari = antennaRfConfig.tari
             Log.d(TAG, "Tari: $tari")
+
+            var beeperVolume: ReaderBeeperVolume? = null
+
+            when (reader!!.Config.beeperVolume) {
+                BEEPER_VOLUME.HIGH_BEEP -> beeperVolume = ReaderBeeperVolume.HIGH
+                BEEPER_VOLUME.MEDIUM_BEEP -> beeperVolume = ReaderBeeperVolume.MEDIUM
+                BEEPER_VOLUME.LOW_BEEP -> beeperVolume = ReaderBeeperVolume.LOW
+                BEEPER_VOLUME.QUIET_BEEP -> beeperVolume = ReaderBeeperVolume.QUIET
+            }
+            Log.d(TAG, "Beeper volume: $beeperVolume")
+
+            var batchMode: ReaderConfigBatchMode? = null
+            when (reader!!.Config.batchModeConfig) {
+                BATCH_MODE.AUTO -> batchMode = ReaderConfigBatchMode.AUTO
+                BATCH_MODE.ENABLE -> batchMode = ReaderConfigBatchMode.ENABLED
+                BATCH_MODE.DISABLE -> batchMode = ReaderConfigBatchMode.DISABLED
+            }
+            Log.d(TAG, "Batch mode: $batchMode")
+
+            var scanBatchMode: ReaderConfigBatchMode? = null
+            when (reader!!.Config.scanBatchModeConfig) {
+                SCAN_BATCH_MODE.AUTO -> scanBatchMode = ReaderConfigBatchMode.AUTO
+                SCAN_BATCH_MODE.ENABLE -> scanBatchMode = ReaderConfigBatchMode.ENABLED
+                SCAN_BATCH_MODE.DISABLE -> scanBatchMode = ReaderConfigBatchMode.DISABLED
+            }
+            Log.d(TAG, "Scan batch mode: $scanBatchMode")
+
+            return ReaderConfig(
+                transmitPowerIndex.toLong(),
+                tari,
+                beeperVolume,
+                reader!!.Config.dpoState == DYNAMIC_POWER_OPTIMIZATION.ENABLE,
+                // NOTE: SDK doesn't provide this
+                null,
+                batchMode,
+                scanBatchMode
+            )
         } catch (e: Exception) {
             Log.d(TAG, "Error getting reader config: $e")
             throw Error("Error getting reader config")
@@ -521,14 +564,14 @@ class RFIDReaderInterface(
     override fun RFIDReaderAppeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} appeared")
         if (applicationContext != null && currentConnectionType != null) {
-            getAvailableReaderList(currentConnectionType!!)
+//            getAvailableReaderList(currentConnectionType!!)
         }
     }
 
     override fun RFIDReaderDisappeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} disappeared")
         if (applicationContext != null && currentConnectionType != null) {
-            getAvailableReaderList(currentConnectionType!!)
+//            getAvailableReaderList(currentConnectionType!!)
         }
     }
 }

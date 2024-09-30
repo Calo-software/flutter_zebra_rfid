@@ -86,6 +86,7 @@ class Reader {
 class ReaderConfig {
   ReaderConfig({
     this.transmitPowerIndex,
+    this.tari,
     this.beeperVolume,
     this.enableDynamicPower,
     this.enableLedBlink,
@@ -94,6 +95,8 @@ class ReaderConfig {
   });
 
   int? transmitPowerIndex;
+
+  int? tari;
 
   ReaderBeeperVolume? beeperVolume;
 
@@ -108,6 +111,7 @@ class ReaderConfig {
   Object encode() {
     return <Object?>[
       transmitPowerIndex,
+      tari,
       beeperVolume,
       enableDynamicPower,
       enableLedBlink,
@@ -120,11 +124,12 @@ class ReaderConfig {
     result as List<Object?>;
     return ReaderConfig(
       transmitPowerIndex: result[0] as int?,
-      beeperVolume: result[1] as ReaderBeeperVolume?,
-      enableDynamicPower: result[2] as bool?,
-      enableLedBlink: result[3] as bool?,
-      batchMode: result[4] as ReaderConfigBatchMode?,
-      scanBatchMode: result[5] as ReaderConfigBatchMode?,
+      tari: result[1] as int?,
+      beeperVolume: result[2] as ReaderBeeperVolume?,
+      enableDynamicPower: result[3] as bool?,
+      enableLedBlink: result[4] as bool?,
+      batchMode: result[5] as ReaderConfigBatchMode?,
+      scanBatchMode: result[6] as ReaderConfigBatchMode?,
     );
   }
 }
@@ -494,6 +499,34 @@ class FlutterZebraRfid {
       );
     } else {
       return (pigeonVar_replyList[0] as Reader?);
+    }
+  }
+
+  /// Reader config
+  Future<ReaderConfig> readerConfig() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.readerConfig$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as ReaderConfig?)!;
     }
   }
 }

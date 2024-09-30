@@ -204,6 +204,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         return rfidInterface!!.currentReader()
     }
 
+    override fun readerConfig(callback: (Result<ReaderConfig>) -> Unit) {
+        try {
+            val config = rfidInterface!!.getReaderConfig()
+            callback(Result.success(config))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
     override fun startLocating(tags: List<RfidTag>, callback: (Result<Unit>) -> Unit) {
         try {
             rfidInterface!!.startLocating(tags)

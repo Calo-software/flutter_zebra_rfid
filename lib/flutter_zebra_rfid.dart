@@ -55,8 +55,11 @@ class FlutterZebraRfidApi {
   /// Start locating.
   Future<void> stopLocating() => _api.stopLocating();
 
-  /// Returns reader currently in use (or null if none in use)
+  /// Returns reader currently in use (or null if none in use).
   Future<Reader?> get currentReader => _api.currentReader();
+
+  /// Returns current reader config.
+  Future<ReaderConfig> get readerConfig => _api.readerConfig();
 
   final _api = FlutterZebraRfid();
   final _callbacks = _FlutterZebraRfidCallbacksImpl();

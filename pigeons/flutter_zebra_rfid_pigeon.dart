@@ -43,6 +43,10 @@ abstract class FlutterZebraRfid {
 
   /// Reader currently in use
   Reader? currentReader();
+
+  /// Reader config
+  @async
+  ReaderConfig readerConfig();
 }
 
 @FlutterApi()
@@ -95,6 +99,7 @@ enum ReaderBeeperVolume {
 class ReaderConfig {
   ReaderConfig({
     this.transmitPowerIndex,
+    this.tari,
     this.beeperVolume,
     this.enableDynamicPower,
     this.enableLedBlink,
@@ -102,6 +107,7 @@ class ReaderConfig {
     this.scanBatchMode,
   });
   final int? transmitPowerIndex;
+  final int? tari;
   final ReaderBeeperVolume? beeperVolume;
   final bool? enableDynamicPower;
   final bool? enableLedBlink;
