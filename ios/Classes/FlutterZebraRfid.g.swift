@@ -127,6 +127,7 @@ struct Reader {
 /// Generated class from Pigeon that represents data sent in messages.
 struct ReaderConfig {
   var transmitPowerIndex: Int64? = nil
+  var tari: Int64? = nil
   var beeperVolume: ReaderBeeperVolume? = nil
   var enableDynamicPower: Bool? = nil
   var enableLedBlink: Bool? = nil
@@ -138,14 +139,16 @@ struct ReaderConfig {
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> ReaderConfig? {
     let transmitPowerIndex: Int64? = isNullish(pigeonVar_list[0]) ? nil : (pigeonVar_list[0] is Int64? ? pigeonVar_list[0] as! Int64? : Int64(pigeonVar_list[0] as! Int32))
-    let beeperVolume: ReaderBeeperVolume? = nilOrValue(pigeonVar_list[1])
-    let enableDynamicPower: Bool? = nilOrValue(pigeonVar_list[2])
-    let enableLedBlink: Bool? = nilOrValue(pigeonVar_list[3])
-    let batchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[4])
-    let scanBatchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[5])
+    let tari: Int64? = isNullish(pigeonVar_list[1]) ? nil : (pigeonVar_list[1] is Int64? ? pigeonVar_list[1] as! Int64? : Int64(pigeonVar_list[1] as! Int32))
+    let beeperVolume: ReaderBeeperVolume? = nilOrValue(pigeonVar_list[2])
+    let enableDynamicPower: Bool? = nilOrValue(pigeonVar_list[3])
+    let enableLedBlink: Bool? = nilOrValue(pigeonVar_list[4])
+    let batchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[5])
+    let scanBatchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[6])
 
     return ReaderConfig(
       transmitPowerIndex: transmitPowerIndex,
+      tari: tari,
       beeperVolume: beeperVolume,
       enableDynamicPower: enableDynamicPower,
       enableLedBlink: enableLedBlink,
@@ -156,6 +159,7 @@ struct ReaderConfig {
   func toList() -> [Any?] {
     return [
       transmitPowerIndex,
+      tari,
       beeperVolume,
       enableDynamicPower,
       enableLedBlink,
@@ -371,6 +375,8 @@ protocol FlutterZebraRfid {
   func stopLocating(completion: @escaping (Result<Void, Error>) -> Void)
   /// Reader currently in use
   func currentReader() throws -> Reader?
+  /// Reader config
+  func readerConfig(completion: @escaping (Result<ReaderConfig, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -513,6 +519,22 @@ class FlutterZebraRfidSetup {
       }
     } else {
       currentReaderChannel.setMessageHandler(nil)
+    }
+    /// Reader config
+    let readerConfigChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.readerConfig\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      readerConfigChannel.setMessageHandler { _, reply in
+        api.readerConfig { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      readerConfigChannel.setMessageHandler(nil)
     }
   }
 }
