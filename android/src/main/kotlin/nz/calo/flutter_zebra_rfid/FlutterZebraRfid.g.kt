@@ -582,21 +582,32 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
       } 
     }
   }
-  fun onBatteryDataReceived(batteryDataArg: BatteryData, callback: (Result<Unit>) -> Unit)
-{
+  fun onBatteryDataReceived(batteryDataArg: BatteryData, callback: (Result<Unit>) -> Unit) {
+    val TAG = "BatteryDataReceiver" // Define the TAG for this class
+
+    Log.d(TAG, "onBatteryDataReceived called with batteryDataArg: $batteryDataArg")
+
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBatteryDataReceived$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+
+    Log.d(TAG, "Sending data on channel: $channelName")
+
     channel.send(listOf(batteryDataArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
-          callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))
+          val error = FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)
+          Log.e(TAG, "Error receiving battery data", error) // Log error with exception
+          callback(Result.failure(error))
         } else {
+          Log.d(TAG, "Battery data received successfully")
           callback(Result.success(Unit))
         }
       } else {
-        callback(Result.failure(createConnectionError(channelName)))
-      } 
+        val error = createConnectionError(channelName)
+        Log.e(TAG, "Error connecting to channel", error) // Log connection error
+        callback(Result.failure(error))
+      }
     }
   }
   fun onTagsLocated(tagsArg: List<RfidTag>, callback: (Result<Unit>) -> Unit)
