@@ -2,6 +2,7 @@
 
 Flutter plugin for Zebra RFID for iOS and Android
 
+Please note this is unstable and only being tested for our unique use cases currently.
 
 Notes:
 - needs to be minSdkVersion 26
