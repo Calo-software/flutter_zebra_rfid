@@ -95,14 +95,16 @@ class RFIDReaderInterface(
 
     fun connectReader(readerId: Long): ReaderInfo? {
         try {
-            if (readerId == currentReader()?.id) {
+            if (readerId == currentReader()?.id && reader!!.isConnected) {
                 Log.d(TAG, "Reader $readerId already connected")
                 return currentReader()?.info
             }
+            Log.d(TAG, "Reader $readerId not connected")
             if (availableRFIDReaderList != null) {
                 if (availableRFIDReaderList!!.size <= readerId) throw Error("Reader not available to connect")
 
                 readerDevice = availableRFIDReaderList!![readerId.toInt()]
+                // ? I think this reestablishes the reader connection after flutter hot reload and possibly app going into background.
                 reader = readerDevice!!.rfidReader
                 if (!reader!!.isConnected) {
                     callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTING) {}
