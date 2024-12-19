@@ -34,6 +34,7 @@ class BarcodeScannerInterface(
     }
 
     fun connectToScanner(scannerId: Int) {
+        Log.d(TAG, "Connecting to barcode scanner")
         try {
             val scanner = availableScannerList.firstOrNull { x -> x.scannerID == scannerId }
                 ?: throw Error("Scanner not available")
