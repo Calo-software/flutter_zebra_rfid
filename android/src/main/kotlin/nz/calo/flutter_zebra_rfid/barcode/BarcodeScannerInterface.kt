@@ -13,14 +13,16 @@ import com.zebra.rfid.api3.OperationFailureException
 import com.zebra.scannercontrol.*
 import java.util.*
 
-
+/**
+ * Interface to interact with the barcode scanner.
+ */
 class BarcodeScannerInterface(
     private var callbacks: FlutterZebraBarcodeCallbacks
 ) : IDcsSdkApiDelegate {
     private val TAG: String = "FlutterZebraRfidPlugin"
 
     private var sdkHandler: SDKHandler? = null
-    private var availableScannerList: ArrayList<DCSScannerInfo> = ArrayList()
+    private val availableScannerList: MutableList<DCSScannerInfo> = Collections.synchronizedList(ArrayList())
 
     private var currentScanner: DCSScannerInfo? = null
     private var isInitialized: Boolean = false
@@ -179,12 +181,14 @@ class BarcodeScannerInterface(
     }
 
     private fun getAvailableScannerList() {
-        sdkHandler!!.dcssdkGetAvailableScannersList(availableScannerList)
-        callbacks.onAvailableScannersChanged(availableScannerList.map {
-            BarcodeScanner(
-                it.scannerName, it.scannerID.toLong(),
-                it.scannerModel, it.scannerHWSerialNumber
-            )
-        }) {}
+        synchronized(availableScannerList) {
+            sdkHandler!!.dcssdkGetAvailableScannersList(availableScannerList)
+            callbacks.onAvailableScannersChanged(availableScannerList.map {
+                BarcodeScanner(
+                    it.scannerName, it.scannerID.toLong(),
+                    it.scannerModel, it.scannerHWSerialNumber
+                )
+            }) {}
+        }
     }
 }
