@@ -113,8 +113,8 @@ class RFIDReaderInterface(
                     }
                     Log.d(TAG, "RFID Reader Connecting...")
                     reader!!.connect()
-                    setupReader()
                     Log.d(TAG, "RFID Reader Connected!")
+                    setupReader()
                     val capabilities = reader!!.ReaderCapabilities
                     val levels = capabilities.transmitPowerLevelValues
                     readerInfo = ReaderInfo(
@@ -266,6 +266,10 @@ class RFIDReaderInterface(
     }
 
     private fun setupReader() {
+        if (!reader!!.isConnected) {
+            Log.d(TAG, "Reader not connected, connecting...")
+            reader!!.connect()
+        }
         if (reader!!.isConnected) {
             Log.d(TAG, "Configuring...")
             val triggerInfo = TriggerInfo()
@@ -317,6 +321,8 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Error configuring reader: $e")
                 throw Error("Error configuring reader")
             }
+        } else {
+            throw Error("Not connected to any Reader")
         }
     }
 
