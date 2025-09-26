@@ -82,6 +82,18 @@ enum ReaderConnectionStatus: Int {
   case error = 4
 }
 
+enum ReaderErrorCode: Int {
+  case unknown = 0
+  case noAvailableReaders = 1
+  case invalidReaderIndex = 2
+  case readerDeviceNull = 3
+  case alreadyConnecting = 4
+  case notConnected = 5
+  case sdkInvalidUsage = 6
+  case sdkOperationFailure = 7
+  case timeout = 8
+}
+
 enum ReaderConfigBatchMode: Int {
   case auto = 0
   case enabled = 1
@@ -93,6 +105,35 @@ enum ReaderBeeperVolume: Int {
   case low = 1
   case medium = 2
   case high = 3
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct ReaderError {
+  var code: ReaderErrorCode
+  var message: String
+  var details: String? = nil
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> ReaderError? {
+    let code = pigeonVar_list[0] as! ReaderErrorCode
+    let message = pigeonVar_list[1] as! String
+    let details: String? = nilOrValue(pigeonVar_list[2])
+
+    return ReaderError(
+      code: code,
+      message: message,
+      details: details
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      code,
+      message,
+      details,
+    ]
+  }
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
@@ -282,24 +323,32 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
     case 131:
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
-        return ReaderConfigBatchMode(rawValue: enumResultAsInt)
+        return ReaderErrorCode(rawValue: enumResultAsInt)
       }
       return nil
     case 132:
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
-        return ReaderBeeperVolume(rawValue: enumResultAsInt)
+        return ReaderConfigBatchMode(rawValue: enumResultAsInt)
       }
       return nil
     case 133:
-      return Reader.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return ReaderBeeperVolume(rawValue: enumResultAsInt)
+      }
+      return nil
     case 134:
-      return ReaderConfig.fromList(self.readValue() as! [Any?])
+      return ReaderError.fromList(self.readValue() as! [Any?])
     case 135:
-      return ReaderInfo.fromList(self.readValue() as! [Any?])
+      return Reader.fromList(self.readValue() as! [Any?])
     case 136:
-      return RfidTag.fromList(self.readValue() as! [Any?])
+      return ReaderConfig.fromList(self.readValue() as! [Any?])
     case 137:
+      return ReaderInfo.fromList(self.readValue() as! [Any?])
+    case 138:
+      return RfidTag.fromList(self.readValue() as! [Any?])
+    case 139:
       return BatteryData.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -315,26 +364,32 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ReaderConnectionStatus {
       super.writeByte(130)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ReaderConfigBatchMode {
+    } else if let value = value as? ReaderErrorCode {
       super.writeByte(131)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ReaderBeeperVolume {
+    } else if let value = value as? ReaderConfigBatchMode {
       super.writeByte(132)
       super.writeValue(value.rawValue)
-    } else if let value = value as? Reader {
+    } else if let value = value as? ReaderBeeperVolume {
       super.writeByte(133)
-      super.writeValue(value.toList())
-    } else if let value = value as? ReaderConfig {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? ReaderError {
       super.writeByte(134)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderInfo {
+    } else if let value = value as? Reader {
       super.writeByte(135)
       super.writeValue(value.toList())
-    } else if let value = value as? RfidTag {
+    } else if let value = value as? ReaderConfig {
       super.writeByte(136)
       super.writeValue(value.toList())
-    } else if let value = value as? BatteryData {
+    } else if let value = value as? ReaderInfo {
       super.writeByte(137)
+      super.writeValue(value.toList())
+    } else if let value = value as? RfidTag {
+      super.writeByte(138)
+      super.writeValue(value.toList())
+    } else if let value = value as? BatteryData {
+      super.writeByte(139)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -545,6 +600,7 @@ protocol FlutterZebraRfidCallbacksProtocol {
   func onTagsRead(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
   func onBatteryDataReceived(batteryData batteryDataArg: BatteryData, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
   func onTagsLocated(tags tagsArg: [RfidTag], completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
+  func onReaderConnectionError(error errorArg: ReaderError, completion: @escaping (Result<Void, FlutterRfidError>) -> Void)
 }
 class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -632,6 +688,24 @@ class FlutterZebraRfidCallbacks: FlutterZebraRfidCallbacksProtocol {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([tagsArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(FlutterRfidError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onReaderConnectionError(error errorArg: ReaderError, completion: @escaping (Result<Void, FlutterRfidError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionError\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([errorArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

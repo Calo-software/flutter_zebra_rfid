@@ -1,79 +1,63 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android") version "1.9.24"
+}
+
 group = "nz.calo.flutter_zebra_rfid"
 version = "1.0-SNAPSHOT"
 
-buildscript {
-    ext.kotlin_version = "1.7.10"
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath("com.android.tools.build:gradle:7.3.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
     }
 }
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
 
 android {
-   if (project.android.hasProperty("namespace")) {
-       namespace = "nz.calo.flutter_zebra_rfid"
-   }
-
-    compileSdk = 34
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
-
-    sourceSets {
-        main.java.srcDirs += "src/main/kotlin"
-        test.java.srcDirs += "src/test/kotlin"
-    }
+    namespace = "nz.calo.flutter_zebra_rfid"
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 26
+        // (No targetSdk needed for library; rely on consumer constraints)
     }
 
-    dependencies {
-        testImplementation("org.jetbrains.kotlin:kotlin-test")
-        testImplementation("org.mockito:mockito-core:5.0.0")
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    sourceSets {
+        named("main") { java.srcDirs("src/main/kotlin") }
+        named("test") { java.srcDirs("src/test/kotlin") }
     }
 
     testOptions {
         unitTests.all {
             useJUnitPlatform()
-
             testLogging {
-               events "passed", "skipped", "failed", "standardOut", "standardError"
-               outputs.upToDateWhen {false}
-               showStandardStreams = true
+                events("passed", "skipped", "failed")
+                showStandardStreams = false
             }
         }
     }
+    lint {
+        abortOnError = false
+    }
+    buildFeatures {
+        buildConfig = false
+    }
 }
 
-configurations.maybeCreate("default")
+repositories {
+    google()
+    mavenCentral()
+}
 
 dependencies {
-     implementation fileTree(dir: 'RFIDAPI3Library', include: ['*.jar'])
-//    implementation 'androidx.appcompat:appcompat:1.7.0'
-//     implementation 'androidx.core:core-ktx:1.6.0'
-//     implementation 'androidx.appcompat:appcompat:1.5.1'
-//     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0'
-    // implementation 'com.google.code.gson:gson:2.9.0'
+    implementation fileTree(dir: "RFIDAPI3Library", include: ["*.jar"])
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:1.9.24")
+    testImplementation("org.mockito:mockito-core:5.11.0")
 }

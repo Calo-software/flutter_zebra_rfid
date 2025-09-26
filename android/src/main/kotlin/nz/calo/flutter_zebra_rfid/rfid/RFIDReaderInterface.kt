@@ -10,6 +10,8 @@ import ReaderConnectionStatus
 import ReaderConnectionType
 import ReaderInfo
 import RfidTag
+import ReaderErrorCode
+import ReaderError
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -66,6 +68,28 @@ class RFIDReaderInterface(
     private var readerInfo: ReaderInfo? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var isLocating: Boolean = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Internal state machine to prevent race conditions
+    private enum class InternalConnectionState { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
+    private var internalState: InternalConnectionState = InternalConnectionState.DISCONNECTED
+
+    private fun updateConnectionState(newState: InternalConnectionState, externalStatus: ReaderConnectionStatus? = null, logMsg: String? = null, error: Throwable? = null) {
+        if (internalState == newState) return
+        if (logMsg != null) Log.d(TAG, logMsg + (error?.let { " | error=${it.message}" } ?: ""))
+        internalState = newState
+        externalStatus?.let { status ->
+            mainHandler.post {
+                callbacks.onReaderConnectionStatusChanged(status) {}
+            }
+        }
+    }
+
+    private fun emitError(code: ReaderErrorCode, message: String, details: String? = null, throwable: Throwable? = null) {
+        Log.e(TAG, "[ReaderError][$code] $message ${details ?: ""} ${throwable?.message ?: ""}")
+        val err = ReaderError(code, message, details ?: throwable?.message)
+        mainHandler.post { callbacks.onReaderConnectionError(err) {} }
+    }
 
     init {
         Log.d(TAG, "Initializing RFID SDK...")
@@ -93,48 +117,76 @@ class RFIDReaderInterface(
         callbacks.onAvailableReadersChanged(readers) {}
     }
 
+    @Synchronized
     fun connectReader(readerId: Long): ReaderInfo? {
+        // Validate list
+        val list = availableRFIDReaderList
+        if (list == null) {
+            emitError(ReaderErrorCode.NO_AVAILABLE_READERS, "No available readers list loaded")
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "No available readers list loaded")
+            return null
+        }
+
+        if (readerId < 0 || readerId >= list.size) {
+            emitError(ReaderErrorCode.INVALID_READER_INDEX, "Reader index $readerId out of range (size=${list.size})")
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader index $readerId out of range (size=${list.size})")
+            return null
+        }
+
+        // If already connected to this reader
+        reader?.let { existing ->
+            if (existing.isConnected && currentReader()?.id == readerId) {
+                Log.d(TAG, "Reader $readerId already connected (idempotent connect)")
+                return readerInfo
+            }
+        }
+
+        if (internalState == InternalConnectionState.CONNECTING) {
+            emitError(ReaderErrorCode.ALREADY_CONNECTING, "Connect already in progress; ignoring duplicate request")
+            Log.d(TAG, "Connect already in progress; ignoring duplicate request")
+            return null
+        }
+
+        readerDevice = list[readerId.toInt()]
+        val targetReader = readerDevice?.rfidReader
+        if (targetReader == null) {
+            emitError(ReaderErrorCode.READER_DEVICE_NULL, "Selected ReaderDevice has null rfidReader")
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Selected ReaderDevice has null rfidReader")
+            return null
+        }
+        reader = targetReader
+
+        if (targetReader.isConnected) {
+            updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader already physically connected")
+            return readerInfo
+        }
+
+        updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, "Starting connection to readerId=$readerId (${readerDevice?.name})")
+
         try {
-            if (readerId == currentReader()?.id && reader!!.isConnected) {
-                Log.d(TAG, "Reader $readerId already connected")
-                return currentReader()?.info
-            }
-            Log.d(TAG, "Reader $readerId not connected")
-            if (availableRFIDReaderList != null) {
-                if (availableRFIDReaderList!!.size <= readerId) throw Error("Reader not available to connect")
-
-                readerDevice = availableRFIDReaderList!![readerId.toInt()]
-                // ? I think this reestablishes the reader connection after flutter hot reload and possibly app going into background.
-                reader = readerDevice!!.rfidReader
-
-                if (!reader!!.isConnected) {
-                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTING) {
-                            Log.d(TAG, "Callback for connection status change to CONNECTING executed")
-                    }
-                    Log.d(TAG, "RFID Reader Connecting...")
-                    reader!!.connect()
-                    Log.d(TAG, "RFID Reader Connected!")
-                    setupReader()
-                    val capabilities = reader!!.ReaderCapabilities
-                    val levels = capabilities.transmitPowerLevelValues
-                    readerInfo = ReaderInfo(
-                        levels.asList(),
-                        capabilities.firwareVersion,
-                        capabilities.modelName,
-                        capabilities.scannerName,
-                        capabilities.serialNumber,
-                    )
-                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
-
-                    triggerDeviceStatus()
-                } else {
-                    callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
-                }
-                return null
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "RFID Reader connection error: ${e.toString()}")
-            callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.ERROR) {}
+            targetReader.connect()
+            setupReader()
+            val capabilities = targetReader.ReaderCapabilities
+            val levels = capabilities.transmitPowerLevelValues
+            readerInfo = ReaderInfo(
+                levels.asList(),
+                capabilities.firwareVersion,
+                capabilities.modelName,
+                capabilities.scannerName,
+                capabilities.serialNumber,
+            )
+            updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader connected; capabilities loaded")
+            triggerDeviceStatus()
+            return readerInfo
+        } catch (e: InvalidUsageException) {
+            emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
+        } catch (e: OperationFailureException) {
+            emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed while connecting", e.vendorMessage, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
+        } catch (e: Throwable) {
+            emitError(ReaderErrorCode.UNKNOWN, "Unexpected error while connecting", e.message, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
         }
         return null
     }
@@ -207,18 +259,23 @@ class RFIDReaderInterface(
     }
 
     fun disconnectCurrentReader() {
-        callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTING) {}
-
         if (reader == null) {
-            Log.d(TAG, "No connected RFID Reader!")
+            Log.d(TAG, "No connected RFID Reader (disconnect noop)")
             return
         }
-
-        if (reader!!.isConnected) {
-            reader!!.disconnect()
+        if (internalState == InternalConnectionState.DISCONNECTING || internalState == InternalConnectionState.DISCONNECTED) {
+            Log.d(TAG, "Disconnect already in progress or completed")
+            return
         }
-        callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.DISCONNECTED) {
-            Log.d(TAG, "Callback for connection status change to DISCONNECTED executed");
+        updateConnectionState(InternalConnectionState.DISCONNECTING, ReaderConnectionStatus.DISCONNECTING, "Disconnecting reader")
+        try {
+            if (reader?.isConnected == true) {
+                reader?.disconnect()
+            }
+            updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disconnected")
+        } catch (e: Throwable) {
+            emitError(ReaderErrorCode.UNKNOWN, "Error during disconnect", e.message, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Error during disconnect", e)
         }
     }
 
@@ -471,10 +528,9 @@ class RFIDReaderInterface(
     }
 
     private fun isReaderConnected(): Boolean {
-        return if (reader!!.isConnected) true else {
-            Log.d(TAG, "READER NOT CONNECTED")
-            false
-        }
+        val connected = reader?.isConnected == true && internalState == InternalConnectionState.CONNECTED
+        if (!connected) Log.d(TAG, "READER NOT CONNECTED (state=$internalState)")
+        return connected
     }
 
     // Read Event Notification

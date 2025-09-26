@@ -39,6 +39,18 @@ enum ReaderConnectionStatus {
   error,
 }
 
+enum ReaderErrorCode {
+  unknown,
+  noAvailableReaders,
+  invalidReaderIndex,
+  readerDeviceNull,
+  alreadyConnecting,
+  notConnected,
+  sdkInvalidUsage,
+  sdkOperationFailure,
+  timeout,
+}
+
 enum ReaderConfigBatchMode {
   auto,
   enabled,
@@ -50,6 +62,37 @@ enum ReaderBeeperVolume {
   low,
   medium,
   high,
+}
+
+class ReaderError {
+  ReaderError({
+    required this.code,
+    required this.message,
+    this.details,
+  });
+
+  ReaderErrorCode code;
+
+  String message;
+
+  String? details;
+
+  Object encode() {
+    return <Object?>[
+      code,
+      message,
+      details,
+    ];
+  }
+
+  static ReaderError decode(Object result) {
+    result as List<Object?>;
+    return ReaderError(
+      code: result[0]! as ReaderErrorCode,
+      message: result[1]! as String,
+      details: result[2] as String?,
+    );
+  }
 }
 
 class Reader {
@@ -248,26 +291,32 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is ReaderConnectionStatus) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderConfigBatchMode) {
+    } else     if (value is ReaderErrorCode) {
       buffer.putUint8(131);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderBeeperVolume) {
+    } else     if (value is ReaderConfigBatchMode) {
       buffer.putUint8(132);
       writeValue(buffer, value.index);
-    } else     if (value is Reader) {
+    } else     if (value is ReaderBeeperVolume) {
       buffer.putUint8(133);
-      writeValue(buffer, value.encode());
-    } else     if (value is ReaderConfig) {
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderError) {
       buffer.putUint8(134);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderInfo) {
+    } else     if (value is Reader) {
       buffer.putUint8(135);
       writeValue(buffer, value.encode());
-    } else     if (value is RfidTag) {
+    } else     if (value is ReaderConfig) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
-    } else     if (value is BatteryData) {
+    } else     if (value is ReaderInfo) {
       buffer.putUint8(137);
+      writeValue(buffer, value.encode());
+    } else     if (value is RfidTag) {
+      buffer.putUint8(138);
+      writeValue(buffer, value.encode());
+    } else     if (value is BatteryData) {
+      buffer.putUint8(139);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -285,19 +334,24 @@ class _PigeonCodec extends StandardMessageCodec {
         return value == null ? null : ReaderConnectionStatus.values[value];
       case 131: 
         final int? value = readValue(buffer) as int?;
-        return value == null ? null : ReaderConfigBatchMode.values[value];
+        return value == null ? null : ReaderErrorCode.values[value];
       case 132: 
         final int? value = readValue(buffer) as int?;
-        return value == null ? null : ReaderBeeperVolume.values[value];
+        return value == null ? null : ReaderConfigBatchMode.values[value];
       case 133: 
-        return Reader.decode(readValue(buffer)!);
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : ReaderBeeperVolume.values[value];
       case 134: 
-        return ReaderConfig.decode(readValue(buffer)!);
+        return ReaderError.decode(readValue(buffer)!);
       case 135: 
-        return ReaderInfo.decode(readValue(buffer)!);
+        return Reader.decode(readValue(buffer)!);
       case 136: 
-        return RfidTag.decode(readValue(buffer)!);
+        return ReaderConfig.decode(readValue(buffer)!);
       case 137: 
+        return ReaderInfo.decode(readValue(buffer)!);
+      case 138: 
+        return RfidTag.decode(readValue(buffer)!);
+      case 139: 
         return BatteryData.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -544,6 +598,8 @@ abstract class FlutterZebraRfidCallbacks {
 
   void onTagsLocated(List<RfidTag?> tags);
 
+  void onReaderConnectionError(ReaderError error);
+
   static void setUp(FlutterZebraRfidCallbacks? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
@@ -662,6 +718,31 @@ abstract class FlutterZebraRfidCallbacks {
               'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated was null, expected non-null List<RfidTag?>.');
           try {
             api.onTagsLocated(arg_tags!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionError$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionError was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final ReaderError? arg_error = (args[0] as ReaderError?);
+          assert(arg_error != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onReaderConnectionError was null, expected non-null ReaderError.');
+          try {
+            api.onReaderConnectionError(arg_error!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

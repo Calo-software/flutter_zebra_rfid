@@ -134,6 +134,10 @@ class _RfidPageState extends State<RfidPage> {
                   value: _connectionType,
                   items: const [
                     DropdownMenuItem(
+                      value: ReaderConnectionType.all,
+                      child: Text('All'),
+                    ),
+                    DropdownMenuItem(
                       value: ReaderConnectionType.usb,
                       child: Text('USB'),
                     ),

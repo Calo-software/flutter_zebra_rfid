@@ -56,6 +56,8 @@ abstract class FlutterZebraRfidCallbacks {
   void onTagsRead(List<RfidTag> tags);
   void onBatteryDataReceived(BatteryData batteryData);
   void onTagsLocated(List<RfidTag> tags);
+  // Fired when a connection-related error occurs. Status callback will also emit `ReaderConnectionStatus.error`.
+  void onReaderConnectionError(ReaderError error);
 }
 
 enum ReaderConnectionType {
@@ -70,6 +72,30 @@ enum ReaderConnectionStatus {
   disconnecting,
   disconnected,
   error,
+}
+
+// Categorised error codes for connection / configuration failures.
+enum ReaderErrorCode {
+  unknown,
+  noAvailableReaders,
+  invalidReaderIndex,
+  readerDeviceNull,
+  alreadyConnecting,
+  notConnected,
+  sdkInvalidUsage,
+  sdkOperationFailure,
+  timeout,
+}
+
+class ReaderError {
+  ReaderError({
+    required this.code,
+    required this.message,
+    this.details,
+  });
+  final ReaderErrorCode code;
+  final String message;
+  final String? details;
 }
 
 class Reader {

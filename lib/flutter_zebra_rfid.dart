@@ -24,6 +24,10 @@ class FlutterZebraRfidApi {
   /// Behavior subject wrapping tags locate callback from the plugin
   BehaviorSubject<List<RfidTag>> get onTagsLocated => _callbacks.tagsLocated;
 
+  /// Stream of connection-related errors with structured codes.
+  BehaviorSubject<ReaderError> get onReaderConnectionError =>
+      _callbacks.connectionErrors;
+
   /// Triggers reader list refresh for specified `connectionType`
   Future<void> updateAvailableReaders({
     required ReaderConnectionType connectionType,
@@ -97,6 +101,11 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
     );
   }
 
+  @override
+  void onReaderConnectionError(ReaderError error) {
+    connectionErrors.add(error);
+  }
+
   final connectionStatusChanged = BehaviorSubject<ConnectionStatus>()
     ..add(ConnectionStatus.disconnected);
 
@@ -104,6 +113,7 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   final tagsRead = BehaviorSubject<List<RfidTag>>();
   final batteryDataReceived = BehaviorSubject<BatteryData>();
   final tagsLocated = BehaviorSubject<List<RfidTag>>();
+  final connectionErrors = BehaviorSubject<ReaderError>();
 }
 
 extension ReaderInfoX on ReaderInfo {
