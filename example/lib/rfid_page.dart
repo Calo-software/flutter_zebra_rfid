@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
-// Removed shared_types import (ConnectionStatus) to avoid confusion; using Pigeon ReaderConnectionStatus exclusively.
+import 'package:flutter_zebra_rfid/shared_types.dart';
 
 class RfidPage extends StatefulWidget {
   const RfidPage({super.key});
@@ -15,7 +15,7 @@ class _RfidPageState extends State<RfidPage> {
   // Reader
   List<Reader> _availableReaders = [];
   List<RfidTag> _readTags = [];
-  ReaderConnectionStatus _connectionStatus = ReaderConnectionStatus.disconnected;
+  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   Reader? _currentReader;
   BatteryData? _batteryData;
   DateTime? _batteryLastUpdate;
@@ -44,11 +44,9 @@ class _RfidPageState extends State<RfidPage> {
     _flutterZebraRfidApi.onReaderConnectionStatusChanged.listen((status) async {
       final reader = await _flutterZebraRfidApi.currentReader;
       setState(() {
-        // Ensure type matches expected ReaderConnectionStatus
-        _connectionStatus = status as ReaderConnectionStatus;
+        _connectionStatus = status; // already a ConnectionStatus from wrapper
         _currentReader = reader;
-
-  if (_connectionStatus == ReaderConnectionStatus.connected) {
+        if (_connectionStatus == ConnectionStatus.connected) {
           // configure reader
           _flutterZebraRfidApi.configureReader(
               config: ReaderConfig(
@@ -333,7 +331,7 @@ class _ReadersContainer extends StatelessWidget {
   });
 
   final List<Reader> availableReaders;
-  final ReaderConnectionStatus connectionStatus;
+  final ConnectionStatus connectionStatus;
   final BatteryData? batteryData;
   final Reader? currentReader;
   final ReaderError? lastError;
@@ -345,14 +343,15 @@ class _ReadersContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget connectionStatusIcon() {
       switch (connectionStatus) {
-        case ReaderConnectionStatus.connecting:
-        case ReaderConnectionStatus.disconnecting:
-          return const SizedBox(width: 20, height: 20, child: CircularProgressIndicator());
-        case ReaderConnectionStatus.connected:
+        case ConnectionStatus.connecting:
+        case ConnectionStatus.disconnecting:
+          return const SizedBox(
+              width: 20, height: 20, child: CircularProgressIndicator());
+        case ConnectionStatus.connected:
           return const Icon(Icons.wifi_outlined, color: Colors.green);
-        case ReaderConnectionStatus.disconnected:
+        case ConnectionStatus.disconnected:
           return const Icon(Icons.wifi_off_outlined, color: Colors.red);
-        case ReaderConnectionStatus.error:
+        case ConnectionStatus.error:
           return const Icon(Icons.error_outline, color: Colors.orange);
       }
     }
@@ -421,13 +420,14 @@ class _ReadersContainer extends StatelessWidget {
               itemBuilder: (context, index) {
                 final item = availableReaders[index];
                 final isCurrentItem = item.id == currentReader?.id;
-        final isConnected = isCurrentItem && connectionStatus == ReaderConnectionStatus.connected;
+        final isConnected = isCurrentItem &&
+          connectionStatus == ConnectionStatus.connected;
                 return Container(
                   color: Colors.white,
                   child: GestureDetector(
                     onTap: () {
-            if (connectionStatus != ReaderConnectionStatus.connecting &&
-              connectionStatus != ReaderConnectionStatus.disconnecting) {
+            if (connectionStatus != ConnectionStatus.connecting &&
+              connectionStatus != ConnectionStatus.disconnecting) {
                         showDialog(
                           context: context,
                           builder: (context) => Center(
