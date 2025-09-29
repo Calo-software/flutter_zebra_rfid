@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
-import 'package:flutter_zebra_rfid/shared_types.dart';
+// Removed shared_types import (ConnectionStatus) to avoid confusion; using Pigeon ReaderConnectionStatus exclusively.
 
 class RfidPage extends StatefulWidget {
   const RfidPage({super.key});
@@ -15,7 +15,7 @@ class _RfidPageState extends State<RfidPage> {
   // Reader
   List<Reader> _availableReaders = [];
   List<RfidTag> _readTags = [];
-  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
+  ReaderConnectionStatus _connectionStatus = ReaderConnectionStatus.disconnected;
   Reader? _currentReader;
   BatteryData? _batteryData;
   DateTime? _batteryLastUpdate;
@@ -44,10 +44,11 @@ class _RfidPageState extends State<RfidPage> {
     _flutterZebraRfidApi.onReaderConnectionStatusChanged.listen((status) async {
       final reader = await _flutterZebraRfidApi.currentReader;
       setState(() {
-        _connectionStatus = status;
+        // Ensure type matches expected ReaderConnectionStatus
+        _connectionStatus = status as ReaderConnectionStatus;
         _currentReader = reader;
 
-        if (status == ConnectionStatus.connected) {
+  if (_connectionStatus == ReaderConnectionStatus.connected) {
           // configure reader
           _flutterZebraRfidApi.configureReader(
               config: ReaderConfig(
@@ -148,7 +149,8 @@ class _RfidPageState extends State<RfidPage> {
                     else ...[
                       Text('Level: ${_batteryData!.level}%'),
                       // Raw battery debug line (shows unformatted underlying fields)
-                      Text('Raw: {level: ${_batteryData!.level}, charging: ${_batteryData!.isCharging}, cause: ${_batteryData!.cause}}'),
+                      Text(
+                          'Raw: {level: ${_batteryData!.level}, charging: ${_batteryData!.isCharging}, cause: ${_batteryData!.cause}}'),
                       Text('Charging: ${_batteryData!.isCharging}'),
                       Text('Cause: ${_batteryData!.cause}'),
                       Text(
@@ -331,7 +333,7 @@ class _ReadersContainer extends StatelessWidget {
   });
 
   final List<Reader> availableReaders;
-  final ConnectionStatus connectionStatus;
+  final ReaderConnectionStatus connectionStatus;
   final BatteryData? batteryData;
   final Reader? currentReader;
   final ReaderError? lastError;
@@ -343,16 +345,15 @@ class _ReadersContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget connectionStatusIcon() {
       switch (connectionStatus) {
-        case ConnectionStatus.connecting:
-        case ConnectionStatus.disconnecting:
-          return const SizedBox(
-              width: 20, height: 20, child: CircularProgressIndicator());
-        case ConnectionStatus.connected:
+        case ReaderConnectionStatus.connecting:
+        case ReaderConnectionStatus.disconnecting:
+          return const SizedBox(width: 20, height: 20, child: CircularProgressIndicator());
+        case ReaderConnectionStatus.connected:
           return const Icon(Icons.wifi_outlined, color: Colors.green);
-        case ConnectionStatus.disconnected:
+        case ReaderConnectionStatus.disconnected:
           return const Icon(Icons.wifi_off_outlined, color: Colors.red);
-        default:
-          return Container();
+        case ReaderConnectionStatus.error:
+          return const Icon(Icons.error_outline, color: Colors.orange);
       }
     }
 
@@ -420,16 +421,13 @@ class _ReadersContainer extends StatelessWidget {
               itemBuilder: (context, index) {
                 final item = availableReaders[index];
                 final isCurrentItem = item.id == currentReader?.id;
-                final isConnected = isCurrentItem &&
-                    connectionStatus == ReaderConnectionStatus.connected;
+        final isConnected = isCurrentItem && connectionStatus == ReaderConnectionStatus.connected;
                 return Container(
                   color: Colors.white,
                   child: GestureDetector(
                     onTap: () {
-                      if (connectionStatus !=
-                              ReaderConnectionStatus.connecting &&
-                          connectionStatus !=
-                              ReaderConnectionStatus.disconnecting) {
+            if (connectionStatus != ReaderConnectionStatus.connecting &&
+              connectionStatus != ReaderConnectionStatus.disconnecting) {
                         showDialog(
                           context: context,
                           builder: (context) => Center(
