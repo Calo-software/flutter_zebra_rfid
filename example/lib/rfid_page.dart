@@ -18,9 +18,12 @@ class _RfidPageState extends State<RfidPage> {
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   Reader? _currentReader;
   BatteryData? _batteryData;
+  DateTime? _batteryLastUpdate;
+  int _batteryUpdateCount = 0;
   ReaderError? _lastError;
   Diagnostics? _diagnostics;
   bool _scanningEnabled = true;
+  bool _diagnosticsDialogOpen = false;
 
   ReaderConnectionType _connectionType = ReaderConnectionType.all;
   bool _isLoading = false;
@@ -59,6 +62,15 @@ class _RfidPageState extends State<RfidPage> {
           // Auto-exit diagnostics: clear last error & diagnostics snapshot if previously shown
           _lastError = null;
           _diagnostics = null;
+          // Close diagnostics dialog if open
+          if (_diagnosticsDialogOpen) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                Navigator.of(context, rootNavigator: true).maybePop();
+              }
+              _diagnosticsDialogOpen = false;
+            });
+          }
         }
       });
     });
@@ -67,9 +79,13 @@ class _RfidPageState extends State<RfidPage> {
       (tags) => setState(() => _readTags = tags),
     );
 
-    _flutterZebraRfidApi.onBatteryDataReceived.listen(
-      (batteryData) => setState(() => _batteryData = batteryData),
-    );
+    _flutterZebraRfidApi.onBatteryDataReceived.listen((batteryData) {
+      setState(() {
+        _batteryData = batteryData;
+        _batteryLastUpdate = DateTime.now();
+        _batteryUpdateCount++;
+      });
+    });
 
     _flutterZebraRfidApi.onReaderConnectionError.listen((error) async {
       final d = await _flutterZebraRfidApi.diagnostics();
@@ -78,11 +94,113 @@ class _RfidPageState extends State<RfidPage> {
         _diagnostics = d;
         if (d.scanningEnabled != null) _scanningEnabled = d.scanningEnabled!;
       });
+      _showDiagnosticsDialog();
+    });
+  }
+
+  Future<void> _refreshDiagnostics({StateSetter? dialogSetState}) async {
+    final d = await _flutterZebraRfidApi.diagnostics();
+    if (!mounted) return;
+    setState(() {
+      _diagnostics = d;
+      if (d.scanningEnabled != null) _scanningEnabled = d.scanningEnabled!;
+    });
+    dialogSetState?.call(() {}); // trigger rebuild inside dialog if provided
+  }
+
+  void _showDiagnosticsDialog() {
+    if (_diagnosticsDialogOpen) return; // already shown
+    if (_diagnostics == null) return; // nothing to show
+    _diagnosticsDialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, dialogSetState) {
+            final d = _diagnostics;
+            return AlertDialog(
+              title: const Text('Diagnostics'),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (d == null)
+                      const Text('No data')
+                    else ...[
+                      Text('State: ${d.connectionState.name}'),
+                      Text('Attempts: ${d.connectAttempts}'),
+                      Text('Last Error Code: ${d.lastErrorCode?.name ?? '-'}'),
+                      Text('Last Error Msg: ${d.lastErrorMessage ?? '-'}'),
+                      Text(
+                          'Last Connect Start: ${d.lastConnectStartMs ?? '-'}'),
+                      Text(
+                          'Last Connect Duration ms: ${d.lastConnectDurationMs ?? '-'}'),
+                      Text('Locating: ${d.isLocating}'),
+                      Text(
+                          'Scanning Enabled: ${d.scanningEnabled ?? _scanningEnabled}'),
+                    ],
+                    const Divider(),
+                    const Text('Battery',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    if (_batteryData == null)
+                      const Text('No battery data')
+                    else ...[
+                      Text('Level: ${_batteryData!.level}%'),
+                      // Raw battery debug line (shows unformatted underlying fields)
+                      Text('Raw: {level: ${_batteryData!.level}, charging: ${_batteryData!.isCharging}, cause: ${_batteryData!.cause}}'),
+                      Text('Charging: ${_batteryData!.isCharging}'),
+                      Text('Cause: ${_batteryData!.cause}'),
+                      Text(
+                          'Last Update: ${_batteryLastUpdate?.toIso8601String() ?? '-'}'),
+                      Text('Update Count: $_batteryUpdateCount'),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      _refreshDiagnostics(dialogSetState: dialogSetState),
+                  child: const Text('Refresh'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final next = !_scanningEnabled;
+                    await _flutterZebraRfidApi.setScanningEnabled(
+                        enabled: next);
+                    await _refreshDiagnostics(dialogSetState: dialogSetState);
+                  },
+                  child: Text(_scanningEnabled
+                      ? 'Disable Scanning'
+                      : 'Enable Scanning'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    _flutterZebraRfidApi.triggerDeviceStatus();
+                  },
+                  child: const Text('Force Status'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _diagnosticsDialogOpen = false;
+                  },
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      _diagnosticsDialogOpen = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    // Make the container vertically flexible: diagnostics (if any) + scrollable list
     return Column(
       children: [
         Expanded(
@@ -93,32 +211,12 @@ class _RfidPageState extends State<RfidPage> {
                   connectionStatus: _connectionStatus,
                   currentReader: _currentReader,
                   batteryData: _batteryData,
-                  diagnostics: _diagnostics,
                   lastError: _lastError,
-                  scanningEnabled: _scanningEnabled,
-                  onToggleScanning: () async {
-                    final next = !_scanningEnabled;
-                    await _flutterZebraRfidApi.setScanningEnabled(
-                        enabled: next);
-                    final d = await _flutterZebraRfidApi.diagnostics();
-                    setState(() {
-                      _scanningEnabled = next;
-                      _diagnostics = d;
-                    });
-                  },
                   onConnect: (id) =>
                       _flutterZebraRfidApi.connectReader(readerId: id),
                   onDisconnect: () =>
                       _flutterZebraRfidApi.disconectCurrentReader(),
                   onStatus: () => _flutterZebraRfidApi.triggerDeviceStatus(),
-                  onRefreshDiagnostics: () async {
-                    final d = await _flutterZebraRfidApi.diagnostics();
-                    setState(() {
-                      _diagnostics = d;
-                      if (d.scanningEnabled != null)
-                        _scanningEnabled = d.scanningEnabled!;
-                    });
-                  },
                 ),
         ),
         if (_readTags.isNotEmpty)
@@ -159,45 +257,61 @@ class _RfidPageState extends State<RfidPage> {
               ],
             ),
           ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: DropdownButton<ReaderConnectionType>(
-                  value: _connectionType,
-                  items: const [
-                    DropdownMenuItem(
-                      value: ReaderConnectionType.all,
-                      child: Text('All'),
-                    ),
-                    DropdownMenuItem(
-                      value: ReaderConnectionType.usb,
-                      child: Text('USB'),
-                    ),
-                    DropdownMenuItem(
-                      value: ReaderConnectionType.bluetooth,
-                      child: Text('Bluetooth'),
-                    ),
-                  ],
-                  onChanged: (value) => setState(
-                    () => _connectionType = value!,
+        SizedBox(
+          height: 60,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(minWidth: 150, maxWidth: 240),
+                  child: DropdownButton<ReaderConnectionType>(
+                    value: _connectionType,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(
+                        value: ReaderConnectionType.all,
+                        child: Text('All'),
+                      ),
+                      DropdownMenuItem(
+                        value: ReaderConnectionType.usb,
+                        child: Text('USB'),
+                      ),
+                      DropdownMenuItem(
+                        value: ReaderConnectionType.bluetooth,
+                        child: Text('Bluetooth'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _connectionType = value!),
                   ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: () async {
+                    setState(() => _isLoading = true);
+                    await _flutterZebraRfidApi.updateAvailableReaders(
+                      connectionType: _connectionType,
+                    );
+                    setState(() => _isLoading = false);
+                  },
+                  child: const Text('Get Reader List'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () async {
+                    final d = await _flutterZebraRfidApi.diagnostics();
+                    setState(() => _diagnostics = d);
+                    _showDiagnosticsDialog();
+                  },
+                  child: const Text('Show Diagnostics'),
+                ),
+              ],
             ),
-            ElevatedButton(
-              onPressed: () async {
-                setState(() => _isLoading = true);
-                await _flutterZebraRfidApi.updateAvailableReaders(
-                  connectionType: _connectionType,
-                );
-                setState(() => _isLoading = false);
-              },
-              child: const Text('Get Reader List'),
-            ),
-          ],
+          ),
         ),
       ],
     );
@@ -210,28 +324,20 @@ class _ReadersContainer extends StatelessWidget {
     required this.connectionStatus,
     this.batteryData,
     this.currentReader,
-    this.diagnostics,
     this.lastError,
-    this.scanningEnabled,
-    this.onToggleScanning,
     this.onConnect,
     this.onDisconnect,
     this.onStatus,
-    this.onRefreshDiagnostics,
   });
 
   final List<Reader> availableReaders;
   final ConnectionStatus connectionStatus;
   final BatteryData? batteryData;
   final Reader? currentReader;
-  final Diagnostics? diagnostics;
   final ReaderError? lastError;
-  final bool? scanningEnabled;
-  final VoidCallback? onToggleScanning;
   final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
   final VoidCallback? onStatus;
-  final VoidCallback? onRefreshDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -304,154 +410,109 @@ class _ReadersContainer extends StatelessWidget {
               ),
             ),
           ),
-        if (diagnostics != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              color: Colors.blue.shade50,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Diagnostics',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('State: ${diagnostics!.connectionState.name}'),
-                  Text('Attempts: ${diagnostics!.connectAttempts}'),
-                  Text(
-                      'Last Error Code: ${diagnostics!.lastErrorCode?.name ?? '-'}'),
-                  Text(
-                      'Last Error Msg: ${diagnostics!.lastErrorMessage ?? '-'}'),
-                  Text(
-                      'Last Connect Start: ${diagnostics!.lastConnectStartMs ?? '-'}'),
-                  Text(
-                      'Last Connect Duration ms: ${diagnostics!.lastConnectDurationMs ?? '-'}'),
-                  Text('Locating: ${diagnostics!.isLocating}'),
-                  if (diagnostics!.scanningEnabled != null)
-                    Text('Scanning Enabled: ${diagnostics!.scanningEnabled}')
-                  else if (scanningEnabled != null)
-                    Text('Scanning Enabled: $scanningEnabled'),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: onRefreshDiagnostics,
-                      child: const Text('Refresh'),
-                    ),
-                  ),
-                  if (onToggleScanning != null)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: onToggleScanning,
-                        child: Text(scanningEnabled == true
-                            ? 'Disable Scanning'
-                            : 'Enable Scanning'),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        Container(
-          decoration: BoxDecoration(border: Border.all(color: Colors.black)),
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: availableReaders.length,
-            itemBuilder: (context, index) {
-              final item = availableReaders[index];
-              final isCurrentItem = item.id == currentReader?.id;
-              final isConnected = isCurrentItem &&
-                  connectionStatus == ReaderConnectionStatus.connected;
-              return Container(
-                color: Colors.white,
-                child: GestureDetector(
-                  onTap: () {
-                    if (connectionStatus != ReaderConnectionStatus.connecting &&
-                        connectionStatus !=
-                            ReaderConnectionStatus.disconnecting) {
-                      showDialog(
-                        context: context,
-                        builder: (context) => Center(
-                          child: Wrap(
-                            children: [
-                              Container(
-                                color: Colors.white,
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  children: [
-                                    const Text('Reader'),
-                                    Text(item.name ?? item.id.toString()),
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Wrap(
-                                        children: [
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              if (isCurrentItem &&
-                                                  isConnected) {
-                                                // disconnect
-                                                onDisconnect?.call();
-                                                Navigator.of(context).pop();
-                                              } else {
-                                                // connect
-                                                onConnect?.call(item.id);
-                                                Navigator.of(context).pop();
-                                              }
-                                            },
-                                            child: Text(
-                                                isCurrentItem && isConnected
-                                                    ? 'Disconnect'
-                                                    : 'Connect'),
-                                          ),
-                                          if (isCurrentItem && isConnected)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                  left: 8),
-                                              child: ElevatedButton(
-                                                onPressed: () {
-                                                  onStatus?.call();
+        // Diagnostics removed from inline view – use popup
+        // Scrollable reader list (remaining space)
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(border: Border.all(color: Colors.black)),
+            child: ListView.separated(
+              itemCount: availableReaders.length,
+              itemBuilder: (context, index) {
+                final item = availableReaders[index];
+                final isCurrentItem = item.id == currentReader?.id;
+                final isConnected = isCurrentItem &&
+                    connectionStatus == ReaderConnectionStatus.connected;
+                return Container(
+                  color: Colors.white,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (connectionStatus !=
+                              ReaderConnectionStatus.connecting &&
+                          connectionStatus !=
+                              ReaderConnectionStatus.disconnecting) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => Center(
+                            child: Wrap(
+                              children: [
+                                Container(
+                                  color: Colors.white,
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text('Reader'),
+                                      Text(item.name ?? item.id.toString()),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Wrap(
+                                          children: [
+                                            ElevatedButton(
+                                              onPressed: () {
+                                                if (isCurrentItem &&
+                                                    isConnected) {
+                                                  onDisconnect?.call();
                                                   Navigator.of(context).pop();
-                                                },
-                                                child: const Text('Status'),
-                                              ),
+                                                } else {
+                                                  onConnect?.call(item.id);
+                                                  Navigator.of(context).pop();
+                                                }
+                                              },
+                                              child: Text(
+                                                  isCurrentItem && isConnected
+                                                      ? 'Disconnect'
+                                                      : 'Connect'),
                                             ),
-                                        ],
+                                            if (isCurrentItem && isConnected)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                    left: 8),
+                                                child: ElevatedButton(
+                                                  onPressed: () {
+                                                    onStatus?.call();
+                                                    Navigator.of(context).pop();
+                                                  },
+                                                  child: const Text('Status'),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            child: Text(item.name ?? item.id.toString()),
                           ),
                         ),
-                      );
-                    }
-                  },
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          child: Text(item.name ?? item.id.toString()),
-                        ),
-                      ),
-                      if (isCurrentItem) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: connectionStatusIcon(),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: batteryStatusIcon(),
-                        ),
-                      ]
-                    ],
+                        if (isCurrentItem) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: connectionStatusIcon(),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: batteryStatusIcon(),
+                          ),
+                        ]
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-            separatorBuilder: (context, index) =>
-                Container(height: 1, color: Colors.grey),
+                );
+              },
+              separatorBuilder: (context, index) =>
+                  Container(height: 1, color: Colors.grey),
+            ),
           ),
         ),
       ],
