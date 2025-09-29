@@ -65,6 +65,9 @@ class FlutterZebraRfidApi {
   /// Returns current reader config.
   Future<ReaderConfig> get readerConfig => _api.readerConfig();
 
+  /// Returns a diagnostics snapshot (counters, last error, timing, state).
+  Future<Diagnostics> diagnostics() => _api.diagnostics();
+
   final _api = FlutterZebraRfid();
   final _callbacks = _FlutterZebraRfidCallbacksImpl();
 }

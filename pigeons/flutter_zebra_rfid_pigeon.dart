@@ -47,6 +47,10 @@ abstract class FlutterZebraRfid {
   /// Reader config
   @async
   ReaderConfig readerConfig();
+
+  /// Runtime diagnostics snapshot (counters / last error / state)
+  @async
+  Diagnostics diagnostics();
 }
 
 @FlutterApi()
@@ -131,6 +135,8 @@ class ReaderConfig {
     this.enableLedBlink,
     this.batchMode,
     this.scanBatchMode,
+    this.rfModeTableIndex,
+    this.receiveSensitivityIndex,
   });
   final int? transmitPowerIndex;
   final int? tari;
@@ -139,6 +145,9 @@ class ReaderConfig {
   final bool? enableLedBlink;
   final ReaderConfigBatchMode? batchMode;
   final ReaderConfigBatchMode? scanBatchMode;
+  // Additional RF parameters (read-only for now on Android; setting may be added later)
+  final int? rfModeTableIndex;
+  final int? receiveSensitivityIndex;
 }
 
 class ReaderInfo {
@@ -179,4 +188,24 @@ class BatteryData {
   final int level;
   final bool isCharging;
   final String cause;
+}
+
+class Diagnostics {
+  Diagnostics({
+    required this.connectionState,
+    required this.connectAttempts,
+    required this.lastErrorCode,
+    required this.lastErrorMessage,
+    required this.lastConnectStartMs,
+    required this.lastConnectDurationMs,
+    required this.isLocating,
+  });
+
+  final ReaderConnectionStatus connectionState;
+  final int connectAttempts; // total attempts since process start
+  final ReaderErrorCode? lastErrorCode;
+  final String? lastErrorMessage;
+  final int? lastConnectStartMs;
+  final int? lastConnectDurationMs;
+  final bool isLocating;
 }

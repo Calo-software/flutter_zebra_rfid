@@ -174,6 +174,8 @@ struct ReaderConfig {
   var enableLedBlink: Bool? = nil
   var batchMode: ReaderConfigBatchMode? = nil
   var scanBatchMode: ReaderConfigBatchMode? = nil
+  var rfModeTableIndex: Int64? = nil
+  var receiveSensitivityIndex: Int64? = nil
 
 
 
@@ -186,6 +188,8 @@ struct ReaderConfig {
     let enableLedBlink: Bool? = nilOrValue(pigeonVar_list[4])
     let batchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[5])
     let scanBatchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[6])
+    let rfModeTableIndex: Int64? = isNullish(pigeonVar_list[7]) ? nil : (pigeonVar_list[7] is Int64? ? pigeonVar_list[7] as! Int64? : Int64(pigeonVar_list[7] as! Int32))
+    let receiveSensitivityIndex: Int64? = isNullish(pigeonVar_list[8]) ? nil : (pigeonVar_list[8] is Int64? ? pigeonVar_list[8] as! Int64? : Int64(pigeonVar_list[8] as! Int32))
 
     return ReaderConfig(
       transmitPowerIndex: transmitPowerIndex,
@@ -194,7 +198,9 @@ struct ReaderConfig {
       enableDynamicPower: enableDynamicPower,
       enableLedBlink: enableLedBlink,
       batchMode: batchMode,
-      scanBatchMode: scanBatchMode
+      scanBatchMode: scanBatchMode,
+      rfModeTableIndex: rfModeTableIndex,
+      receiveSensitivityIndex: receiveSensitivityIndex
     )
   }
   func toList() -> [Any?] {
@@ -206,6 +212,8 @@ struct ReaderConfig {
       enableLedBlink,
       batchMode,
       scanBatchMode,
+      rfModeTableIndex,
+      receiveSensitivityIndex,
     ]
   }
 }
@@ -305,6 +313,51 @@ struct BatteryData {
   }
 }
 
+/// Generated class from Pigeon that represents data sent in messages.
+struct Diagnostics {
+  var connectionState: ReaderConnectionStatus
+  var connectAttempts: Int64
+  var lastErrorCode: ReaderErrorCode? = nil
+  var lastErrorMessage: String? = nil
+  var lastConnectStartMs: Int64? = nil
+  var lastConnectDurationMs: Int64? = nil
+  var isLocating: Bool
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> Diagnostics? {
+    let connectionState = pigeonVar_list[0] as! ReaderConnectionStatus
+    let connectAttempts = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
+    let lastErrorCode: ReaderErrorCode? = nilOrValue(pigeonVar_list[2])
+    let lastErrorMessage: String? = nilOrValue(pigeonVar_list[3])
+    let lastConnectStartMs: Int64? = isNullish(pigeonVar_list[4]) ? nil : (pigeonVar_list[4] is Int64? ? pigeonVar_list[4] as! Int64? : Int64(pigeonVar_list[4] as! Int32))
+    let lastConnectDurationMs: Int64? = isNullish(pigeonVar_list[5]) ? nil : (pigeonVar_list[5] is Int64? ? pigeonVar_list[5] as! Int64? : Int64(pigeonVar_list[5] as! Int32))
+    let isLocating = pigeonVar_list[6] as! Bool
+
+    return Diagnostics(
+      connectionState: connectionState,
+      connectAttempts: connectAttempts,
+      lastErrorCode: lastErrorCode,
+      lastErrorMessage: lastErrorMessage,
+      lastConnectStartMs: lastConnectStartMs,
+      lastConnectDurationMs: lastConnectDurationMs,
+      isLocating: isLocating
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      connectionState,
+      connectAttempts,
+      lastErrorCode,
+      lastErrorMessage,
+      lastConnectStartMs,
+      lastConnectDurationMs,
+      isLocating,
+    ]
+  }
+}
+
 private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -350,6 +403,8 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
       return RfidTag.fromList(self.readValue() as! [Any?])
     case 139:
       return BatteryData.fromList(self.readValue() as! [Any?])
+    case 140:
+      return Diagnostics.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -390,6 +445,9 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
       super.writeValue(value.toList())
     } else if let value = value as? BatteryData {
       super.writeByte(139)
+      super.writeValue(value.toList())
+    } else if let value = value as? Diagnostics {
+      super.writeByte(140)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -432,6 +490,8 @@ protocol FlutterZebraRfid {
   func currentReader() throws -> Reader?
   /// Reader config
   func readerConfig(completion: @escaping (Result<ReaderConfig, Error>) -> Void)
+  /// Runtime diagnostics snapshot (counters / last error / state)
+  func diagnostics(completion: @escaping (Result<Diagnostics, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -590,6 +650,22 @@ class FlutterZebraRfidSetup {
       }
     } else {
       readerConfigChannel.setMessageHandler(nil)
+    }
+    /// Runtime diagnostics snapshot (counters / last error / state)
+    let diagnosticsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.diagnostics\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      diagnosticsChannel.setMessageHandler { _, reply in
+        api.diagnostics { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      diagnosticsChannel.setMessageHandler(nil)
     }
   }
 }

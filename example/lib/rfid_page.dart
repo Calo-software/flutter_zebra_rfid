@@ -18,6 +18,8 @@ class _RfidPageState extends State<RfidPage> {
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   Reader? _currentReader;
   BatteryData? _batteryData;
+  ReaderError? _lastError;
+  Diagnostics? _diagnostics;
 
   ReaderConnectionType _connectionType = ReaderConnectionType.all;
   bool _isLoading = false;
@@ -45,8 +47,7 @@ class _RfidPageState extends State<RfidPage> {
           // configure reader
           _flutterZebraRfidApi.configureReader(
               config: ReaderConfig(
-                transmitPowerIndex:
-                    299, //_currentReader?.info?.transmitPowerLevels.length-1,
+                transmitPowerIndex: 299,
                 beeperVolume: ReaderBeeperVolume.medium,
                 enableDynamicPower: false,
                 enableLedBlink: true,
@@ -54,6 +55,9 @@ class _RfidPageState extends State<RfidPage> {
                 scanBatchMode: ReaderConfigBatchMode.auto,
               ),
               shouldPersist: false);
+          // Auto-exit diagnostics: clear last error & diagnostics snapshot if previously shown
+          _lastError = null;
+          _diagnostics = null;
         }
       });
     });
@@ -65,6 +69,14 @@ class _RfidPageState extends State<RfidPage> {
     _flutterZebraRfidApi.onBatteryDataReceived.listen(
       (batteryData) => setState(() => _batteryData = batteryData),
     );
+
+    _flutterZebraRfidApi.onReaderConnectionError.listen((error) async {
+      final d = await _flutterZebraRfidApi.diagnostics();
+      setState(() {
+        _lastError = error;
+        _diagnostics = d;
+      });
+    });
   }
 
   @override
@@ -79,11 +91,17 @@ class _RfidPageState extends State<RfidPage> {
                   connectionStatus: _connectionStatus,
                   currentReader: _currentReader,
                   batteryData: _batteryData,
+                  diagnostics: _diagnostics,
+                  lastError: _lastError,
                   onConnect: (id) =>
                       _flutterZebraRfidApi.connectReader(readerId: id),
                   onDisconnect: () =>
                       _flutterZebraRfidApi.disconectCurrentReader(),
                   onStatus: () => _flutterZebraRfidApi.triggerDeviceStatus(),
+                  onRefreshDiagnostics: () async {
+                    final d = await _flutterZebraRfidApi.diagnostics();
+                    setState(() => _diagnostics = d);
+                  },
                 ),
         ),
         if (_readTags.isNotEmpty)
@@ -175,18 +193,24 @@ class _ReadersContainer extends StatelessWidget {
     required this.connectionStatus,
     this.batteryData,
     this.currentReader,
+    this.diagnostics,
+    this.lastError,
     this.onConnect,
     this.onDisconnect,
     this.onStatus,
+    this.onRefreshDiagnostics,
   });
 
   final List<Reader> availableReaders;
   final ConnectionStatus connectionStatus;
   final BatteryData? batteryData;
   final Reader? currentReader;
+  final Diagnostics? diagnostics;
+  final ReaderError? lastError;
   final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
   final VoidCallback? onStatus;
+  final VoidCallback? onRefreshDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -246,6 +270,53 @@ class _ReadersContainer extends StatelessWidget {
           padding: EdgeInsets.only(bottom: 16),
           child: Text('Detected readers'),
         ),
+        if (lastError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              color: Colors.red.shade50,
+              child: Text(
+                'Last Error: ${lastError!.code.name} - ${lastError!.message}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          ),
+        if (diagnostics != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              color: Colors.blue.shade50,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Diagnostics',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('State: ${diagnostics!.connectionState.name}'),
+                  Text('Attempts: ${diagnostics!.connectAttempts}'),
+                  Text(
+                      'Last Error Code: ${diagnostics!.lastErrorCode?.name ?? '-'}'),
+                  Text(
+                      'Last Error Msg: ${diagnostics!.lastErrorMessage ?? '-'}'),
+                  Text(
+                      'Last Connect Start: ${diagnostics!.lastConnectStartMs ?? '-'}'),
+                  Text(
+                      'Last Connect Duration ms: ${diagnostics!.lastConnectDurationMs ?? '-'}'),
+                  Text('Locating: ${diagnostics!.isLocating}'),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: onRefreshDiagnostics,
+                      child: const Text('Refresh'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Container(
           decoration: BoxDecoration(border: Border.all(color: Colors.black)),
           child: ListView.separated(

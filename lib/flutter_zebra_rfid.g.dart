@@ -135,6 +135,8 @@ class ReaderConfig {
     this.enableLedBlink,
     this.batchMode,
     this.scanBatchMode,
+    this.rfModeTableIndex,
+    this.receiveSensitivityIndex,
   });
 
   int? transmitPowerIndex;
@@ -151,6 +153,10 @@ class ReaderConfig {
 
   ReaderConfigBatchMode? scanBatchMode;
 
+  int? rfModeTableIndex;
+
+  int? receiveSensitivityIndex;
+
   Object encode() {
     return <Object?>[
       transmitPowerIndex,
@@ -160,6 +166,8 @@ class ReaderConfig {
       enableLedBlink,
       batchMode,
       scanBatchMode,
+      rfModeTableIndex,
+      receiveSensitivityIndex,
     ];
   }
 
@@ -173,6 +181,8 @@ class ReaderConfig {
       enableLedBlink: result[4] as bool?,
       batchMode: result[5] as ReaderConfigBatchMode?,
       scanBatchMode: result[6] as ReaderConfigBatchMode?,
+      rfModeTableIndex: result[7] as int?,
+      receiveSensitivityIndex: result[8] as int?,
     );
   }
 }
@@ -280,6 +290,57 @@ class BatteryData {
   }
 }
 
+class Diagnostics {
+  Diagnostics({
+    required this.connectionState,
+    required this.connectAttempts,
+    this.lastErrorCode,
+    this.lastErrorMessage,
+    this.lastConnectStartMs,
+    this.lastConnectDurationMs,
+    required this.isLocating,
+  });
+
+  ReaderConnectionStatus connectionState;
+
+  int connectAttempts;
+
+  ReaderErrorCode? lastErrorCode;
+
+  String? lastErrorMessage;
+
+  int? lastConnectStartMs;
+
+  int? lastConnectDurationMs;
+
+  bool isLocating;
+
+  Object encode() {
+    return <Object?>[
+      connectionState,
+      connectAttempts,
+      lastErrorCode,
+      lastErrorMessage,
+      lastConnectStartMs,
+      lastConnectDurationMs,
+      isLocating,
+    ];
+  }
+
+  static Diagnostics decode(Object result) {
+    result as List<Object?>;
+    return Diagnostics(
+      connectionState: result[0]! as ReaderConnectionStatus,
+      connectAttempts: result[1]! as int,
+      lastErrorCode: result[2] as ReaderErrorCode?,
+      lastErrorMessage: result[3] as String?,
+      lastConnectStartMs: result[4] as int?,
+      lastConnectDurationMs: result[5] as int?,
+      isLocating: result[6]! as bool,
+    );
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -318,6 +379,9 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is BatteryData) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
+    } else     if (value is Diagnostics) {
+      buffer.putUint8(140);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -353,6 +417,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return RfidTag.decode(readValue(buffer)!);
       case 139: 
         return BatteryData.decode(readValue(buffer)!);
+      case 140: 
+        return Diagnostics.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -581,6 +647,34 @@ class FlutterZebraRfid {
       );
     } else {
       return (pigeonVar_replyList[0] as ReaderConfig?)!;
+    }
+  }
+
+  /// Runtime diagnostics snapshot (counters / last error / state)
+  Future<Diagnostics> diagnostics() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.diagnostics$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as Diagnostics?)!;
     }
   }
 }

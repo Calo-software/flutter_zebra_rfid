@@ -171,7 +171,9 @@ data class ReaderConfig (
   val enableDynamicPower: Boolean? = null,
   val enableLedBlink: Boolean? = null,
   val batchMode: ReaderConfigBatchMode? = null,
-  val scanBatchMode: ReaderConfigBatchMode? = null
+  val scanBatchMode: ReaderConfigBatchMode? = null,
+  val rfModeTableIndex: Long? = null,
+  val receiveSensitivityIndex: Long? = null
 )
  {
   companion object {
@@ -183,7 +185,9 @@ data class ReaderConfig (
       val enableLedBlink = pigeonVar_list[4] as Boolean?
       val batchMode = pigeonVar_list[5] as ReaderConfigBatchMode?
       val scanBatchMode = pigeonVar_list[6] as ReaderConfigBatchMode?
-      return ReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode)
+      val rfModeTableIndex = pigeonVar_list[7].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val receiveSensitivityIndex = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
+      return ReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode, rfModeTableIndex, receiveSensitivityIndex)
     }
   }
   fun toList(): List<Any?> {
@@ -195,6 +199,8 @@ data class ReaderConfig (
       enableLedBlink,
       batchMode,
       scanBatchMode,
+      rfModeTableIndex,
+      receiveSensitivityIndex,
     )
   }
 }
@@ -276,6 +282,42 @@ data class BatteryData (
     )
   }
 }
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class Diagnostics (
+  val connectionState: ReaderConnectionStatus,
+  val connectAttempts: Long,
+  val lastErrorCode: ReaderErrorCode? = null,
+  val lastErrorMessage: String? = null,
+  val lastConnectStartMs: Long? = null,
+  val lastConnectDurationMs: Long? = null,
+  val isLocating: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): Diagnostics {
+      val connectionState = pigeonVar_list[0] as ReaderConnectionStatus
+      val connectAttempts = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
+      val lastErrorCode = pigeonVar_list[2] as ReaderErrorCode?
+      val lastErrorMessage = pigeonVar_list[3] as String?
+      val lastConnectStartMs = pigeonVar_list[4].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val lastConnectDurationMs = pigeonVar_list[5].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val isLocating = pigeonVar_list[6] as Boolean
+      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      connectionState,
+      connectAttempts,
+      lastErrorCode,
+      lastErrorMessage,
+      lastConnectStartMs,
+      lastConnectDurationMs,
+      isLocating,
+    )
+  }
+}
 private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -334,6 +376,11 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
           BatteryData.fromList(it)
         }
       }
+      140.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          Diagnostics.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -383,6 +430,10 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(139)
         writeValue(stream, value.toList())
       }
+      is Diagnostics -> {
+        stream.write(140)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -409,6 +460,8 @@ interface FlutterZebraRfid {
   fun currentReader(): Reader?
   /** Reader config */
   fun readerConfig(callback: (Result<ReaderConfig>) -> Unit)
+  /** Runtime diagnostics snapshot (counters / last error / state) */
+  fun diagnostics(callback: (Result<Diagnostics>) -> Unit)
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -567,6 +620,24 @@ interface FlutterZebraRfid {
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             api.readerConfig{ result: Result<ReaderConfig> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.diagnostics$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.diagnostics{ result: Result<Diagnostics> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))

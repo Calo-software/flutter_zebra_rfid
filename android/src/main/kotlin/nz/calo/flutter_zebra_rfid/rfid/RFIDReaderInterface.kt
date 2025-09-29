@@ -12,10 +12,13 @@ import ReaderInfo
 import RfidTag
 import ReaderErrorCode
 import ReaderError
+import Diagnostics
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.ArrayMap
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import android.util.Log
 import com.zebra.rfid.api3.ACCESS_OPERATION_STATUS
 import com.zebra.rfid.api3.Antennas
@@ -69,10 +72,97 @@ class RFIDReaderInterface(
     private var currentConnectionType: ReaderConnectionType? = null
     private var isLocating: Boolean = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val ioExecutor = Executors.newSingleThreadExecutor()
+
+    // --- Inventory / trigger guarding ---
+    @Volatile private var inventoryActive: Boolean = false
+    private var lastTriggerPressTimestamp: Long = 0L
+    private var lastInventoryStartTimestamp: Long = 0L
+    private var lastInventoryStopTimestamp: Long = 0L
+    private var pendingPurgeRunnable: Runnable? = null
+    private val INVENTORY_RELEASE_DEBOUNCE_MS = 120L
+    private val PURGE_TAGS_DELAY_MS = 300L
+    // Watchdog configuration
+    private val INVENTORY_MAX_SESSION_MS = 30_000L // hard ceiling
+    private val INVENTORY_INACTIVITY_TIMEOUT_MS = 5_000L // stop if no tag reads in this window
+    private var lastTagReadTimestamp: Long = 0L
+    private var inventoryWatchdogRunnable: Runnable? = null
+
+    // --- Connection timing / retry ---
+    private var connectTimeoutRunnable: Runnable? = null
+    private var connectAttempt: Int = 0
+    private var pendingConnectFuture: Future<*>? = null
+    private var lastConnectStartTimestamp: Long = 0L
+
+    private val CONNECT_TIMEOUT_MS = 10_000L
+    private val RETRY_BACKOFF_MS = 2_000L
+    private val MAX_CONNECT_ATTEMPTS = 2 // initial + 1 retry
 
     // Internal state machine to prevent race conditions
     private enum class InternalConnectionState { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
     private var internalState: InternalConnectionState = InternalConnectionState.DISCONNECTED
+    private var totalConnectAttemptsCounter: Int = 0
+    private var lastErrorCode: ReaderErrorCode? = null
+    private var lastErrorMessage: String? = null
+    private var lastConnectDurationMs: Long? = null
+    // --- Auto-reconnect ---
+    private var autoReconnectEnabled: Boolean = true
+    private var reconnectAttempt: Int = 0
+    private var pendingReconnectRunnable: Runnable? = null
+    private var lastDisconnectTimestamp: Long = 0L
+    private var unexpectedDisconnectCount: Int = 0
+    private val MAX_RECONNECT_ATTEMPTS = 5
+    private val INITIAL_RECONNECT_DELAY_MS = 1_000L
+    private val MAX_RECONNECT_DELAY_MS = 15_000L
+
+    private fun scheduleAutoReconnect(reason: String) {
+        if (!autoReconnectEnabled) {
+            Log.d(TAG, "AutoReconnect disabled; not scheduling (reason=$reason)")
+            return
+        }
+        if (readerDevice == null) {
+            Log.d(TAG, "No readerDevice bound; cannot auto-reconnect")
+            return
+        }
+        if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+            Log.d(TAG, "Max auto-reconnect attempts reached ($MAX_RECONNECT_ATTEMPTS); giving up")
+            return
+        }
+        reconnectAttempt += 1
+        val delay = computeReconnectDelay(reconnectAttempt)
+        Log.d(TAG, "Scheduling auto-reconnect attempt #$reconnectAttempt in ${delay}ms (reason=$reason)")
+        cancelPendingReconnect()
+        val readerId = availableRFIDReaderList?.indexOf(readerDevice!!)?.toLong() ?: return
+        val runnable = Runnable {
+            synchronized(this) {
+                if (internalState == InternalConnectionState.CONNECTED || internalState == InternalConnectionState.CONNECTING) {
+                    Log.d(TAG, "Skipping auto-reconnect attempt #$reconnectAttempt; state=$internalState")
+                    return@Runnable
+                }
+                Log.d(TAG, "Auto-reconnect attempt #$reconnectAttempt starting...")
+                // Reset connect attempt counters for a clean sequence
+                connectAttempt = 1
+                totalConnectAttemptsCounter += 1
+                beginAsyncConnect(readerId, isRetry = reconnectAttempt > 1)
+            }
+        }
+        pendingReconnectRunnable = runnable
+        mainHandler.postDelayed(runnable, delay)
+    }
+
+    private fun computeReconnectDelay(attempt: Int): Long {
+        // Exponential backoff with cap: base * 2^(attempt-1)
+        val base = INITIAL_RECONNECT_DELAY_MS
+        val factor = 1L shl (attempt - 1).coerceAtMost(10) // avoid overflow
+        val raw = base * factor
+        return raw.coerceAtMost(MAX_RECONNECT_DELAY_MS)
+    }
+
+    @Synchronized
+    private fun cancelPendingReconnect() {
+        pendingReconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingReconnectRunnable = null
+    }
 
     private fun updateConnectionState(newState: InternalConnectionState, externalStatus: ReaderConnectionStatus? = null, logMsg: String? = null, error: Throwable? = null) {
         if (internalState == newState) return
@@ -88,6 +178,8 @@ class RFIDReaderInterface(
     private fun emitError(code: ReaderErrorCode, message: String, details: String? = null, throwable: Throwable? = null) {
         Log.e(TAG, "[ReaderError][$code] $message ${details ?: ""} ${throwable?.message ?: ""}")
         val err = ReaderError(code, message, details ?: throwable?.message)
+        lastErrorCode = code
+        lastErrorMessage = message
         mainHandler.post { callbacks.onReaderConnectionError(err) {} }
     }
 
@@ -161,34 +253,113 @@ class RFIDReaderInterface(
             return readerInfo
         }
 
-        updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, "Starting connection to readerId=$readerId (${readerDevice?.name})")
+        // New attempt sequence
+        connectAttempt = 1
+        totalConnectAttemptsCounter += 1
+        beginAsyncConnect(readerId)
+        return null // async result
+    }
 
-        try {
-            targetReader.connect()
-            setupReader()
-            val capabilities = targetReader.ReaderCapabilities
-            val levels = capabilities.transmitPowerLevelValues
-            readerInfo = ReaderInfo(
-                levels.asList(),
-                capabilities.firwareVersion,
-                capabilities.modelName,
-                capabilities.scannerName,
-                capabilities.serialNumber,
-            )
-            updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader connected; capabilities loaded")
-            triggerDeviceStatus()
-            return readerInfo
-        } catch (e: InvalidUsageException) {
-            emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
-            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
-        } catch (e: OperationFailureException) {
-            emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed while connecting", e.vendorMessage, e)
-            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
-        } catch (e: Throwable) {
-            emitError(ReaderErrorCode.UNKNOWN, "Unexpected error while connecting", e.message, e)
-            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
+    @Synchronized
+    private fun beginAsyncConnect(readerId: Long, isRetry: Boolean = false) {
+        val targetReader = reader ?: return
+        updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, (if (isRetry) "Retrying" else "Starting") + " connection attempt #$connectAttempt to readerId=$readerId (${readerDevice?.name})")
+        lastConnectStartTimestamp = System.currentTimeMillis()
+        scheduleConnectTimeout(readerId, connectAttempt)
+        // Launch blocking connect off main thread
+        pendingConnectFuture = ioExecutor.submit {
+            try {
+                targetReader.connect()
+                // If timed out already, skip success path
+                synchronized(this) {
+                    if (internalState != InternalConnectionState.CONNECTING) return@submit
+                }
+                setupReader()
+                val capabilities = targetReader.ReaderCapabilities
+                val levels = capabilities.transmitPowerLevelValues
+                val info = ReaderInfo(
+                    levels.asList(),
+                    capabilities.firwareVersion,
+                    capabilities.modelName,
+                    capabilities.scannerName,
+                    capabilities.serialNumber,
+                )
+                synchronized(this) {
+                    readerInfo = info
+                    clearConnectTimeout()
+                    lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
+                    updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader connected (attempt #$connectAttempt)")
+                }
+                triggerDeviceStatus()
+            } catch (e: InvalidUsageException) {
+                synchronized(this) {
+                    clearConnectTimeout()
+                    emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
+                }
+            } catch (e: OperationFailureException) {
+                synchronized(this) {
+                    clearConnectTimeout()
+                    emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed while connecting", e.vendorMessage, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
+                }
+            } catch (e: Throwable) {
+                synchronized(this) {
+                    clearConnectTimeout()
+                    emitError(ReaderErrorCode.UNKNOWN, "Unexpected error while connecting", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
+                }
+            }
         }
-        return null
+    }
+
+    @Synchronized
+    private fun scheduleConnectTimeout(readerId: Long, attempt: Int) {
+        clearConnectTimeout()
+        val runnable = Runnable {
+            synchronized(this) {
+                if (internalState != InternalConnectionState.CONNECTING) return@synchronized
+                emitError(ReaderErrorCode.TIMEOUT, "Connection attempt #$attempt timed out after ${CONNECT_TIMEOUT_MS}ms")
+                updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Connect timeout (attempt #$attempt)")
+                // Cancel any in-flight future (best effort)
+                pendingConnectFuture?.cancel(true)
+                clearConnectTimeout()
+                if (attempt < MAX_CONNECT_ATTEMPTS) {
+                    connectAttempt += 1
+                    totalConnectAttemptsCounter += 1
+                    mainHandler.postDelayed({ beginAsyncConnect(readerId, isRetry = true) }, RETRY_BACKOFF_MS)
+                }
+            }
+        }
+        connectTimeoutRunnable = runnable
+        mainHandler.postDelayed(runnable, CONNECT_TIMEOUT_MS)
+    }
+
+    @Synchronized
+    private fun clearConnectTimeout() {
+        connectTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        connectTimeoutRunnable = null
+    }
+
+    // Diagnostics snapshot
+    @Synchronized
+    fun diagnostics(): Diagnostics {
+        val externalStatus = when (internalState) {
+            InternalConnectionState.CONNECTING -> ReaderConnectionStatus.CONNECTING
+            InternalConnectionState.CONNECTED -> ReaderConnectionStatus.CONNECTED
+            InternalConnectionState.DISCONNECTING -> ReaderConnectionStatus.DISCONNECTING
+            InternalConnectionState.DISCONNECTED -> ReaderConnectionStatus.DISCONNECTED
+            InternalConnectionState.ERROR -> ReaderConnectionStatus.ERROR
+        }
+        return Diagnostics(
+            externalStatus,
+            totalConnectAttemptsCounter.toLong(),
+            lastErrorCode,
+            lastErrorMessage,
+            if (lastConnectStartTimestamp == 0L) null else lastConnectStartTimestamp,
+            lastConnectDurationMs,
+            isLocating
+        )
     }
 
     fun configureReader(config: ReaderConfig, shouldPersist: Boolean) {
@@ -203,7 +374,7 @@ class RFIDReaderInterface(
         // set to max by default
         if (powerIndex == null || powerIndex > maxIndex) powerIndex = maxIndex
         val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
-        antennaRfConfig.setrfModeTableIndex(0)
+        // NOTE: SDK does not expose a direct getter for current RF mode index; we leave it unchanged.
         antennaRfConfig.tari = 0
         antennaRfConfig.transmitPowerIndex = powerIndex
         reader!!.Config.Antennas.setAntennaRfConfig(1, antennaRfConfig)
@@ -259,6 +430,11 @@ class RFIDReaderInterface(
     }
 
     fun disconnectCurrentReader() {
+        // Cancel any pending connect timeout / future if user is disconnecting
+        synchronized(this) {
+            clearConnectTimeout()
+            pendingConnectFuture?.cancel(true)
+        }
         if (reader == null) {
             Log.d(TAG, "No connected RFID Reader (disconnect noop)")
             return
@@ -273,6 +449,9 @@ class RFIDReaderInterface(
                 reader?.disconnect()
             }
             updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disconnected")
+            // User initiated disconnect -> cancel any auto reconnect sequence
+            cancelPendingReconnect()
+            reconnectAttempt = 0
         } catch (e: Throwable) {
             emitError(ReaderErrorCode.UNKNOWN, "Error during disconnect", e.message, e)
             updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Error during disconnect", e)
@@ -397,7 +576,8 @@ class RFIDReaderInterface(
             Log.d(TAG, "Transmit Power Index: $transmitPowerIndex")
 
             val receiveSensitivityIndex = antennaRfConfig.receiveSensitivityIndex
-            val rfModeIndex = antennaRfConfig // Corrected property name
+            // rfModeTableIndex getter not available; returning null for now.
+            val rfModeIndex: Int? = null
             Log.d(TAG, "Receive Sensitivity Index: $receiveSensitivityIndex")
             Log.d(TAG, "RF Mode Table Index: $rfModeIndex")
 
@@ -432,13 +612,15 @@ class RFIDReaderInterface(
 
             return ReaderConfig(
                 transmitPowerIndex.toLong(),
-                tari,
+                tari.toLong(),
                 beeperVolume,
                 reader!!.Config.dpoState == DYNAMIC_POWER_OPTIMIZATION.ENABLE,
-                // NOTE: SDK doesn't provide this
+                // NOTE: SDK doesn't provide this LED blink read API reliably; leaving null
                 null,
                 batchMode,
-                scanBatchMode
+                scanBatchMode,
+                rfModeIndex?.toLong(),
+                receiveSensitivityIndex.toLong()
             )
         } catch (e: Exception) {
             Log.d(TAG, "Error getting reader config: $e")
@@ -467,7 +649,8 @@ class RFIDReaderInterface(
                 try {
                     if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
                         Log.d(TAG, "Handheld trigger pressed")
-                        performInventory();
+                        lastTriggerPressTimestamp = System.currentTimeMillis()
+                        safeStartInventory("trigger pressed")
                         // Read all memory banks
                         val memoryBanksToRead = arrayOf(
                             MEMORY_BANK.MEMORY_BANK_EPC,
@@ -481,7 +664,12 @@ class RFIDReaderInterface(
                         }
                     } else {
                         Log.d(TAG, "Handheld trigger released")
-                        stopInventory()
+                        val elapsed = System.currentTimeMillis() - lastTriggerPressTimestamp
+                        if (elapsed < INVENTORY_RELEASE_DEBOUNCE_MS) {
+                            Log.d(TAG, "Trigger release within ${INVENTORY_RELEASE_DEBOUNCE_MS}ms debounce window ($elapsed ms) -> ignoring stop")
+                        } else {
+                            safeStopInventory("trigger released")
+                        }
                     }
                 } catch (e: Throwable) {
                     Log.d(TAG, "Error handling handheld trigger event: $e")
@@ -499,32 +687,106 @@ class RFIDReaderInterface(
 
     @Synchronized
     fun performInventory() {
-        // check reader connection
+        // Legacy direct call retained (now guarded via safeStartInventory). Prefer safeStartInventory.
         if (!isReaderConnected()) return
+        if (inventoryActive) {
+            Log.d(TAG, "performInventory() called but inventory already active; ignoring")
+            return
+        }
         try {
-            Log.d(TAG, "Perform inventory")
             reader!!.Actions.Inventory.perform()
+            inventoryActive = true
+            lastInventoryStartTimestamp = System.currentTimeMillis()
+            lastTagReadTimestamp = lastInventoryStartTimestamp
+            scheduleInventoryWatchdog()
+            Log.d(TAG, "Inventory started (performInventory)")
         } catch (e: InvalidUsageException) {
-            e.printStackTrace()
+            inventoryActive = false
+            Log.d(TAG, "InvalidUsageException starting inventory: ${e.message}")
         } catch (e: OperationFailureException) {
-            e.printStackTrace()
+            inventoryActive = false
+            Log.d(TAG, "OperationFailureException starting inventory: ${e.message}")
+        } catch (t: Throwable) {
+            inventoryActive = false
+            Log.d(TAG, "Unexpected error starting inventory: ${t.message}")
         }
     }
 
     @Synchronized
     fun stopInventory() {
-        // check reader connection
+        // Legacy direct call retained (now guarded via safeStopInventory). Prefer safeStopInventory.
         if (!isReaderConnected()) return
-        try {
-            Log.d(TAG, "Stop inventory")
-            reader!!.Actions.Inventory.stop()
-            reader!!.Actions.purgeTags()
-            Log.d(TAG, "Inventory stopped")
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
+        if (!inventoryActive) {
+            Log.d(TAG, "stopInventory() called but inventory not active; ignoring")
+            return
         }
+        try {
+            reader!!.Actions.Inventory.stop()
+            inventoryActive = false
+            lastInventoryStopTimestamp = System.currentTimeMillis()
+            cancelInventoryWatchdog()
+            Log.d(TAG, "Inventory stopped (stopInventory)")
+        } catch (e: InvalidUsageException) {
+            Log.d(TAG, "InvalidUsageException stopping inventory: ${e.message}")
+        } catch (e: OperationFailureException) {
+            Log.d(TAG, "OperationFailureException stopping inventory: ${e.message}")
+        } catch (t: Throwable) {
+            Log.d(TAG, "Unexpected error stopping inventory: ${t.message}")
+        }
+    }
+
+    // Guarded start that cancels pending purge and debounces duplicate starts
+    @Synchronized
+    private fun safeStartInventory(reason: String) {
+        if (!isReaderConnected()) {
+            Log.d(TAG, "safeStartInventory($reason) aborted: reader not connected")
+            return
+        }
+        cancelScheduledPurge()
+        if (inventoryActive) {
+            Log.d(TAG, "safeStartInventory($reason) ignored: inventory already active")
+            return
+        }
+        Log.d(TAG, "safeStartInventory($reason) -> starting inventory")
+        performInventory()
+    }
+
+    // Guarded stop that defers purge to allow late tag reads to flush through
+    @Synchronized
+    private fun safeStopInventory(reason: String) {
+        if (!isReaderConnected()) {
+            Log.d(TAG, "safeStopInventory($reason) aborted: reader not connected")
+            return
+        }
+        if (!inventoryActive) {
+            Log.d(TAG, "safeStopInventory($reason) ignored: inventory not active")
+            return
+        }
+        Log.d(TAG, "safeStopInventory($reason) -> stopping inventory")
+        stopInventory()
+        schedulePurgeTags()
+    }
+
+    @Synchronized
+    private fun schedulePurgeTags() {
+        cancelScheduledPurge()
+        val runnable = Runnable {
+            try {
+                if (!isReaderConnected()) return@Runnable
+                Log.d(TAG, "Purging tags after delay (${PURGE_TAGS_DELAY_MS}ms)")
+                reader?.Actions?.purgeTags()
+            } catch (t: Throwable) {
+                Log.d(TAG, "Error purging tags: ${t.message}")
+            }
+        }
+        pendingPurgeRunnable = runnable
+        mainHandler.postDelayed(runnable, PURGE_TAGS_DELAY_MS)
+    }
+
+    @Synchronized
+    private fun cancelScheduledPurge() {
+        pendingPurgeRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingPurgeRunnable = null
     }
 
     private fun isReaderConnected(): Boolean {
@@ -544,6 +806,9 @@ class RFIDReaderInterface(
         if (readTags != null) {
             try {
                 Log.d(TAG, "Tags read: $readTags")
+                if (readTags.isNotEmpty()) {
+                    lastTagReadTimestamp = System.currentTimeMillis()
+                }
                 Handler(Looper.getMainLooper()).post {
                     callbacks.onTagsRead(readTags.map {
                         RfidTag(
@@ -604,6 +869,40 @@ class RFIDReaderInterface(
         }
     }
 
+    // --- Inventory Watchdog ---
+    @Synchronized
+    private fun scheduleInventoryWatchdog() {
+        cancelInventoryWatchdog()
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!inventoryActive) return
+                val now = System.currentTimeMillis()
+                val elapsedSession = now - lastInventoryStartTimestamp
+                val idleElapsed = now - lastTagReadTimestamp
+                if (elapsedSession >= INVENTORY_MAX_SESSION_MS) {
+                    Log.d(TAG, "Watchdog: Max inventory session duration exceeded (${elapsedSession}ms) -> stopping")
+                    safeStopInventory("watchdog max duration")
+                    return
+                }
+                if (idleElapsed >= INVENTORY_INACTIVITY_TIMEOUT_MS) {
+                    Log.d(TAG, "Watchdog: Inactivity timeout (${idleElapsed}ms without tag) -> stopping")
+                    safeStopInventory("watchdog inactivity")
+                    return
+                }
+                // Reschedule for next check (run every second)
+                mainHandler.postDelayed(this, 1_000L)
+            }
+        }
+        inventoryWatchdogRunnable = runnable
+        mainHandler.postDelayed(runnable, 1_000L)
+    }
+
+    @Synchronized
+    private fun cancelInventoryWatchdog() {
+        inventoryWatchdogRunnable?.let { mainHandler.removeCallbacks(it) }
+        inventoryWatchdogRunnable = null
+    }
+
     fun getMemBankData(memoryBankData: String?, opStatus: ACCESS_OPERATION_STATUS): String {
         return if (opStatus != ACCESS_OPERATION_STATUS.ACCESS_SUCCESS) {
             opStatus.toString()
@@ -641,6 +940,17 @@ class RFIDReaderInterface(
         Log.d(TAG, "Reader ${device?.name} disappeared")
         if (applicationContext != null && currentConnectionType != null) {
 //            getAvailableReaderList(currentConnectionType!!)
+        }
+        // If the device that disappeared is our current reader and we were connected -> schedule auto reconnect.
+        if (device != null && readerDevice != null && device == readerDevice) {
+            val wasConnected = internalState == InternalConnectionState.CONNECTED
+            if (wasConnected) {
+                Log.d(TAG, "Unexpected disconnect (device disappeared); initiating auto-reconnect sequence")
+                lastDisconnectTimestamp = System.currentTimeMillis()
+                unexpectedDisconnectCount += 1
+                updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disappeared")
+                scheduleAutoReconnect("device disappeared")
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import Reader
 import ReaderConfig
 import ReaderConnectionType
 import RfidTag
+import Diagnostics
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -163,7 +164,9 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit) {
         try {
+            // Kick off async connect (result will be surfaced via callbacks streams)
             rfidInterface!!.connectReader(readerId)
+            callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
@@ -226,6 +229,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         try {
             rfidInterface!!.stopLocating()
             callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun diagnostics(callback: (Result<Diagnostics>) -> Unit) {
+        try {
+            val snapshot = rfidInterface!!.diagnostics()
+            callback(Result.success(snapshot))
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
