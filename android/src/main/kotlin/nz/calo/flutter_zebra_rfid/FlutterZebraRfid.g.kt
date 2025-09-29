@@ -291,7 +291,9 @@ data class Diagnostics (
   val lastErrorMessage: String? = null,
   val lastConnectStartMs: Long? = null,
   val lastConnectDurationMs: Long? = null,
-  val isLocating: Boolean
+  val isLocating: Boolean,
+  val scanningEnabled: Boolean? = null,
+  val scanningEnabledLastToggleMs: Long? = null
 )
  {
   companion object {
@@ -303,7 +305,9 @@ data class Diagnostics (
       val lastConnectStartMs = pigeonVar_list[4].let { num -> if (num is Int) num.toLong() else num as Long? }
       val lastConnectDurationMs = pigeonVar_list[5].let { num -> if (num is Int) num.toLong() else num as Long? }
       val isLocating = pigeonVar_list[6] as Boolean
-      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating)
+      val scanningEnabled = pigeonVar_list[7] as Boolean?
+      val scanningEnabledLastToggleMs = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
+      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs)
     }
   }
   fun toList(): List<Any?> {
@@ -315,6 +319,8 @@ data class Diagnostics (
       lastConnectStartMs,
       lastConnectDurationMs,
       isLocating,
+      scanningEnabled,
+      scanningEnabledLastToggleMs,
     )
   }
 }
@@ -462,6 +468,11 @@ interface FlutterZebraRfid {
   fun readerConfig(callback: (Result<ReaderConfig>) -> Unit)
   /** Runtime diagnostics snapshot (counters / last error / state) */
   fun diagnostics(callback: (Result<Diagnostics>) -> Unit)
+  /**
+   * Enable or disable hardware-trigger initiated scanning/inventory.
+   * When disabled, trigger pulls are ignored and any active inventory is stopped.
+   */
+  fun setScanningEnabled(enabled: Boolean, callback: (Result<Unit>) -> Unit)
 
   companion object {
     /** The codec used by FlutterZebraRfid. */
@@ -644,6 +655,25 @@ interface FlutterZebraRfid {
               } else {
                 val data = result.getOrNull()
                 reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.setScanningEnabled$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val enabledArg = args[0] as Boolean
+            api.setScanningEnabled(enabledArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
               }
             }
           }

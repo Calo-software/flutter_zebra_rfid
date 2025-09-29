@@ -51,6 +51,11 @@ abstract class FlutterZebraRfid {
   /// Runtime diagnostics snapshot (counters / last error / state)
   @async
   Diagnostics diagnostics();
+
+  /// Enable or disable hardware-trigger initiated scanning/inventory.
+  /// When disabled, trigger pulls are ignored and any active inventory is stopped.
+  @async
+  void setScanningEnabled(bool enabled);
 }
 
 @FlutterApi()
@@ -199,6 +204,8 @@ class Diagnostics {
     required this.lastConnectStartMs,
     required this.lastConnectDurationMs,
     required this.isLocating,
+    this.scanningEnabled,
+    this.scanningEnabledLastToggleMs,
   });
 
   final ReaderConnectionStatus connectionState;
@@ -208,4 +215,8 @@ class Diagnostics {
   final int? lastConnectStartMs;
   final int? lastConnectDurationMs;
   final bool isLocating;
+  // Whether trigger-driven scanning is currently enabled (may be null for older platform versions).
+  final bool? scanningEnabled;
+  // Epoch ms of last toggle (null if never toggled or unsupported).
+  final int? scanningEnabledLastToggleMs;
 }

@@ -20,6 +20,7 @@ class _RfidPageState extends State<RfidPage> {
   BatteryData? _batteryData;
   ReaderError? _lastError;
   Diagnostics? _diagnostics;
+  bool _scanningEnabled = true;
 
   ReaderConnectionType _connectionType = ReaderConnectionType.all;
   bool _isLoading = false;
@@ -75,6 +76,7 @@ class _RfidPageState extends State<RfidPage> {
       setState(() {
         _lastError = error;
         _diagnostics = d;
+        if (d.scanningEnabled != null) _scanningEnabled = d.scanningEnabled!;
       });
     });
   }
@@ -93,6 +95,17 @@ class _RfidPageState extends State<RfidPage> {
                   batteryData: _batteryData,
                   diagnostics: _diagnostics,
                   lastError: _lastError,
+                  scanningEnabled: _scanningEnabled,
+                  onToggleScanning: () async {
+                    final next = !_scanningEnabled;
+                    await _flutterZebraRfidApi.setScanningEnabled(
+                        enabled: next);
+                    final d = await _flutterZebraRfidApi.diagnostics();
+                    setState(() {
+                      _scanningEnabled = next;
+                      _diagnostics = d;
+                    });
+                  },
                   onConnect: (id) =>
                       _flutterZebraRfidApi.connectReader(readerId: id),
                   onDisconnect: () =>
@@ -100,7 +113,11 @@ class _RfidPageState extends State<RfidPage> {
                   onStatus: () => _flutterZebraRfidApi.triggerDeviceStatus(),
                   onRefreshDiagnostics: () async {
                     final d = await _flutterZebraRfidApi.diagnostics();
-                    setState(() => _diagnostics = d);
+                    setState(() {
+                      _diagnostics = d;
+                      if (d.scanningEnabled != null)
+                        _scanningEnabled = d.scanningEnabled!;
+                    });
                   },
                 ),
         ),
@@ -195,6 +212,8 @@ class _ReadersContainer extends StatelessWidget {
     this.currentReader,
     this.diagnostics,
     this.lastError,
+    this.scanningEnabled,
+    this.onToggleScanning,
     this.onConnect,
     this.onDisconnect,
     this.onStatus,
@@ -207,6 +226,8 @@ class _ReadersContainer extends StatelessWidget {
   final Reader? currentReader;
   final Diagnostics? diagnostics;
   final ReaderError? lastError;
+  final bool? scanningEnabled;
+  final VoidCallback? onToggleScanning;
   final Function(int)? onConnect;
   final VoidCallback? onDisconnect;
   final VoidCallback? onStatus;
@@ -306,6 +327,10 @@ class _ReadersContainer extends StatelessWidget {
                   Text(
                       'Last Connect Duration ms: ${diagnostics!.lastConnectDurationMs ?? '-'}'),
                   Text('Locating: ${diagnostics!.isLocating}'),
+                  if (diagnostics!.scanningEnabled != null)
+                    Text('Scanning Enabled: ${diagnostics!.scanningEnabled}')
+                  else if (scanningEnabled != null)
+                    Text('Scanning Enabled: $scanningEnabled'),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -313,6 +338,16 @@ class _ReadersContainer extends StatelessWidget {
                       child: const Text('Refresh'),
                     ),
                   ),
+                  if (onToggleScanning != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: onToggleScanning,
+                        child: Text(scanningEnabled == true
+                            ? 'Disable Scanning'
+                            : 'Enable Scanning'),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -68,6 +68,10 @@ class FlutterZebraRfidApi {
   /// Returns a diagnostics snapshot (counters, last error, timing, state).
   Future<Diagnostics> diagnostics() => _api.diagnostics();
 
+  /// Enable or disable hardware-trigger initiated scanning/inventory.
+  Future<void> setScanningEnabled({required bool enabled}) =>
+      _api.setScanningEnabled(enabled);
+
   final _api = FlutterZebraRfid();
   final _callbacks = _FlutterZebraRfidCallbacksImpl();
 }

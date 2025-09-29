@@ -243,6 +243,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
+    override fun setScanningEnabled(enabled: Boolean, callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface?.setScanningEnabled(enabled)
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
     // =============================
     // FlutterZebraBarcode overrides
     // =============================

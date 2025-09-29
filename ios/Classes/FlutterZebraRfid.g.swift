@@ -322,6 +322,8 @@ struct Diagnostics {
   var lastConnectStartMs: Int64? = nil
   var lastConnectDurationMs: Int64? = nil
   var isLocating: Bool
+  var scanningEnabled: Bool? = nil
+  var scanningEnabledLastToggleMs: Int64? = nil
 
 
 
@@ -334,6 +336,8 @@ struct Diagnostics {
     let lastConnectStartMs: Int64? = isNullish(pigeonVar_list[4]) ? nil : (pigeonVar_list[4] is Int64? ? pigeonVar_list[4] as! Int64? : Int64(pigeonVar_list[4] as! Int32))
     let lastConnectDurationMs: Int64? = isNullish(pigeonVar_list[5]) ? nil : (pigeonVar_list[5] is Int64? ? pigeonVar_list[5] as! Int64? : Int64(pigeonVar_list[5] as! Int32))
     let isLocating = pigeonVar_list[6] as! Bool
+    let scanningEnabled: Bool? = nilOrValue(pigeonVar_list[7])
+    let scanningEnabledLastToggleMs: Int64? = isNullish(pigeonVar_list[8]) ? nil : (pigeonVar_list[8] is Int64? ? pigeonVar_list[8] as! Int64? : Int64(pigeonVar_list[8] as! Int32))
 
     return Diagnostics(
       connectionState: connectionState,
@@ -342,7 +346,9 @@ struct Diagnostics {
       lastErrorMessage: lastErrorMessage,
       lastConnectStartMs: lastConnectStartMs,
       lastConnectDurationMs: lastConnectDurationMs,
-      isLocating: isLocating
+      isLocating: isLocating,
+      scanningEnabled: scanningEnabled,
+      scanningEnabledLastToggleMs: scanningEnabledLastToggleMs
     )
   }
   func toList() -> [Any?] {
@@ -354,6 +360,8 @@ struct Diagnostics {
       lastConnectStartMs,
       lastConnectDurationMs,
       isLocating,
+      scanningEnabled,
+      scanningEnabledLastToggleMs,
     ]
   }
 }
@@ -492,6 +500,9 @@ protocol FlutterZebraRfid {
   func readerConfig(completion: @escaping (Result<ReaderConfig, Error>) -> Void)
   /// Runtime diagnostics snapshot (counters / last error / state)
   func diagnostics(completion: @escaping (Result<Diagnostics, Error>) -> Void)
+  /// Enable or disable hardware-trigger initiated scanning/inventory.
+  /// When disabled, trigger pulls are ignored and any active inventory is stopped.
+  func setScanningEnabled(enabled: Bool, completion: @escaping (Result<Void, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -666,6 +677,25 @@ class FlutterZebraRfidSetup {
       }
     } else {
       diagnosticsChannel.setMessageHandler(nil)
+    }
+    /// Enable or disable hardware-trigger initiated scanning/inventory.
+    /// When disabled, trigger pulls are ignored and any active inventory is stopped.
+    let setScanningEnabledChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.setScanningEnabled\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setScanningEnabledChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let enabledArg = args[0] as! Bool
+        api.setScanningEnabled(enabled: enabledArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      setScanningEnabledChannel.setMessageHandler(nil)
     }
   }
 }

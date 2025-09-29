@@ -15,8 +15,9 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 8. Auto‑Reconnect Behavior
 9. Inventory Watchdog
 10. RF Parameters
-11. Migration Guide
-12. Roadmap & Contributing
+11. Scanning Suppression (Home Screen Quiet Mode)
+12. Migration Guide
+13. Roadmap & Contributing
 
 ## 1. Features
 - Indexed reader discovery + guarded connection state machine
@@ -32,7 +33,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-    flutter_zebra_rfid: ^0.1.0
+    flutter_zebra_rfid: ^0.2.0
 ```
 Then run `flutter pub get`.
 
@@ -105,7 +106,7 @@ Call `diagnostics()` for a lightweight point‑in‑time struct. Recommended usa
 - Attach to bug reports
 - Poll only on demand (avoid high-frequency loops)
 
-Fields (current set): `connectionState`, `connectAttempts`, `lastErrorCode`, `lastErrorMessage`, `lastConnectStartTimestamp`, `lastConnectDurationMs`, `isLocating`.
+Fields (current set): `connectionState`, `connectAttempts`, `lastErrorCode`, `lastErrorMessage`, `lastConnectStartTimestamp`, `lastConnectDurationMs`, `isLocating`, `scanningEnabled`, `scanningEnabledLastToggleMs`.
 
 ## 8. Auto‑Reconnect Behavior
 Triggered only on unexpected disconnect (not manual user disconnect). Backoff schedule:
@@ -127,10 +128,26 @@ When tripped, inventory automatically stops; you may restart if desired.
 
 Use these for diagnostics rather than user‑facing configuration (configuration APIs may be added later).
 
-## 11. Migration Guide
+## 11. Scanning Suppression (Home Screen Quiet Mode)
+Sometimes you want hardware trigger pulls to be ignored (e.g., while the user is on a non‑inventory screen). Use the suppression API:
+
+```dart
+await api.setScanningEnabled(false); // disables trigger-started inventory; stops current inventory
+// ... navigate to home screen ...
+await api.setScanningEnabled(true); // re-enable when entering scanning workflow
+```
+
+Behavior:
+- When disabled, trigger press/release events are ignored.
+- If an inventory session is active when disabled, it is stopped immediately (with tag purge scheduled as normal).
+- Diagnostics exposes `scanningEnabled` and the last toggle timestamp so you can confirm state remotely.
+
+UI Hint: Show a small badge or icon when scanning is globally disabled to avoid confusion.
+
+## 12. Migration Guide
 See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps (timeouts, watchdog, auto‑reconnect implications).
 
-## 12. Roadmap & Contributing
+## 13. Roadmap & Contributing
 Roadmap: `docs/ROADMAP.md`
 
 Contributions welcome once core parity stabilizes. Please include:

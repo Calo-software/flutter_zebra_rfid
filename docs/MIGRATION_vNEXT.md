@@ -18,6 +18,7 @@ The release focuses on reliability, observability, and RF configuration introspe
 | Auto‑Reconnect | Exponential backoff (1s → 2s → 4s → 8s → 15s, max 5 attempts) after unexpected disconnect | If app previously auto‑called `connect()` in error handler, remove to prevent conflict with built‑in policy. |
 | Inventory Watchdog | Stops inventory after 30s max session or 5s inactivity (no tag reads) | If you relied on indefinite inventory, adjust by re‑starting inventory on demand or make watchdog configurable (future option). |
 | RF Parameters Exposure | `rfModeTableIndex` (placeholder null on Android currently), `receiveSensitivityIndex` (read‑only) | Use for diagnostics; do not rely on rfMode being settable yet. |
+| Scanning Suppression (setScanningEnabled) | Allows globally disabling trigger‑initiated inventory and stops any running session | Call `setScanningEnabled(false)` when on non‑scanning screens; re‑enable when entering scan workflows. Diagnostics now includes `scanningEnabled`. |
 
 ## 3. API Additions (Pigeon Schema)
 Added fields / classes (names may vary slightly pending final generation):
@@ -29,6 +30,8 @@ Added fields / classes (names may vary slightly pending final generation):
   - `lastConnectStartTimestamp`
   - `lastConnectDurationMs`
   - `isLocating`
+  - `scanningEnabled` (new)
+  - `scanningEnabledLastToggleMs` (new)
 - `ReaderConfig` new fields:
   - `rfModeTableIndex` (nullable Integer/Long)
   - `receiveSensitivityIndex` (nullable Integer/Long)
@@ -42,6 +45,7 @@ Added fields / classes (names may vary slightly pending final generation):
 | unexpected disconnect | Required manual reconnect | Triggers auto‑reconnect with capped exponential backoff | Remove custom reconnect loops to avoid duplication |
 | inventory start/stop | Possible duplicate or out‑of‑order calls | Guarded via `inventoryActive` and debounced trigger events | Simplifies app logic; rely on safe methods |
 | runaway scan (stuck trigger) | Possible indefinite tag stream | Inventory force‑stops after watchdog conditions | If long sessions required, plan for future configurability |
+| trigger suppression needed | Not possible to mute trigger without disconnect | `setScanningEnabled(false)` gates trigger events | Simplifies UX on non‑inventory pages |
 
 ## 5. Error Handling Migration
 Instead of catching broad exceptions, subscribe to the plugin’s error/status stream and switch on `ReaderErrorCode`. Recommended mapping:

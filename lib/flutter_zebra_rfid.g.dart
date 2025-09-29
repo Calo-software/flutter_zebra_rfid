@@ -299,6 +299,8 @@ class Diagnostics {
     this.lastConnectStartMs,
     this.lastConnectDurationMs,
     required this.isLocating,
+    this.scanningEnabled,
+    this.scanningEnabledLastToggleMs,
   });
 
   ReaderConnectionStatus connectionState;
@@ -315,6 +317,10 @@ class Diagnostics {
 
   bool isLocating;
 
+  bool? scanningEnabled;
+
+  int? scanningEnabledLastToggleMs;
+
   Object encode() {
     return <Object?>[
       connectionState,
@@ -324,6 +330,8 @@ class Diagnostics {
       lastConnectStartMs,
       lastConnectDurationMs,
       isLocating,
+      scanningEnabled,
+      scanningEnabledLastToggleMs,
     ];
   }
 
@@ -337,6 +345,8 @@ class Diagnostics {
       lastConnectStartMs: result[4] as int?,
       lastConnectDurationMs: result[5] as int?,
       isLocating: result[6]! as bool,
+      scanningEnabled: result[7] as bool?,
+      scanningEnabledLastToggleMs: result[8] as int?,
     );
   }
 }
@@ -675,6 +685,30 @@ class FlutterZebraRfid {
       );
     } else {
       return (pigeonVar_replyList[0] as Diagnostics?)!;
+    }
+  }
+
+  /// Enable or disable hardware-trigger initiated scanning/inventory.
+  /// When disabled, trigger pulls are ignored and any active inventory is stopped.
+  Future<void> setScanningEnabled(bool enabled) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.setScanningEnabled$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[enabled]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
     }
   }
 }

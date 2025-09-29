@@ -2,6 +2,16 @@
 
 _No changes yet._
 
+## 0.2.0 - 2025-09-29
+
+### Added
+- Scanning suppression API: `setScanningEnabled(bool enabled)` to globally gate hardware trigger initiated inventory and stop active sessions when disabled.
+- Diagnostics enrichment: `scanningEnabled`, `scanningEnabledLastToggleMs` fields.
+
+### Documentation
+- README section on Scanning Suppression / Quiet Mode.
+- Migration guide updated with suppression concept row.
+
 ## 0.1.0 - 2025-09-29
 
 ### Added

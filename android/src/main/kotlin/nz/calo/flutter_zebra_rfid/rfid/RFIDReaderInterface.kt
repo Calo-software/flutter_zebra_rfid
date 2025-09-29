@@ -71,6 +71,9 @@ class RFIDReaderInterface(
     private var readerInfo: ReaderInfo? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var isLocating: Boolean = false
+    // Flag to allow suppressing trigger-driven scanning
+    @Volatile private var scanningEnabled: Boolean = true
+    private var scanningEnabledLastToggleMs: Long = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
@@ -358,8 +361,23 @@ class RFIDReaderInterface(
             lastErrorMessage,
             if (lastConnectStartTimestamp == 0L) null else lastConnectStartTimestamp,
             lastConnectDurationMs,
-            isLocating
+            isLocating,
+            scanningEnabled,
+            if (scanningEnabledLastToggleMs == 0L) null else scanningEnabledLastToggleMs
         )
+    }
+
+    fun setScanningEnabled(enabled: Boolean) {
+        if (scanningEnabled == enabled) return
+        scanningEnabled = enabled
+        scanningEnabledLastToggleMs = System.currentTimeMillis()
+        if (!enabled) {
+            // Stop any active inventory immediately
+            if (inventoryActive) {
+                safeStopInventory("scanning disabled")
+            }
+        }
+        Log.d(TAG, "Scanning enabled set to $scanningEnabled")
     }
 
     fun configureReader(config: ReaderConfig, shouldPersist: Boolean) {
@@ -647,6 +665,10 @@ class RFIDReaderInterface(
             STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT -> {
                 Log.d(TAG, "Handheld trigger event detected")
                 try {
+                    if (!scanningEnabled) {
+                        Log.d(TAG, "Trigger event ignored (scanning disabled)")
+                        return
+                    }
                     if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
                         Log.d(TAG, "Handheld trigger pressed")
                         lastTriggerPressTimestamp = System.currentTimeMillis()
