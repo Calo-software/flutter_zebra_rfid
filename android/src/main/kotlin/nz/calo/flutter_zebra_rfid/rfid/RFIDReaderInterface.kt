@@ -118,6 +118,30 @@ class RFIDReaderInterface(
     private val INITIAL_RECONNECT_DELAY_MS = 1_000L
     private val MAX_RECONNECT_DELAY_MS = 15_000L
 
+    // Battery fallback derivation state
+    private var lastBatteryLevel: Int? = null
+    private var lastBatteryCharging: Boolean = false
+
+    private fun estimateBatteryPercentFromVoltageMv(voltageMv: Int): Int {
+        val v = voltageMv / 1000.0
+        return when {
+            v >= 4.15 -> 100
+            v >= 4.05 -> 90
+            v >= 3.98 -> 80
+            v >= 3.92 -> 70
+            v >= 3.88 -> 60
+            v >= 3.83 -> 50
+            v >= 3.78 -> 40
+            v >= 3.73 -> 30
+            v >= 3.67 -> 20
+            v >= 3.60 -> 15
+            v >= 3.55 -> 10
+            v >= 3.50 -> 7
+            v >= 3.45 -> 5
+            else -> 3
+        }
+    }
+
     private fun scheduleAutoReconnect(reason: String) {
         if (!autoReconnectEnabled) {
             Log.d(TAG, "AutoReconnect disabled; not scheduling (reason=$reason)")
@@ -653,12 +677,33 @@ class RFIDReaderInterface(
             STATUS_EVENT_TYPE.BATTERY_EVENT -> {
                 val data = rfidStatusEvents.StatusEventData.BatteryData
                 val batteryData = BatteryData(data.level.toLong(), data.charging, data.cause)
+                lastBatteryLevel = data.level
+                lastBatteryCharging = data.charging
                 Log.d(
                     TAG,
                     "Battery data - level: ${batteryData.level}, isCharging: ${batteryData.isCharging}, cause: ${batteryData.cause}"
                 )
                 Handler(Looper.getMainLooper()).post {
                     callbacks.onBatteryDataReceived(batteryData) {}
+                }
+            }
+            STATUS_EVENT_TYPE.POWER_EVENT -> {
+                try {
+                    val powerData = rfidStatusEvents.StatusEventData.PowerEventData
+                    val voltageMv = powerData.voltage
+                    val currentMa = powerData.current
+                    if (!lastBatteryCharging && (lastBatteryLevel == null || lastBatteryLevel == 0)) {
+                        val derived = estimateBatteryPercentFromVoltageMv(voltageMv)
+                        Log.d(TAG, "POWER_EVENT derive battery: voltage=${voltageMv}mV current=${currentMa}mA -> $derived% (original=${lastBatteryLevel})")
+                        val synthetic = BatteryData(derived.toLong(), false, "derivedFromVoltage")
+                        Handler(Looper.getMainLooper()).post {
+                            callbacks.onBatteryDataReceived(synthetic) {}
+                        }
+                    } else {
+                        Log.d(TAG, "POWER_EVENT voltage=${voltageMv}mV current=${currentMa}mA - derivation skipped (level=$lastBatteryLevel charging=$lastBatteryCharging)")
+                    }
+                } catch (t: Throwable) {
+                    Log.d(TAG, "Error handling POWER_EVENT: ${t.message}")
                 }
             }
 
