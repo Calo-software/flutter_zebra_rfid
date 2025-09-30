@@ -2,6 +2,8 @@
 
 Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: connection resilience, structured errors, diagnostics visibility, and safer inventory lifecycle.
 
+> **Note:** Large portions of this repository (code, Gradle wiring, and documentation) were generated or refactored with help from large language models and then reviewed in this project.
+
 > Status: Android reliability features complete (timeout, retry, auto‑reconnect, diagnostics, watchdog). iOS parity for these features is upcoming.
 
 ## Contents
@@ -67,6 +69,7 @@ import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
     ./gradlew publishZebraAarsToLocalMaven
     ```
     (This task is also invoked automatically by `flutter build/run` when needed.)
+- USB-only deployments: as of the next release, BLE permissions are requested only when Bluetooth discovery is required. If users deny BLE prompts, USB reader discovery still succeeds.
 
 ## 4. iOS Setup Notes
 - Enable Background Modes: External accessory communication, Uses BLE accessories

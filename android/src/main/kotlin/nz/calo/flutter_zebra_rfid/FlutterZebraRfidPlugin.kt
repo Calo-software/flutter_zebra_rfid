@@ -125,7 +125,8 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         callback: (Result<Unit>) -> Unit
     ) {
         try {
-            if (connectionType == ReaderConnectionType.BLUETOOTH || connectionType == ReaderConnectionType.ALL) {
+            val needsBluetooth = connectionType == ReaderConnectionType.BLUETOOTH || connectionType == ReaderConnectionType.ALL
+            if (needsBluetooth) {
                 val permissions = ArrayList<String>()
                 if (Build.VERSION.SDK_INT >= 31) { // Android 12 (October 2021)
                     permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
@@ -139,8 +140,14 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                     object : OperationOnPermission {
                         override fun op(granted: Boolean, permission: String?) {
                             if (!granted) {
-                                callback(Result.failure(Error("You need to grant BLE permissions")))
-                                Log.e(TAG, "BLE permission not granted!")
+                                if (connectionType == ReaderConnectionType.ALL) {
+                                    Log.w(TAG, "BLE permission not granted; continuing with USB-only discovery")
+                                    rfidInterface!!.getAvailableReaderList(ReaderConnectionType.USB)
+                                    callback(Result.success(Unit))
+                                } else {
+                                    callback(Result.failure(Error("Bluetooth permissions are required to discover wireless readers")))
+                                    Log.e(TAG, "BLE permission not granted for Bluetooth discovery")
+                                }
                                 return
                             }
                             Log.e(TAG, "BLE permission granted, can continue...")

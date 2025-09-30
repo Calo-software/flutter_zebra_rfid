@@ -1,6 +1,7 @@
 ## Unreleased
 
-- No changes yet.
+### Fixed
+- USB reader discovery no longer fails when users deny Bluetooth permissions. Bluetooth permissions are only required when discovering wireless readers; USB enumeration now proceeds even if BLE access is withheld.
 
 ## 0.3.0 - 2025-09-30
 
