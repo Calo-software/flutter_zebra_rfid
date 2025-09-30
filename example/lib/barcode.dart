@@ -112,16 +112,12 @@ class _ScannersContainer extends StatelessWidget {
     // this.batteryData,
     this.currentScanner,
     this.onConnect,
-    this.onDisconnect,
-    this.onStatus,
   });
 
   final List<BarcodeScanner> availableScanners;
   final ConnectionStatus connectionStatus;
   final BarcodeScanner? currentScanner;
   final Function(int)? onConnect;
-  final VoidCallback? onDisconnect;
-  final VoidCallback? onStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -185,34 +181,15 @@ class _ScannersContainer extends StatelessWidget {
                                         children: [
                                           ElevatedButton(
                                             onPressed: () {
-                                              if (isCurrentItem &&
-                                                  isConnected) {
-                                                // disconnect
-                                                onDisconnect?.call();
-                                                Navigator.of(context).pop();
-                                              } else {
-                                                // connect
+                                              // Only connect supported in current example UI
+                                              if (!(isCurrentItem &&
+                                                  isConnected)) {
                                                 onConnect?.call(item.id);
-                                                Navigator.of(context).pop();
                                               }
+                                              Navigator.of(context).pop();
                                             },
-                                            child: Text(
-                                                isCurrentItem && isConnected
-                                                    ? 'Disconnect'
-                                                    : 'Connect'),
+                                            child: Text('Connect'),
                                           ),
-                                          if (isCurrentItem && isConnected)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                  left: 8),
-                                              child: ElevatedButton(
-                                                onPressed: () {
-                                                  onStatus?.call();
-                                                  Navigator.of(context).pop();
-                                                },
-                                                child: const Text('Status'),
-                                              ),
-                                            ),
                                         ],
                                       ),
                                     ),

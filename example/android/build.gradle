@@ -2,6 +2,10 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Access the plugin's bundled AARs (example/android -> ../../android/RFIDAPI3Library)
+        flatDir { dirs("../../android/RFIDAPI3Library") }
+        // Local Maven repo populated by plugin build (example/android -> ../../android/localMaven)
+        maven { url uri("../../android/localMaven") }
     }
 }
 

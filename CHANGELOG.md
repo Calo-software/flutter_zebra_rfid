@@ -1,6 +1,20 @@
 ## Unreleased
 
-_No changes yet._
+- No changes yet.
+
+## 0.3.0 - 2025-09-30
+
+### Changed
+- Android minSdk raised from 26 to 28 to satisfy Zebra API3 (FINDIT 2.0.5.214) AAR manifest requirement. Projects needing API <28 must either:
+	- Remove `API3_FINDIT` (and any dependent AARs) from `android/RFIDAPI3Library`, or
+	- Use an earlier Zebra SDK bundle whose AARs declare a lower minSdk, or
+	- (Not recommended) apply `tools:overrideLibrary` which risks runtime crashes on older devices.
+- Build toolchain updated: Gradle 8.8, Android Gradle Plugin 8.6.0, Kotlin 2.1.0, compileSdk 36 (required by `integration_test` and forward compatibility).
+- Zebra SDK `.aar` dependencies are now auto-published to a local Maven repo (`android/localMaven`) during the first build; Gradle logs `[zebra] Published ...` when publication occurs. This avoids broken AAR packaging caused by direct local `.aar` dependencies.
+
+### Notes
+- Consumers do not need manual steps beyond the new minSdk 28 requirement. To regenerate the local Maven cache manually, run `./gradlew publishZebraAarsToLocalMaven` inside the plugin's `android/` directory.
+- This is a build-time change only; runtime RFID logic is unchanged from 0.2.x.
 
 ## 0.2.0 - 2025-09-29
 

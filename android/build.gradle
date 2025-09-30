@@ -1,6 +1,6 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android") version "1.9.24"
+    id("org.jetbrains.kotlin.android")
 }
 
 group = "nz.calo.flutter_zebra_rfid"
@@ -14,10 +14,12 @@ java {
 
 android {
     namespace = "nz.calo.flutter_zebra_rfid"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        // Zebra API3 (FINDIT / 2.0.5.214) AAR declares minSdkVersion 28; raising from 26 to satisfy manifest merger.
+        // If consumers need API <28 they must remove FINDIT AAR or use an earlier SDK bundle.
+        minSdk = 28
         // (No targetSdk needed for library; rely on consumer constraints)
     }
 
@@ -54,10 +56,83 @@ android {
 repositories {
     google()
     mavenCentral()
+    // Local Zebra SDK AARs (source directory for publication)
+    flatDir { dirs("RFIDAPI3Library") }
+    // Local Maven repo populated below
+    maven { url = uri("$rootDir/localMaven") }
+}
+
+def zebraGroupId = 'com.zebra.rfid.local'
+def zebraAarDir = file('RFIDAPI3Library')
+def zebraLocalMaven = file("$rootDir/localMaven")
+
+def deriveZebraSpec = { File aar ->
+    def base = aar.name[0..-5] // strip .aar
+    def matcher = (base =~ /(.*?)-(\d+\.\d+\.\d+\.\d+)$/)
+    def artifactId
+    def version
+    if (matcher.matches()) {
+        artifactId = matcher.group(1)
+        version = matcher.group(2)
+    } else {
+        artifactId = base
+        version = '1.0.0-local'
+    }
+    artifactId = artifactId.toLowerCase().replaceAll('[^a-z0-9]+','-')
+    [artifactId: artifactId, version: version]
+}
+
+def publishZebraAar = { File aar, Map spec ->
+    def artifactPath = new File(zebraLocalMaven, zebraGroupId.replace('.', '/') + "/${spec.artifactId}/${spec.version}")
+    def pomFile = new File(artifactPath, "${spec.artifactId}-${spec.version}.pom")
+    def aarFile = new File(artifactPath, "${spec.artifactId}-${spec.version}.aar")
+    if (pomFile.exists() && aarFile.exists()) return
+    artifactPath.mkdirs()
+    ant.copy(file: aar, tofile: aarFile)
+    pomFile.text = """
+    <project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"
+        xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>${zebraGroupId}</groupId>
+  <artifactId>${spec.artifactId}</artifactId>
+  <version>${spec.version}</version>
+  <packaging>aar</packaging>
+  <name>${spec.artifactId}</name>
+  <description>Locally published Zebra AAR (${aar.name})</description>
+</project>
+""".trim()
+    logger.lifecycle("[zebra] Published ${aar.name} -> ${spec.artifactId}:${spec.version}")
+}
+
+if (!zebraAarDir.exists()) {
+    throw new GradleException("Required Zebra AAR directory missing: ${zebraAarDir}")
+}
+
+def zebraCoordinateList = []
+zebraAarDir.listFiles(new FilenameFilter(){ boolean accept(File d, String n) { n.toLowerCase().endsWith('.aar') } })?.each { File aar ->
+    def spec = deriveZebraSpec(aar)
+    publishZebraAar(aar, spec)
+    zebraCoordinateList << "${zebraGroupId}:${spec.artifactId}:${spec.version}"
+}
+
+logger.lifecycle("[zebra] Resolved Zebra coordinates: ${zebraCoordinateList}")
+
+tasks.register('publishZebraAarsToLocalMaven') {
+    group = 'zebra'
+    description = 'Ensures Zebra SDK AARs are published to the local Maven repository.'
+    doLast {
+        zebraAarDir.listFiles(new FilenameFilter(){ boolean accept(File d, String n) { n.toLowerCase().endsWith('.aar') } })?.each { File aar ->
+            def spec = deriveZebraSpec(aar)
+            publishZebraAar(aar, spec)
+        }
+        logger.lifecycle('[zebra] Publication complete')
+    }
 }
 
 dependencies {
-    implementation fileTree(dir: "RFIDAPI3Library", include: ["*.jar"])
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:1.9.24")
+    zebraCoordinateList.each { coord -> implementation(coord) }
+
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:2.1.0")
     testImplementation("org.mockito:mockito-core:5.11.0")
 }
+// End Dependency Region (flatDir fallback)

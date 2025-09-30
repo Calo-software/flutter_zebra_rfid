@@ -43,7 +43,7 @@ import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 ```
 
 ## 3. Android Setup Notes
-- Minimum SDK: 26
+- Minimum SDK: 28 (required by Zebra API3 FINDIT AAR)
 - The bundled barcode library may overwrite `android:label`; ensure manifest patch:
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -57,6 +57,16 @@ import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
     </application>
 </manifest>
 ```
+
+### Bundled Zebra SDK AARs
+- All Zebra `.aar` binaries live in `android/RFIDAPI3Library` and are published to a local Maven repository (`android/localMaven`) during the first Android build.
+- No manual action is required when consuming the plugin via pub or as a path dependency; Gradle prints `[zebra] Published ...` logs on the first run.
+- If the artifacts are ever deleted, rerun:
+    ```bash
+    cd android
+    ./gradlew publishZebraAarsToLocalMaven
+    ```
+    (This task is also invoked automatically by `flutter build/run` when needed.)
 
 ## 4. iOS Setup Notes
 - Enable Background Modes: External accessory communication, Uses BLE accessories

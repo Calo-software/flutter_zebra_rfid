@@ -672,7 +672,28 @@ class RFIDReaderInterface(
 
     // Status Event Notification
     override fun eventStatusNotify(rfidStatusEvents: RfidStatusEvents) {
-        Log.d(TAG, "Status Notification: " + rfidStatusEvents.StatusEventData.statusEventType)
+        val eventType = rfidStatusEvents.StatusEventData.statusEventType
+        Log.d(TAG, "Status Notification: $eventType")
+        // Verbose diagnostic dump for power/battery investigation
+        try {
+            val sb = StringBuilder("StatusEventDump type=$eventType")
+            try {
+                val b = rfidStatusEvents.StatusEventData.BatteryData
+                if (b != null) sb.append(" | battery(level=").append(b.level).append(", charging=").append(b.charging).append(", cause=").append(b.cause).append(")")
+            } catch (_: Throwable) {}
+            // Attempt reflective power telemetry extraction (SDK variant may not expose PowerEventData accessor)
+            try {
+                val vc = extractPowerTelemetry(rfidStatusEvents)
+                if (vc != null) sb.append(" | power(voltage=").append(vc.first).append("mV, current=").append(vc.second).append("mA)")
+            } catch (_: Throwable) {}
+            try {
+                val hh = rfidStatusEvents.StatusEventData.HandheldTriggerEventData
+                if (hh != null) sb.append(" | trigger=").append(hh.handheldEvent)
+            } catch (_: Throwable) {}
+            Log.d(TAG, sb.toString())
+        } catch (t: Throwable) {
+            Log.d(TAG, "Diagnostic dump error: ${t.message}")
+        }
         when (rfidStatusEvents.StatusEventData.statusEventType) {
             STATUS_EVENT_TYPE.BATTERY_EVENT -> {
                 val data = rfidStatusEvents.StatusEventData.BatteryData
@@ -688,23 +709,7 @@ class RFIDReaderInterface(
                 }
             }
             STATUS_EVENT_TYPE.POWER_EVENT -> {
-                try {
-                    val powerData = rfidStatusEvents.StatusEventData.PowerEventData
-                    val voltageMv = powerData.voltage
-                    val currentMa = powerData.current
-                    if (!lastBatteryCharging && (lastBatteryLevel == null || lastBatteryLevel == 0)) {
-                        val derived = estimateBatteryPercentFromVoltageMv(voltageMv)
-                        Log.d(TAG, "POWER_EVENT derive battery: voltage=${voltageMv}mV current=${currentMa}mA -> $derived% (original=${lastBatteryLevel})")
-                        val synthetic = BatteryData(derived.toLong(), false, "derivedFromVoltage")
-                        Handler(Looper.getMainLooper()).post {
-                            callbacks.onBatteryDataReceived(synthetic) {}
-                        }
-                    } else {
-                        Log.d(TAG, "POWER_EVENT voltage=${voltageMv}mV current=${currentMa}mA - derivation skipped (level=$lastBatteryLevel charging=$lastBatteryCharging)")
-                    }
-                } catch (t: Throwable) {
-                    Log.d(TAG, "Error handling POWER_EVENT: ${t.message}")
-                }
+                handlePowerEventFallback(rfidStatusEvents, fromExplicitPowerEvent = true)
             }
 
             STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT -> {
@@ -748,7 +753,82 @@ class RFIDReaderInterface(
                     TAG,
                     "Unhandled status event type: ${rfidStatusEvents.StatusEventData.statusEventType}"
                 )
+                // As a fallback, attempt derivation on any event if conditions match and we can see voltage via reflection
+                handlePowerEventFallback(rfidStatusEvents, fromExplicitPowerEvent = false)
             }
+        }
+    }
+
+    private fun extractPowerTelemetry(rfidStatusEvents: RfidStatusEvents): Pair<Int, Int>? {
+        return try {
+            val statusData = rfidStatusEvents.StatusEventData
+            // Attempt direct PowerEventData field
+            val directField = statusData::class.java.declaredFields.firstOrNull { it.name.equals("PowerEventData", ignoreCase = true) }
+            if (directField != null) {
+                directField.isAccessible = true
+                val powerObj = directField.get(statusData)
+                if (powerObj != null) {
+                    val voltageField = powerObj::class.java.declaredFields.firstOrNull { it.name.equals("voltage", true) }
+                    val currentField = powerObj::class.java.declaredFields.firstOrNull { it.name.equals("current", true) }
+                    if (voltageField != null && currentField != null) {
+                        voltageField.isAccessible = true
+                        currentField.isAccessible = true
+                        val vRaw = voltageField.get(powerObj)
+                        val cRaw = currentField.get(powerObj)
+                        if (vRaw is Int) {
+                            val c = if (cRaw is Int) cRaw else 0
+                            return vRaw to c
+                        }
+                    }
+                }
+            }
+            // Fallback scan
+            for (f in statusData::class.java.declaredFields) {
+                try {
+                    f.isAccessible = true
+                    val nested = f.get(statusData) ?: continue
+                    val fields = nested::class.java.declaredFields
+                    var v: Int? = null
+                    var c: Int? = null
+                    for (nf in fields) {
+                        if (nf.name.equals("voltage", true)) {
+                            nf.isAccessible = true
+                            val vRaw = nf.get(nested)
+                            if (vRaw is Int) v = vRaw
+                        } else if (nf.name.equals("current", true)) {
+                            nf.isAccessible = true
+                            val cRaw = nf.get(nested)
+                            if (cRaw is Int) c = cRaw
+                        }
+                    }
+                    if (v != null) {
+                        return v!! to (c ?: 0)
+                    }
+                } catch (_: Throwable) { }
+            }
+            null
+        } catch (t: Throwable) {
+            Log.d(TAG, "extractPowerTelemetry error: ${t.message}")
+            null
+        }
+    }
+
+    private fun handlePowerEventFallback(rfidStatusEvents: RfidStatusEvents, fromExplicitPowerEvent: Boolean) {
+        try {
+            if (lastBatteryCharging || (lastBatteryLevel != null && lastBatteryLevel != 0)) return
+            val vc = extractPowerTelemetry(rfidStatusEvents) ?: return
+            val (voltageMv, currentMa) = vc
+            val derived = estimateBatteryPercentFromVoltageMv(voltageMv)
+            val eventLabel = if (fromExplicitPowerEvent) "POWER_EVENT" else "POWER_FALLBACK"
+            val causeLabel = if (fromExplicitPowerEvent) "derivedFromVoltage" else "derivedFromVoltageFallback"
+            Log.d(
+                TAG,
+                "$eventLabel derive battery: voltage=${voltageMv}mV current=${currentMa}mA -> $derived% (original=${lastBatteryLevel})"
+            )
+            val synthetic = BatteryData(derived.toLong(), false, causeLabel)
+            Handler(Looper.getMainLooper()).post { callbacks.onBatteryDataReceived(synthetic) {} }
+        } catch (t: Throwable) {
+            Log.d(TAG, "handlePowerEventFallback error: ${t.message}")
         }
     }
 

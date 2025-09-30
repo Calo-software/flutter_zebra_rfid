@@ -420,14 +420,14 @@ class _ReadersContainer extends StatelessWidget {
               itemBuilder: (context, index) {
                 final item = availableReaders[index];
                 final isCurrentItem = item.id == currentReader?.id;
-        final isConnected = isCurrentItem &&
-          connectionStatus == ConnectionStatus.connected;
+                final isConnected = isCurrentItem &&
+                    connectionStatus == ConnectionStatus.connected;
                 return Container(
                   color: Colors.white,
                   child: GestureDetector(
                     onTap: () {
-            if (connectionStatus != ConnectionStatus.connecting &&
-              connectionStatus != ConnectionStatus.disconnecting) {
+                      if (connectionStatus != ConnectionStatus.connecting &&
+                          connectionStatus != ConnectionStatus.disconnecting) {
                         showDialog(
                           context: context,
                           builder: (context) => Center(
