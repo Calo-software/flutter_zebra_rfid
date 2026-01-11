@@ -45,7 +45,27 @@ import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 ```
 
 ## 3. Android Setup Notes
+
+### Important: TC22/TC27 Built-in RFID Configuration
+**If you're using a TC22 or TC27 with built-in RFID:** The internal RFID reader may be disabled in device settings, or your TC22 model may not include RFID hardware (not all TC22s have built-in RFID). The Zebra SDK accesses RFID directly via the RFID API - **DataWedge is for barcode scanning only, not RFID.**
+
+📱 **See [TC22_QUICKSTART.md](TC22_QUICKSTART.md) for configuration steps**
+
+Or read the detailed troubleshooting guide: [USB_TROUBLESHOOTING.md](USB_TROUBLESHOOTING.md)
+
+**Quick check:**
+1. Settings → Device Settings → RFID (enable if available)
+2. Verify your TC22 model includes RFID (check device label)
+3. Test with Zebra's "123RFID Mobile" app
+4. Reboot device
+
+Without RFID enabled in device settings, you'll only see external Bluetooth readers (like RFD40), not the built-in USB reader.
+
+---
+
+### General Android Requirements
 - Minimum SDK: 28 (required by Zebra API3 FINDIT AAR)
+- USB permissions are automatically included via the plugin's manifest
 - The bundled barcode library may overwrite `android:label`; ensure manifest patch:
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

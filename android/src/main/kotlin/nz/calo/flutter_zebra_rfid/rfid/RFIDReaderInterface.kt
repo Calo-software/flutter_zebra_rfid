@@ -57,12 +57,16 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
     }
 }
 
+// NOTE: The above function is kept for reference but getAvailableReaderList()
+// now uses ENUM_TRANSPORT.ALL for USB to include both external USB and built-in serial readers
+
 class RFIDReaderInterface(
     private var callbacks: FlutterZebraRfidCallbacks,
     private var applicationContext: Context
 ) : RfidEventsListener, RFIDReaderEventHandler {
 
     private val TAG: String = "FlutterZebraRfidPlugin"
+    private val DEBUG = false // Enable verbose logging for troubleshooting
 
     private var readers: Readers? = null
     private var availableRFIDReaderList: ArrayList<ReaderDevice>? = null
@@ -218,35 +222,94 @@ class RFIDReaderInterface(
     fun getAvailableReaderList(
         connectionType: ReaderConnectionType
     ) {
-
-        if (readers == null) {
-            readers = Readers(applicationContext, readerConnectionTypeToTransport(connectionType))
+        Log.i(TAG, "========== READER DISCOVERY STARTED ==========")
+        Log.i(TAG, "Requested connection type: $connectionType")
+        
+        // For USB connection type, we need to discover both SERVICE_USB (external) 
+        // and SERVICE_SERIAL (built-in TC22/TC27), so we always use ALL transport
+        val transport = when (connectionType) {
+            ReaderConnectionType.BLUETOOTH -> ENUM_TRANSPORT.BLUETOOTH
+            ReaderConnectionType.USB -> ENUM_TRANSPORT.ALL  // Include both USB and Serial
+            ReaderConnectionType.ALL -> ENUM_TRANSPORT.ALL
         }
+        Log.i(TAG, "Using SDK transport: $transport")
 
-        if (connectionType != currentConnectionType) {
-            readers!!.setTransport(readerConnectionTypeToTransport(connectionType))
-        }
+        try {
+            if (readers == null || connectionType != currentConnectionType) {
+                Log.d(TAG, "Creating new Readers instance with transport: $transport")
+                readers = Readers(applicationContext, transport)
+            } else {
+                Log.d(TAG, "Reusing existing Readers instance")
+            }
 
-        currentConnectionType = connectionType
-        availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
-        Log.d(TAG, "Available readers: $availableRFIDReaderList")
-        val readers = availableRFIDReaderList!!.mapIndexed { index, reader ->
-            Reader(reader.name, index.toLong())
+            currentConnectionType = connectionType
+            Log.d(TAG, "Calling GetAvailableRFIDReaderList()...")
+            availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
+            
+            val readerCount = availableRFIDReaderList?.size ?: 0
+            Log.i(TAG, "Discovery complete. Found $readerCount reader(s)")
+            
+            // Log detailed info about each discovered reader
+            availableRFIDReaderList?.forEachIndexed { index, device ->
+                Log.i(TAG, "--- Reader #$index ---")
+                Log.i(TAG, "  Name: ${device.name}")
+                Log.i(TAG, "  RFIDReader: ${device.rfidReader}")
+                
+                if (DEBUG) {
+                    try {
+                        Log.d(TAG, "  Address: ${device.address}")
+                        Log.d(TAG, "  Password: ${device.password}")
+                        Log.d(TAG, "  ToString: $device")
+                    } catch (e: Exception) {
+                        Log.d(TAG, "  Could not read all properties: ${e.message}")
+                    }
+                }
+            }
+            
+            if (readerCount == 0) {
+                Log.w(TAG, "WARNING: No readers found!")
+                Log.w(TAG, "  - Connection type requested: $connectionType")
+                Log.w(TAG, "  - Transport used: $transport")
+                Log.w(TAG, "  - If using TC22 built-in RFID, verify:")
+                Log.w(TAG, "    1. Device actually has RFID hardware (not all TC22s do)")
+                Log.w(TAG, "    2. RFID works in Zebra's 123RFID Mobile app")
+                Log.w(TAG, "    3. Check Settings → RFID is enabled")
+            }
+            
+            val readers = availableRFIDReaderList!!.mapIndexed { index, reader ->
+                Reader(reader.name, index.toLong())
+            }
+            callbacks.onAvailableReadersChanged(readers) {}
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "ERROR during reader discovery: ${e.message}", e)
+            Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+            e.printStackTrace()
+            // Return empty list on error
+            callbacks.onAvailableReadersChanged(emptyList()) {}
         }
-        callbacks.onAvailableReadersChanged(readers) {}
+        
+        Log.i(TAG, "========== READER DISCOVERY ENDED ==========")
     }
 
     @Synchronized
     fun connectReader(readerId: Long): ReaderInfo? {
+        Log.i(TAG, "========== CONNECT READER STARTED ==========")
+        Log.i(TAG, "Requested reader ID: $readerId")
+        
         // Validate list
         val list = availableRFIDReaderList
         if (list == null) {
+            Log.e(TAG, "ERROR: No available readers list loaded")
             emitError(ReaderErrorCode.NO_AVAILABLE_READERS, "No available readers list loaded")
             updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "No available readers list loaded")
             return null
         }
+        
+        Log.d(TAG, "Available readers list size: ${list.size}")
 
         if (readerId < 0 || readerId >= list.size) {
+            Log.e(TAG, "ERROR: Reader index $readerId out of range (size=${list.size})")
             emitError(ReaderErrorCode.INVALID_READER_INDEX, "Reader index $readerId out of range (size=${list.size})")
             updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader index $readerId out of range (size=${list.size})")
             return null
@@ -267,22 +330,33 @@ class RFIDReaderInterface(
         }
 
         readerDevice = list[readerId.toInt()]
+        Log.i(TAG, "Selected reader device: ${readerDevice?.name}")
+        
         val targetReader = readerDevice?.rfidReader
         if (targetReader == null) {
+            Log.e(TAG, "ERROR: Selected ReaderDevice has null rfidReader")
+            Log.e(TAG, "  ReaderDevice name: ${readerDevice?.name}")
+            Log.e(TAG, "  ReaderDevice: $readerDevice")
             emitError(ReaderErrorCode.READER_DEVICE_NULL, "Selected ReaderDevice has null rfidReader")
             updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Selected ReaderDevice has null rfidReader")
             return null
         }
+        
         reader = targetReader
+        Log.d(TAG, "RFIDReader object obtained: $targetReader")
 
         if (targetReader.isConnected) {
+            Log.i(TAG, "Reader already physically connected")
             updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader already physically connected")
             return readerInfo
         }
+        
+        Log.i(TAG, "Reader not connected, starting connection sequence...")
 
         // New attempt sequence
         connectAttempt = 1
         totalConnectAttemptsCounter += 1
+        Log.d(TAG, "Connect attempt: $connectAttempt, Total attempts: $totalConnectAttemptsCounter")
         beginAsyncConnect(readerId)
         return null // async result
     }
@@ -290,18 +364,35 @@ class RFIDReaderInterface(
     @Synchronized
     private fun beginAsyncConnect(readerId: Long, isRetry: Boolean = false) {
         val targetReader = reader ?: return
-        updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, (if (isRetry) "Retrying" else "Starting") + " connection attempt #$connectAttempt to readerId=$readerId (${readerDevice?.name})")
+        
+        val attemptType = if (isRetry) "Retrying" else "Starting"
+        Log.i(TAG, "$attemptType connection attempt #$connectAttempt to readerId=$readerId")
+        Log.i(TAG, "  Reader name: ${readerDevice?.name}")
+        Log.i(TAG, "  Reader object: $targetReader")
+        
+        updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, "$attemptType connection attempt #$connectAttempt to readerId=$readerId (${readerDevice?.name})")
         lastConnectStartTimestamp = System.currentTimeMillis()
         scheduleConnectTimeout(readerId, connectAttempt)
+        
+        Log.d(TAG, "Launching blocking connect() call on background thread...")
         // Launch blocking connect off main thread
         pendingConnectFuture = ioExecutor.submit {
             try {
+                Log.d(TAG, "Calling targetReader.connect()...")
                 targetReader.connect()
+                Log.i(TAG, "targetReader.connect() completed successfully!")
                 // If timed out already, skip success path
                 synchronized(this) {
-                    if (internalState != InternalConnectionState.CONNECTING) return@submit
+                    if (internalState != InternalConnectionState.CONNECTING) {
+                        Log.w(TAG, "Connection succeeded but state changed to $internalState, ignoring")
+                        return@submit
+                    }
                 }
+                
+                Log.d(TAG, "Setting up reader configuration...")
                 setupReader()
+                
+                Log.d(TAG, "Reading reader capabilities...")
                 val capabilities = targetReader.ReaderCapabilities
                 val levels = capabilities.transmitPowerLevelValues
                 val info = ReaderInfo(
@@ -321,18 +412,27 @@ class RFIDReaderInterface(
             } catch (e: InvalidUsageException) {
                 synchronized(this) {
                     clearConnectTimeout()
+                    Log.e(TAG, "InvalidUsageException during connect: ${e.message}", e)
+                    Log.e(TAG, "  Info: ${e.info}")
                     emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
                 }
             } catch (e: OperationFailureException) {
                 synchronized(this) {
                     clearConnectTimeout()
+                    Log.e(TAG, "OperationFailureException during connect: ${e.message}", e)
+                    Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
+                    Log.e(TAG, "  Status description: ${e.statusDescription}")
+                    Log.e(TAG, "  Results: ${e.results}")
                     emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed while connecting", e.vendorMessage, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
                 }
             } catch (e: Throwable) {
                 synchronized(this) {
                     clearConnectTimeout()
+                    Log.e(TAG, "Unexpected error during connect: ${e.message}", e)
+                    Log.e(TAG, "  Exception type: ${e.javaClass.name}")
+                    e.printStackTrace()
                     emitError(ReaderErrorCode.UNKNOWN, "Unexpected error while connecting", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
                 }
@@ -549,12 +649,13 @@ class RFIDReaderInterface(
             reader!!.connect()
         }
         if (reader!!.isConnected) {
-            Log.d(TAG, "Configuring...")
+            Log.d(TAG, "Configuring reader...")
             val triggerInfo = TriggerInfo()
             triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
             triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
             try {
                 // receive events from reader
+                Log.d(TAG, "Setting up event listeners...")
                 reader!!.Events.addEventsListener(this)
                 // HH event
                 reader!!.Events.setHandheldEvent(true)
@@ -570,34 +671,58 @@ class RFIDReaderInterface(
                 reader!!.Events.setAntennaEvent(true)
                 reader!!.Events.setTemperatureAlarmEvent(true)
                 reader!!.Events.setPowerEvent(true)
+                Log.d(TAG, "Event listeners configured")
 
                 // set start and stop triggers
+                Log.d(TAG, "Setting trigger mode...")
                 reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
+                Log.d(TAG, "Setting start/stop triggers...")
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
                 reader!!.Config.stopTrigger = triggerInfo.StopTrigger
+                Log.d(TAG, "Triggers configured")
 
 
                 // set antenna configurations
+                Log.d(TAG, "Configuring antenna...")
                 val config: Antennas.AntennaRfConfig =
                     reader!!.Config.Antennas.getAntennaRfConfig(1)
 
                 config.setrfModeTableIndex(0)
                 config.setTari(0)
                 reader!!.Config.Antennas.setAntennaRfConfig(1, config)
+                Log.d(TAG, "Antenna RF config set")
 
+                Log.d(TAG, "Configuring singulation control...")
                 val s1_singulationControl: Antennas.SingulationControl =
                     reader!!.Config.Antennas.getSingulationControl(1)
                 s1_singulationControl.setSession(SESSION.SESSION_S0)
                 s1_singulationControl.Action.setInventoryState(INVENTORY_STATE.INVENTORY_STATE_A)
                 s1_singulationControl.Action.setSLFlag(SL_FLAG.SL_ALL)
                 reader!!.Config.Antennas.setSingulationControl(1, s1_singulationControl)
+                Log.d(TAG, "Singulation control configured")
 
-                // delete any prefilters
-                reader!!.Actions.PreFilters.deleteAll()
+                // delete any prefilters (may not be supported on all readers like TC22)
+                try {
+                    Log.d(TAG, "Attempting to delete prefilters...")
+                    reader!!.Actions.PreFilters.deleteAll()
+                    Log.d(TAG, "Prefilters deleted successfully")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not delete prefilters (not supported on this reader): ${e.message}")
+                    // This is non-critical, continue anyway
+                }
 
+            } catch (e: InvalidUsageException) {
+                Log.e(TAG, "InvalidUsageException configuring reader: ${e.message}", e)
+                Log.e(TAG, "  Info: ${e.info}")
+                throw Error("Error configuring reader: ${e.message}")
+            } catch (e: OperationFailureException) {
+                Log.e(TAG, "OperationFailureException configuring reader: ${e.message}", e)
+                Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
+                Log.e(TAG, "  Status description: ${e.statusDescription}")
+                throw Error("Error configuring reader: ${e.vendorMessage ?: e.message}")
             } catch (e: Throwable) {
-                Log.d(TAG, "Error configuring reader: $e")
-                throw Error("Error configuring reader")
+                Log.e(TAG, "Error configuring reader: $e", e)
+                throw Error("Error configuring reader: ${e.message}")
             }
         } else {
             throw Error("Not connected to any Reader")

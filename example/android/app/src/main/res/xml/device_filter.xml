@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Zebra USB Devices -->
+    <!-- Zebra Technologies vendor ID -->
+    <usb-device vendor-id="2655" />
+    
+    <!-- Alternative: Specify specific product IDs if needed
+    <usb-device vendor-id="2655" product-id="XXXX" />
+    -->
+</resources>

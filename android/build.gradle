@@ -21,6 +21,9 @@ android {
         // If consumers need API <28 they must remove FINDIT AAR or use an earlier SDK bundle.
         minSdk = 28
         // (No targetSdk needed for library; rely on consumer constraints)
+        
+        // Consumer ProGuard rules - automatically applied to apps using this plugin
+        consumerProguardFiles 'proguard-rules.pro'
     }
 
     compileOptions {
