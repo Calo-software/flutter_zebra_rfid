@@ -81,6 +81,7 @@ class RFIDReaderInterface(
     private var locateDisableBeep: Boolean = false
     private var locatePendingStart: Boolean = false
     private var locatePurgeCompleteRunnable: Runnable? = null
+    private var locateOriginalBeeperVolume: BEEPER_VOLUME? = null
     // Flag to allow suppressing trigger-driven scanning
     @Volatile private var scanningEnabled: Boolean = true
     private var scanningEnabledLastToggleMs: Long = 0L
@@ -628,12 +629,12 @@ class RFIDReaderInterface(
         // Reject if a locate session is already active
         if (locateSessionActive) {
             Log.w(TAG, "startLocating rejected: locate session already active")
-            throw Error("Locate session already active. Call stopLocating() or resetLocateState() first.")
+            throw IllegalStateException("Locate session already active. Call stopLocating() or resetLocateState() first.")
         }
 
         if (!isReaderConnected()) {
             Log.e(TAG, "startLocating aborted: reader not connected")
-            throw Error("Reader not connected")
+            throw IllegalStateException("Reader not connected")
         }
 
         Log.d(TAG, "startLocating: tags=${tags.size}, disableBeep=$disableBeep")
@@ -647,8 +648,9 @@ class RFIDReaderInterface(
         // Configure beeper if requested
         if (disableBeep) {
             try {
-                val currentVolume = reader!!.Config.beeperVolume
-                Log.d(TAG, "Suppressing beeper (current volume: $currentVolume)")
+                // Store original volume to restore later
+                locateOriginalBeeperVolume = reader!!.Config.beeperVolume
+                Log.d(TAG, "Suppressing beeper (original volume: $locateOriginalBeeperVolume)")
                 reader!!.Config.beeperVolume = BEEPER_VOLUME.QUIET_BEEP
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to suppress beeper: ${e.message}")
@@ -718,6 +720,22 @@ class RFIDReaderInterface(
     }
 
     @Synchronized
+    private fun internalStopLocateOperation() {
+        if (!isLocating) {
+            return
+        }
+        
+        try {
+            reader!!.Actions.MultiTagLocate.stop()
+            isLocating = false
+            Log.d(TAG, "Locate operation stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping locate operation: ${e.message}")
+            throw e
+        }
+    }
+
+    @Synchronized
     fun stopLocating() {
         Log.d(TAG, "stopLocating called")
         
@@ -727,19 +745,18 @@ class RFIDReaderInterface(
         }
 
         try {
-            if (isLocating) {
-                reader!!.Actions.MultiTagLocate.stop()
+            internalStopLocateOperation()
+            
+            // Purge the locate item list
+            if (isReaderConnected()) {
                 reader!!.Actions.MultiTagLocate.purgeItemList()
-                isLocating = false
-                Log.d(TAG, "Locate operation stopped")
             }
             
             // Restore beeper if it was disabled
-            if (locateDisableBeep) {
+            if (locateDisableBeep && locateOriginalBeeperVolume != null) {
                 try {
-                    // Restore to a reasonable default (can be reconfigured by user)
-                    reader!!.Config.beeperVolume = BEEPER_VOLUME.MEDIUM_BEEP
-                    Log.d(TAG, "Beeper restored to MEDIUM")
+                    reader!!.Config.beeperVolume = locateOriginalBeeperVolume!!
+                    Log.d(TAG, "Beeper restored to original volume: $locateOriginalBeeperVolume")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to restore beeper: ${e.message}")
                 }
@@ -776,6 +793,7 @@ class RFIDReaderInterface(
         locatePendingStart = false
         locatePurgeCompleteRunnable?.let { mainHandler.removeCallbacks(it) }
         locatePurgeCompleteRunnable = null
+        locateOriginalBeeperVolume = null
         isLocating = false
         
         Log.d(TAG, "Locate state reset complete")
@@ -1017,8 +1035,7 @@ class RFIDReaderInterface(
                             Log.d(TAG, "Trigger released: Stopping locate operation")
                             // Stop locate but keep session active for next trigger
                             try {
-                                reader!!.Actions.MultiTagLocate.stop()
-                                isLocating = false
+                                internalStopLocateOperation()
                                 Log.d(TAG, "Locate operation stopped (session still active)")
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error stopping locate on trigger release: ${e.message}")
