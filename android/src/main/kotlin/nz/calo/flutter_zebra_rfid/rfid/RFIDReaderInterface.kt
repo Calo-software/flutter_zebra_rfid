@@ -77,9 +77,9 @@ class RFIDReaderInterface(
     private var isLocating: Boolean = false
     // Locate session management
     @Volatile private var locateSessionActive: Boolean = false
-    private var locateTargetTags: List<RfidTag>? = null
-    private var locateDisableBeep: Boolean = false
-    private var locatePendingStart: Boolean = false
+    @Volatile private var locateTargetTags: List<RfidTag>? = null
+    @Volatile private var locateDisableBeep: Boolean = false
+    @Volatile private var locatePendingStart: Boolean = false
     private var locatePurgeCompleteRunnable: Runnable? = null
     private var locateOriginalBeeperVolume: BEEPER_VOLUME? = null
     // Flag to allow suppressing trigger-driven scanning
