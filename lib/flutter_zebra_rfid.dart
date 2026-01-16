@@ -57,7 +57,7 @@ class FlutterZebraRfidApi {
   Future<void> startLocating({required List<RfidTag> tags, bool? disableBeep}) =>
       _api.startLocating(tags: tags, disableBeep: disableBeep);
 
-  /// Start locating.
+  /// Stop locating.
   Future<void> stopLocating() => _api.stopLocating();
 
   /// Reset the locate state (clears session, allows new locate operations).
