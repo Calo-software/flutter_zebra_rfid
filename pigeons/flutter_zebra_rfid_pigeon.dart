@@ -34,12 +34,17 @@ abstract class FlutterZebraRfid {
   void triggerDeviceStatus();
 
   /// Start locating the specified `tags`.
+  /// If `disableBeep` is true, the reader will not beep for tags not in the locate list.
   @async
-  void startLocating({required List<RfidTag> tags});
+  void startLocating({required List<RfidTag> tags, bool? disableBeep});
 
   /// Stop locating tags.
   @async
   void stopLocating();
+
+  /// Reset the locate state (clears session, allows new locate operations).
+  @async
+  void resetLocateState();
 
   /// Reader currently in use
   Reader? currentReader();

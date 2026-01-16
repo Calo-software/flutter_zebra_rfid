@@ -223,9 +223,9 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
-    override fun startLocating(tags: List<RfidTag>, callback: (Result<Unit>) -> Unit) {
+    override fun startLocating(tags: List<RfidTag>, disableBeep: Boolean?, callback: (Result<Unit>) -> Unit) {
         try {
-            rfidInterface!!.startLocating(tags)
+            rfidInterface!!.startLocating(tags, disableBeep ?: false)
             callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
@@ -235,6 +235,15 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     override fun stopLocating(callback: (Result<Unit>) -> Unit) {
         try {
             rfidInterface!!.stopLocating()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun resetLocateState(callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.resetLocateState()
             callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
