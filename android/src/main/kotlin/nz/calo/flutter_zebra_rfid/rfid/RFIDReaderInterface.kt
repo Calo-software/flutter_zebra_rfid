@@ -75,6 +75,13 @@ class RFIDReaderInterface(
     private var readerInfo: ReaderInfo? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var isLocating: Boolean = false
+    // Locate session management
+    @Volatile private var locateSessionActive: Boolean = false
+    @Volatile private var locateTargetTags: List<RfidTag>? = null
+    @Volatile private var locateDisableBeep: Boolean = false
+    @Volatile private var locatePendingStart: Boolean = false
+    private var locatePurgeCompleteRunnable: Runnable? = null
+    private var locateOriginalBeeperVolume: BEEPER_VOLUME? = null
     // Flag to allow suppressing trigger-driven scanning
     @Volatile private var scanningEnabled: Boolean = true
     private var scanningEnabledLastToggleMs: Long = 0L
@@ -617,30 +624,179 @@ class RFIDReaderInterface(
         }
     }
 
-    fun startLocating(tags: List<RfidTag>) {
-        if (isLocating) return
-        Log.d(TAG, "Start locating tags: $tags")
-
-        isLocating = true
-        val multiTagLocateTagMap = ArrayMap<String, String>()
-        multiTagLocateTagMap.clear();
-        tags.forEach {
-            // NOTE: which calibration rssi to use?
-            // As TAGS RSSI value varies from a reference distance based on tag types
-            // and the environment this value helps to calibrate for accurate distance measurements
-            multiTagLocateTagMap[it.id] = "-50"
+    @Synchronized
+    fun startLocating(tags: List<RfidTag>, disableBeep: Boolean) {
+        // Reject if a locate session is already active
+        if (locateSessionActive) {
+            Log.w(TAG, "startLocating rejected: locate session already active")
+            throw IllegalStateException("Locate session already active. Call stopLocating() or resetLocateState() first.")
         }
-        reader!!.Actions.MultiTagLocate.purgeItemList()
-        reader!!.Actions.MultiTagLocate.importItemList(multiTagLocateTagMap)
-        reader!!.Actions.MultiTagLocate.perform()
+
+        if (!isReaderConnected()) {
+            Log.e(TAG, "startLocating aborted: reader not connected")
+            throw IllegalStateException("Reader not connected")
+        }
+
+        Log.d(TAG, "startLocating: tags=${tags.size}, disableBeep=$disableBeep")
+        
+        // Store session parameters
+        locateSessionActive = true
+        locateTargetTags = tags
+        locateDisableBeep = disableBeep
+        locatePendingStart = true
+        
+        // Configure beeper if requested
+        if (disableBeep) {
+            try {
+                // Store original volume to restore later
+                locateOriginalBeeperVolume = reader!!.Config.beeperVolume
+                Log.d(TAG, "Suppressing beeper (original volume: $locateOriginalBeeperVolume)")
+                reader!!.Config.beeperVolume = BEEPER_VOLUME.QUIET_BEEP
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to suppress beeper: ${e.message}")
+            }
+        }
+        
+        // Wait for any pending purge to complete before starting locate
+        waitForPurgeAndStartLocate()
     }
 
-    fun stopLocating() {
-        Log.d(TAG, "Stop locating tags")
+    @Synchronized
+    private fun waitForPurgeAndStartLocate() {
+        // Cancel any existing purge wait
+        locatePurgeCompleteRunnable?.let { mainHandler.removeCallbacks(it) }
+        
+        // Schedule locate start after purge delay
+        val runnable = Runnable {
+            synchronized(this) {
+                if (!locatePendingStart || !locateSessionActive) {
+                    Log.d(TAG, "Locate start cancelled (pending=$locatePendingStart, active=$locateSessionActive)")
+                    return@Runnable
+                }
+                
+                Log.d(TAG, "Purge complete, locating ready for trigger")
+                locatePendingStart = false
+                // Locating will start when trigger is pulled
+                // The actual locate operation is triggered in the HANDHELD_TRIGGER_PRESSED handler
+            }
+        }
+        locatePurgeCompleteRunnable = runnable
+        mainHandler.postDelayed(runnable, PURGE_TAGS_DELAY_MS)
+    }
 
-        reader!!.Actions.MultiTagLocate.stop()
-        reader!!.Actions.MultiTagLocate.purgeItemList()
+    @Synchronized
+    private fun performLocate() {
+        if (!locateSessionActive || locateTargetTags == null) {
+            Log.w(TAG, "performLocate aborted: no active session")
+            return
+        }
+        
+        if (isLocating) {
+            Log.d(TAG, "performLocate: already locating")
+            return
+        }
+
+        Log.d(TAG, "performLocate: Starting locate operation for ${locateTargetTags!!.size} tags")
+        
+        isLocating = true
+        val multiTagLocateTagMap = ArrayMap<String, String>()
+        multiTagLocateTagMap.clear()
+        locateTargetTags!!.forEach {
+            // NOTE: Calibration RSSI helps achieve accurate distance measurements
+            // based on tag types and environment
+            multiTagLocateTagMap[it.id] = "-50"
+        }
+        
+        try {
+            reader!!.Actions.MultiTagLocate.purgeItemList()
+            reader!!.Actions.MultiTagLocate.importItemList(multiTagLocateTagMap)
+            reader!!.Actions.MultiTagLocate.perform()
+            Log.d(TAG, "Locate operation started successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting locate operation: ${e.message}", e)
+            isLocating = false
+            throw e
+        }
+    }
+
+    @Synchronized
+    private fun internalStopLocateOperation() {
+        if (!isLocating) {
+            return
+        }
+        
+        try {
+            reader!!.Actions.MultiTagLocate.stop()
+            isLocating = false
+            Log.d(TAG, "Locate operation stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping locate operation: ${e.message}")
+            throw e
+        }
+    }
+
+    @Synchronized
+    fun stopLocating() {
+        Log.d(TAG, "stopLocating called")
+        
+        if (!isReaderConnected()) {
+            Log.w(TAG, "stopLocating: reader not connected")
+            return
+        }
+
+        try {
+            internalStopLocateOperation()
+            
+            // Purge the locate item list
+            if (isReaderConnected()) {
+                reader!!.Actions.MultiTagLocate.purgeItemList()
+            }
+            
+            // Restore beeper if it was disabled
+            if (locateDisableBeep && locateOriginalBeeperVolume != null) {
+                try {
+                    reader!!.Config.beeperVolume = locateOriginalBeeperVolume!!
+                    Log.d(TAG, "Beeper restored to original volume: $locateOriginalBeeperVolume")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to restore beeper: ${e.message}")
+                }
+            }
+            
+            // Clean up session state (but keep session active for potential resume)
+            locatePendingStart = false
+            locatePurgeCompleteRunnable?.let { mainHandler.removeCallbacks(it) }
+            locatePurgeCompleteRunnable = null
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping locate: ${e.message}", e)
+            throw e
+        }
+    }
+
+    @Synchronized
+    fun resetLocateState() {
+        Log.d(TAG, "resetLocateState called")
+        
+        // Stop any active locating first
+        if (isLocating) {
+            try {
+                stopLocating()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error stopping locate during reset: ${e.message}")
+            }
+        }
+        
+        // Clear all session state
+        locateSessionActive = false
+        locateTargetTags = null
+        locateDisableBeep = false
+        locatePendingStart = false
+        locatePurgeCompleteRunnable?.let { mainHandler.removeCallbacks(it) }
+        locatePurgeCompleteRunnable = null
+        locateOriginalBeeperVolume = null
         isLocating = false
+        
+        Log.d(TAG, "Locate state reset complete")
     }
 
     private fun setupReader() {
@@ -847,22 +1003,44 @@ class RFIDReaderInterface(
                     if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
                         Log.d(TAG, "Handheld trigger pressed")
                         lastTriggerPressTimestamp = System.currentTimeMillis()
-                        safeStartInventory("trigger pressed")
-                        // Read all memory banks
-                        val memoryBanksToRead = arrayOf(
-                            MEMORY_BANK.MEMORY_BANK_EPC,
-                            MEMORY_BANK.MEMORY_BANK_TID,
-                            MEMORY_BANK.MEMORY_BANK_USER
-                        )
-                        for (bank in memoryBanksToRead) {
-                            val ta = TagAccess()
-                            val sequence = ta.Sequence(ta)
-                            Log.d(TAG, "Reading memory bank: $bank")
+                        
+                        // Check if we're in locate mode and ready to start
+                        if (locateSessionActive && !locatePendingStart) {
+                            // Start locate operation on trigger press
+                            Log.d(TAG, "Trigger pressed: Starting locate operation")
+                            performLocate()
+                        } else if (locateSessionActive && locatePendingStart) {
+                            Log.d(TAG, "Trigger pressed: Locate session active but waiting for purge completion")
+                        } else {
+                            // Normal inventory mode
+                            safeStartInventory("trigger pressed")
+                            // Read all memory banks
+                            val memoryBanksToRead = arrayOf(
+                                MEMORY_BANK.MEMORY_BANK_EPC,
+                                MEMORY_BANK.MEMORY_BANK_TID,
+                                MEMORY_BANK.MEMORY_BANK_USER
+                            )
+                            for (bank in memoryBanksToRead) {
+                                val ta = TagAccess()
+                                val sequence = ta.Sequence(ta)
+                                Log.d(TAG, "Reading memory bank: $bank")
+                            }
                         }
                     } else {
                         Log.d(TAG, "Handheld trigger released")
                         val elapsed = System.currentTimeMillis() - lastTriggerPressTimestamp
-                        if (elapsed < INVENTORY_RELEASE_DEBOUNCE_MS) {
+                        
+                        // Check if we're in locate mode
+                        if (locateSessionActive && isLocating) {
+                            Log.d(TAG, "Trigger released: Stopping locate operation")
+                            // Stop locate but keep session active for next trigger
+                            try {
+                                internalStopLocateOperation()
+                                Log.d(TAG, "Locate operation stopped (session still active)")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error stopping locate on trigger release: ${e.message}")
+                            }
+                        } else if (elapsed < INVENTORY_RELEASE_DEBOUNCE_MS) {
                             Log.d(TAG, "Trigger release within ${INVENTORY_RELEASE_DEBOUNCE_MS}ms debounce window ($elapsed ms) -> ignoring stop")
                         } else {
                             safeStopInventory("trigger released")

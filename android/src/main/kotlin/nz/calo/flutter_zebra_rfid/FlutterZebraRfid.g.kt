@@ -458,10 +458,12 @@ interface FlutterZebraRfid {
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
   fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit)
-  /** Start locating the specified `tags`. */
-  fun startLocating(tags: List<RfidTag>, callback: (Result<Unit>) -> Unit)
+  /** Start locating the specified `tags`. If `disableBeep` is true, the reader will not beep for tags not in the locate list. */
+  fun startLocating(tags: List<RfidTag>, disableBeep: Boolean?, callback: (Result<Unit>) -> Unit)
   /** Stop locating tags. */
   fun stopLocating(callback: (Result<Unit>) -> Unit)
+  /** Reset the locate state (clears session, allows new locate operations). */
+  fun resetLocateState(callback: (Result<Unit>) -> Unit)
   /** Reader currently in use */
   fun currentReader(): Reader?
   /** Reader config */
@@ -581,7 +583,8 @@ interface FlutterZebraRfid {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val tagsArg = args[0] as List<RfidTag>
-            api.startLocating(tagsArg) { result: Result<Unit> ->
+            val disableBeepArg = args[1] as Boolean?
+            api.startLocating(tagsArg, disableBeepArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -599,6 +602,23 @@ interface FlutterZebraRfid {
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             api.stopLocating{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.resetLocateState$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.resetLocateState{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
