@@ -18,8 +18,9 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 9. Inventory Watchdog
 10. RF Parameters
 11. Scanning Suppression (Home Screen Quiet Mode)
-12. Migration Guide
-13. Roadmap & Contributing
+12. Tag Locating
+13. Migration Guide
+14. Roadmap & Contributing
 
 ## 1. Features
 - Indexed reader discovery + guarded connection state machine
@@ -28,7 +29,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - Diagnostics snapshot (attempt counts, last error, durations, locating)
 - Auto‑reconnect (bounded exponential backoff) on unexpected disconnect
 - Safe inventory start/stop with trigger debounce & watchdog (max duration + inactivity)
-- Tag locating support
+- Multi-tag locate support with relative distance measurements
 - RF parameter introspection (receiveSensitivityIndex, rfModeTableIndex placeholder)
 
 ## 2. Getting Started
@@ -108,6 +109,7 @@ await api.connect(index: 0); // triggers async connect sequence
 
 // Listen for status / tag events (actual stream names may differ in implementation)
 api.onTags.listen((tags) { /* update UI */ });
+api.onTagsLocated.listen((tags) { /* handle tags with distance info */ });
 api.onErrors.listen((err) { /* switch on err.code */ });
 api.onStatus.listen((s) { /* connection state updates */ });
 
@@ -177,10 +179,61 @@ Behavior:
 
 UI Hint: Show a small badge or icon when scanning is globally disabled to avoid confusion.
 
-## 12. Migration Guide
+## 12. Tag Locating
+The plugin supports Zebra's multi-tag locate feature, which provides relative distance measurements to help you find specific RFID tags. This is useful for scenarios like locating a specific item in a warehouse or retail environment.
+
+### How it Works
+Tag locating uses the RSSI (Received Signal Strength Indicator) and Zebra's MultiTagLocate API to calculate relative distances to specified tags. When locating is active:
+- The reader continuously scans for the specified tags
+- Distance measurements are provided as a percentage (0.0 to 1.0) where lower values indicate closer proximity
+- Tags are reported via the `onTagsLocated` stream with `relativeDistance` values
+
+### Usage Example
+```dart
+final api = FlutterZebraRfid();
+
+// Listen for locate events
+api.onTagsLocated.listen((tags) {
+  for (final tag in tags) {
+    print('Tag: ${tag.id}');
+    print('RSSI: ${tag.rssi}');
+    if (tag.relativeDistance != null) {
+      final percentage = (tag.relativeDistance! * 100).toStringAsFixed(0);
+      print('Distance: $percentage% (closer to 0% = nearer)');
+    }
+  }
+});
+
+// Start locating specific tags
+final tagsToLocate = [
+  RfidTag(id: 'E2801170...',  rssi: 0), // RSSI value is ignored for locate input
+  RfidTag(id: 'E2801171...', rssi: 0),
+];
+
+await api.startLocating(tags: tagsToLocate);
+
+// ... user moves around to find tags ...
+
+// Stop locating when done
+await api.stopLocating();
+```
+
+### Important Notes
+- **Calibration RSSI**: The implementation currently uses a default calibration RSSI of -50 dBm. This value may need adjustment based on your tag types and environment for optimal accuracy.
+- **Active during locate**: While locating, the reader continuously scans for the specified tags. Regular tag reads via `onTagsRead` may still occur depending on reader configuration.
+- **Diagnostics**: The `isLocating` field in the diagnostics snapshot indicates whether a locate session is currently active.
+- **Platform Support**: Currently implemented for Android. iOS support is pending.
+
+### UI Recommendations
+- Display distance as a visual indicator (progress bar, proximity meter, color gradient)
+- Provide audio or haptic feedback as the user gets closer to the target tag
+- Show RSSI values alongside distance for advanced users/debugging
+- Allow users to easily switch between normal inventory and locate modes
+
+## 13. Migration Guide
 See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps (timeouts, watchdog, auto‑reconnect implications).
 
-## 13. Roadmap & Contributing
+## 14. Roadmap & Contributing
 Roadmap: `docs/ROADMAP.md`
 
 Contributions welcome once core parity stabilizes. Please include:
