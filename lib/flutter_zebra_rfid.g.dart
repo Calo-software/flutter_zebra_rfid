@@ -39,6 +39,12 @@ enum ReaderConnectionStatus {
   error,
 }
 
+enum BluetoothScanStatus {
+  scanning,
+  finished,
+  error,
+}
+
 enum ReaderErrorCode {
   unknown,
   noAvailableReaders,
@@ -122,6 +128,37 @@ class Reader {
       name: result[0] as String?,
       id: result[1]! as int,
       info: result[2] as ReaderInfo?,
+    );
+  }
+}
+
+class BluetoothDevice {
+  BluetoothDevice({
+    this.name,
+    required this.address,
+    required this.isPaired,
+  });
+
+  String? name;
+
+  String address;
+
+  bool isPaired;
+
+  Object encode() {
+    return <Object?>[
+      name,
+      address,
+      isPaired,
+    ];
+  }
+
+  static BluetoothDevice decode(Object result) {
+    result as List<Object?>;
+    return BluetoothDevice(
+      name: result[0] as String?,
+      address: result[1]! as String,
+      isPaired: result[2]! as bool,
     );
   }
 }
@@ -228,6 +265,37 @@ class ReaderInfo {
   }
 }
 
+class ReaderRegion {
+  ReaderRegion({
+    required this.code,
+    this.name,
+    this.standardName,
+  });
+
+  String code;
+
+  String? name;
+
+  String? standardName;
+
+  Object encode() {
+    return <Object?>[
+      code,
+      name,
+      standardName,
+    ];
+  }
+
+  static ReaderRegion decode(Object result) {
+    result as List<Object?>;
+    return ReaderRegion(
+      code: result[0]! as String,
+      name: result[1] as String?,
+      standardName: result[2] as String?,
+    );
+  }
+}
+
 class RfidTag {
   RfidTag({
     required this.id,
@@ -301,6 +369,12 @@ class Diagnostics {
     required this.isLocating,
     this.scanningEnabled,
     this.scanningEnabledLastToggleMs,
+    this.inventoryActive,
+    this.lastInventoryStartMs,
+    this.lastInventoryStopMs,
+    this.pendingPurgeActive,
+    this.lastInventoryStopReason,
+    this.lastInventoryStartReason,
   });
 
   ReaderConnectionStatus connectionState;
@@ -321,6 +395,18 @@ class Diagnostics {
 
   int? scanningEnabledLastToggleMs;
 
+  bool? inventoryActive;
+
+  int? lastInventoryStartMs;
+
+  int? lastInventoryStopMs;
+
+  bool? pendingPurgeActive;
+
+  String? lastInventoryStopReason;
+
+  String? lastInventoryStartReason;
+
   Object encode() {
     return <Object?>[
       connectionState,
@@ -332,6 +418,12 @@ class Diagnostics {
       isLocating,
       scanningEnabled,
       scanningEnabledLastToggleMs,
+      inventoryActive,
+      lastInventoryStartMs,
+      lastInventoryStopMs,
+      pendingPurgeActive,
+      lastInventoryStopReason,
+      lastInventoryStartReason,
     ];
   }
 
@@ -347,6 +439,12 @@ class Diagnostics {
       isLocating: result[6]! as bool,
       scanningEnabled: result[7] as bool?,
       scanningEnabledLastToggleMs: result[8] as int?,
+      inventoryActive: result[9] as bool?,
+      lastInventoryStartMs: result[10] as int?,
+      lastInventoryStopMs: result[11] as int?,
+      pendingPurgeActive: result[12] as bool?,
+      lastInventoryStopReason: result[13] as String?,
+      lastInventoryStartReason: result[14] as String?,
     );
   }
 }
@@ -362,35 +460,44 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is ReaderConnectionStatus) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderErrorCode) {
+    } else     if (value is BluetoothScanStatus) {
       buffer.putUint8(131);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderConfigBatchMode) {
+    } else     if (value is ReaderErrorCode) {
       buffer.putUint8(132);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderBeeperVolume) {
+    } else     if (value is ReaderConfigBatchMode) {
       buffer.putUint8(133);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderError) {
+    } else     if (value is ReaderBeeperVolume) {
       buffer.putUint8(134);
-      writeValue(buffer, value.encode());
-    } else     if (value is Reader) {
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderError) {
       buffer.putUint8(135);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderConfig) {
+    } else     if (value is Reader) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderInfo) {
+    } else     if (value is BluetoothDevice) {
       buffer.putUint8(137);
       writeValue(buffer, value.encode());
-    } else     if (value is RfidTag) {
+    } else     if (value is ReaderConfig) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else     if (value is BatteryData) {
+    } else     if (value is ReaderInfo) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else     if (value is Diagnostics) {
+    } else     if (value is ReaderRegion) {
       buffer.putUint8(140);
+      writeValue(buffer, value.encode());
+    } else     if (value is RfidTag) {
+      buffer.putUint8(141);
+      writeValue(buffer, value.encode());
+    } else     if (value is BatteryData) {
+      buffer.putUint8(142);
+      writeValue(buffer, value.encode());
+    } else     if (value is Diagnostics) {
+      buffer.putUint8(143);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -408,26 +515,33 @@ class _PigeonCodec extends StandardMessageCodec {
         return value == null ? null : ReaderConnectionStatus.values[value];
       case 131: 
         final int? value = readValue(buffer) as int?;
-        return value == null ? null : ReaderErrorCode.values[value];
+        return value == null ? null : BluetoothScanStatus.values[value];
       case 132: 
         final int? value = readValue(buffer) as int?;
-        return value == null ? null : ReaderConfigBatchMode.values[value];
+        return value == null ? null : ReaderErrorCode.values[value];
       case 133: 
         final int? value = readValue(buffer) as int?;
-        return value == null ? null : ReaderBeeperVolume.values[value];
+        return value == null ? null : ReaderConfigBatchMode.values[value];
       case 134: 
-        return ReaderError.decode(readValue(buffer)!);
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : ReaderBeeperVolume.values[value];
       case 135: 
-        return Reader.decode(readValue(buffer)!);
+        return ReaderError.decode(readValue(buffer)!);
       case 136: 
-        return ReaderConfig.decode(readValue(buffer)!);
+        return Reader.decode(readValue(buffer)!);
       case 137: 
-        return ReaderInfo.decode(readValue(buffer)!);
+        return BluetoothDevice.decode(readValue(buffer)!);
       case 138: 
-        return RfidTag.decode(readValue(buffer)!);
+        return ReaderConfig.decode(readValue(buffer)!);
       case 139: 
-        return BatteryData.decode(readValue(buffer)!);
+        return ReaderInfo.decode(readValue(buffer)!);
       case 140: 
+        return ReaderRegion.decode(readValue(buffer)!);
+      case 141: 
+        return RfidTag.decode(readValue(buffer)!);
+      case 142: 
+        return BatteryData.decode(readValue(buffer)!);
+      case 143: 
         return Diagnostics.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -458,6 +572,103 @@ class FlutterZebraRfid {
     );
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_channel.send(<Object?>[connectionType]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Starts Bluetooth classic device discovery for pairing.
+  Future<void> startBluetoothScan() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startBluetoothScan$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Stops Bluetooth classic device discovery.
+  Future<void> stopBluetoothScan() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.stopBluetoothScan$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Returns currently bonded Bluetooth devices.
+  Future<List<BluetoothDevice?>> getBondedDevices() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.getBondedDevices$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<BluetoothDevice?>();
+    }
+  }
+
+  /// Starts pairing with the Bluetooth device at `address`.
+  Future<void> pairBluetoothDevice(String address) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.pairBluetoothDevice$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[address]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -563,7 +774,8 @@ class FlutterZebraRfid {
     }
   }
 
-  /// Start locating the specified `tags`. If `disableBeep` is true, the reader will not beep for tags not in the locate list.
+  /// Start locating the specified `tags`.
+  /// If `disableBeep` is true, the reader will not beep for tags not in the locate list.
   Future<void> startLocating({required List<RfidTag?> tags, bool? disableBeep}) async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startLocating$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
@@ -683,6 +895,57 @@ class FlutterZebraRfid {
     }
   }
 
+  /// Supported regulatory regions for the current or last-selected reader.
+  Future<List<ReaderRegion?>> supportedReaderRegions() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.supportedReaderRegions$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<ReaderRegion?>();
+    }
+  }
+
+  /// Applies a regulatory region to the current reader.
+  Future<void> setReaderRegion(String regionCode) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.setReaderRegion$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[regionCode]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
   /// Runtime diagnostics snapshot (counters / last error / state)
   Future<Diagnostics> diagnostics() async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.diagnostics$pigeonVar_messageChannelSuffix';
@@ -748,6 +1011,12 @@ abstract class FlutterZebraRfidCallbacks {
   void onBatteryDataReceived(BatteryData batteryData);
 
   void onTagsLocated(List<RfidTag?> tags);
+
+  void onBluetoothDeviceDiscovered(BluetoothDevice device);
+
+  void onBluetoothScanStatusChanged(BluetoothScanStatus status);
+
+  void onBluetoothPairingResult(BluetoothDevice device, bool success);
 
   void onReaderConnectionError(ReaderError error);
 
@@ -869,6 +1138,84 @@ abstract class FlutterZebraRfidCallbacks {
               'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated was null, expected non-null List<RfidTag?>.');
           try {
             api.onTagsLocated(arg_tags!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothDeviceDiscovered$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothDeviceDiscovered was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final BluetoothDevice? arg_device = (args[0] as BluetoothDevice?);
+          assert(arg_device != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothDeviceDiscovered was null, expected non-null BluetoothDevice.');
+          try {
+            api.onBluetoothDeviceDiscovered(arg_device!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothScanStatusChanged$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothScanStatusChanged was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final BluetoothScanStatus? arg_status = (args[0] as BluetoothScanStatus?);
+          assert(arg_status != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothScanStatusChanged was null, expected non-null BluetoothScanStatus.');
+          try {
+            api.onBluetoothScanStatusChanged(arg_status!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothPairingResult$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothPairingResult was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final BluetoothDevice? arg_device = (args[0] as BluetoothDevice?);
+          assert(arg_device != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothPairingResult was null, expected non-null BluetoothDevice.');
+          final bool? arg_success = (args[1] as bool?);
+          assert(arg_success != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothPairingResult was null, expected non-null bool.');
+          try {
+            api.onBluetoothPairingResult(arg_device!, arg_success!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

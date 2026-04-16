@@ -72,6 +72,18 @@ enum class ReaderConnectionStatus(val raw: Int) {
   }
 }
 
+enum class BluetoothScanStatus(val raw: Int) {
+  SCANNING(0),
+  FINISHED(1),
+  ERROR(2);
+
+  companion object {
+    fun ofRaw(raw: Int): BluetoothScanStatus? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 enum class ReaderErrorCode(val raw: Int) {
   UNKNOWN(0),
   NO_AVAILABLE_READERS(1),
@@ -164,6 +176,30 @@ data class Reader (
 }
 
 /** Generated class from Pigeon that represents data sent in messages. */
+data class BluetoothDevice (
+  val name: String? = null,
+  val address: String,
+  val isPaired: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BluetoothDevice {
+      val name = pigeonVar_list[0] as String?
+      val address = pigeonVar_list[1] as String
+      val isPaired = pigeonVar_list[2] as Boolean
+      return BluetoothDevice(name, address, isPaired)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      name,
+      address,
+      isPaired,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
 data class ReaderConfig (
   val transmitPowerIndex: Long? = null,
   val tari: Long? = null,
@@ -236,6 +272,30 @@ data class ReaderInfo (
 }
 
 /** Generated class from Pigeon that represents data sent in messages. */
+data class ReaderRegion (
+  val code: String,
+  val name: String? = null,
+  val standardName: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ReaderRegion {
+      val code = pigeonVar_list[0] as String
+      val name = pigeonVar_list[1] as String?
+      val standardName = pigeonVar_list[2] as String?
+      return ReaderRegion(code, name, standardName)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      code,
+      name,
+      standardName,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
 data class RfidTag (
   val id: String,
   val rssi: Long,
@@ -293,7 +353,13 @@ data class Diagnostics (
   val lastConnectDurationMs: Long? = null,
   val isLocating: Boolean,
   val scanningEnabled: Boolean? = null,
-  val scanningEnabledLastToggleMs: Long? = null
+  val scanningEnabledLastToggleMs: Long? = null,
+  val inventoryActive: Boolean? = null,
+  val lastInventoryStartMs: Long? = null,
+  val lastInventoryStopMs: Long? = null,
+  val pendingPurgeActive: Boolean? = null,
+  val lastInventoryStopReason: String? = null,
+  val lastInventoryStartReason: String? = null
 )
  {
   companion object {
@@ -307,7 +373,13 @@ data class Diagnostics (
       val isLocating = pigeonVar_list[6] as Boolean
       val scanningEnabled = pigeonVar_list[7] as Boolean?
       val scanningEnabledLastToggleMs = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
-      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs)
+      val inventoryActive = pigeonVar_list[9] as Boolean?
+      val lastInventoryStartMs = pigeonVar_list[10].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val lastInventoryStopMs = pigeonVar_list[11].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val pendingPurgeActive = pigeonVar_list[12] as Boolean?
+      val lastInventoryStopReason = pigeonVar_list[13] as String?
+      val lastInventoryStartReason = pigeonVar_list[14] as String?
+      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs, inventoryActive, lastInventoryStartMs, lastInventoryStopMs, pendingPurgeActive, lastInventoryStopReason, lastInventoryStartReason)
     }
   }
   fun toList(): List<Any?> {
@@ -321,6 +393,12 @@ data class Diagnostics (
       isLocating,
       scanningEnabled,
       scanningEnabledLastToggleMs,
+      inventoryActive,
+      lastInventoryStartMs,
+      lastInventoryStopMs,
+      pendingPurgeActive,
+      lastInventoryStopReason,
+      lastInventoryStartReason,
     )
   }
 }
@@ -339,50 +417,65 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
       }
       131.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
-          ReaderErrorCode.ofRaw(it)
+          BluetoothScanStatus.ofRaw(it)
         }
       }
       132.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
-          ReaderConfigBatchMode.ofRaw(it)
+          ReaderErrorCode.ofRaw(it)
         }
       }
       133.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
-          ReaderBeeperVolume.ofRaw(it)
+          ReaderConfigBatchMode.ofRaw(it)
         }
       }
       134.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderError.fromList(it)
+        return (readValue(buffer) as Int?)?.let {
+          ReaderBeeperVolume.ofRaw(it)
         }
       }
       135.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Reader.fromList(it)
+          ReaderError.fromList(it)
         }
       }
       136.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderConfig.fromList(it)
+          Reader.fromList(it)
         }
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderInfo.fromList(it)
+          BluetoothDevice.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidTag.fromList(it)
+          ReaderConfig.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BatteryData.fromList(it)
+          ReaderInfo.fromList(it)
         }
       }
       140.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ReaderRegion.fromList(it)
+        }
+      }
+      141.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RfidTag.fromList(it)
+        }
+      }
+      142.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BatteryData.fromList(it)
+        }
+      }
+      143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           Diagnostics.fromList(it)
         }
@@ -400,44 +493,56 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(130)
         writeValue(stream, value.raw)
       }
-      is ReaderErrorCode -> {
+      is BluetoothScanStatus -> {
         stream.write(131)
         writeValue(stream, value.raw)
       }
-      is ReaderConfigBatchMode -> {
+      is ReaderErrorCode -> {
         stream.write(132)
         writeValue(stream, value.raw)
       }
-      is ReaderBeeperVolume -> {
+      is ReaderConfigBatchMode -> {
         stream.write(133)
         writeValue(stream, value.raw)
       }
-      is ReaderError -> {
+      is ReaderBeeperVolume -> {
         stream.write(134)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw)
       }
-      is Reader -> {
+      is ReaderError -> {
         stream.write(135)
         writeValue(stream, value.toList())
       }
-      is ReaderConfig -> {
+      is Reader -> {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is ReaderInfo -> {
+      is BluetoothDevice -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is RfidTag -> {
+      is ReaderConfig -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is BatteryData -> {
+      is ReaderInfo -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is Diagnostics -> {
+      is ReaderRegion -> {
         stream.write(140)
+        writeValue(stream, value.toList())
+      }
+      is RfidTag -> {
+        stream.write(141)
+        writeValue(stream, value.toList())
+      }
+      is BatteryData -> {
+        stream.write(142)
+        writeValue(stream, value.toList())
+      }
+      is Diagnostics -> {
+        stream.write(143)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -450,6 +555,14 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
 interface FlutterZebraRfid {
   /** Returns list with names of available readers for specified `connectionType`. */
   fun updateAvailableReaders(connectionType: ReaderConnectionType, callback: (Result<Unit>) -> Unit)
+  /** Starts Bluetooth classic device discovery for pairing. */
+  fun startBluetoothScan(callback: (Result<Unit>) -> Unit)
+  /** Stops Bluetooth classic device discovery. */
+  fun stopBluetoothScan(callback: (Result<Unit>) -> Unit)
+  /** Returns currently bonded Bluetooth devices. */
+  fun getBondedDevices(callback: (Result<List<BluetoothDevice>>) -> Unit)
+  /** Starts pairing with the Bluetooth device at `address`. */
+  fun pairBluetoothDevice(address: String, callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerId` ID. */
   fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
   /** Configures reader with `config`. */
@@ -458,7 +571,10 @@ interface FlutterZebraRfid {
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
   fun triggerDeviceStatus(callback: (Result<Unit>) -> Unit)
-  /** Start locating the specified `tags`. If `disableBeep` is true, the reader will not beep for tags not in the locate list. */
+  /**
+   * Start locating the specified `tags`.
+   * If `disableBeep` is true, the reader will not beep for tags not in the locate list.
+   */
   fun startLocating(tags: List<RfidTag>, disableBeep: Boolean?, callback: (Result<Unit>) -> Unit)
   /** Stop locating tags. */
   fun stopLocating(callback: (Result<Unit>) -> Unit)
@@ -468,6 +584,10 @@ interface FlutterZebraRfid {
   fun currentReader(): Reader?
   /** Reader config */
   fun readerConfig(callback: (Result<ReaderConfig>) -> Unit)
+  /** Supported regulatory regions for the current or last-selected reader. */
+  fun supportedReaderRegions(callback: (Result<List<ReaderRegion>>) -> Unit)
+  /** Applies a regulatory region to the current reader. */
+  fun setReaderRegion(regionCode: String, callback: (Result<Unit>) -> Unit)
   /** Runtime diagnostics snapshot (counters / last error / state) */
   fun diagnostics(callback: (Result<Diagnostics>) -> Unit)
   /**
@@ -492,6 +612,77 @@ interface FlutterZebraRfid {
             val args = message as List<Any?>
             val connectionTypeArg = args[0] as ReaderConnectionType
             api.updateAvailableReaders(connectionTypeArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.startBluetoothScan$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.startBluetoothScan{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.stopBluetoothScan$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.stopBluetoothScan{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.getBondedDevices$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.getBondedDevices{ result: Result<List<BluetoothDevice>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.pairBluetoothDevice$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val addressArg = args[0] as String
+            api.pairBluetoothDevice(addressArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -665,6 +856,43 @@ interface FlutterZebraRfid {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.supportedReaderRegions$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.supportedReaderRegions{ result: Result<List<ReaderRegion>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.setReaderRegion$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val regionCodeArg = args[0] as String
+            api.setReaderRegion(regionCodeArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.diagnostics$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
@@ -786,6 +1014,57 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
     val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onTagsLocated$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(tagsArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onBluetoothDeviceDiscovered(deviceArg: BluetoothDevice, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothDeviceDiscovered$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(deviceArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onBluetoothScanStatusChanged(statusArg: BluetoothScanStatus, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothScanStatusChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(statusArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onBluetoothPairingResult(deviceArg: BluetoothDevice, successArg: Boolean, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfidCallbacks.onBluetoothPairingResult$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(deviceArg, successArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterRfidError(it[0] as String, it[1] as String, it[2] as String?)))

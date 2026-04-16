@@ -4,7 +4,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 
 > **Note:** Large portions of this repository (code, Gradle wiring, and documentation) were generated or refactored with help from large language models and then reviewed in this project.
 
-> Status: Android reliability features complete (timeout, retry, auto‑reconnect, diagnostics, watchdog). iOS parity for these features is upcoming.
+> Status: Android reliability features are in place, and the current release also adds Bluetooth pairing helpers, reader region configuration, and a refreshed Zebra SDK bundle. iOS still supports core reader flows, but Bluetooth pairing and reader-region APIs currently return `unsupported`.
 
 ## Contents
 1. Features
@@ -19,8 +19,10 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 10. RF Parameters
 11. Scanning Suppression (Home Screen Quiet Mode)
 12. Tag Locating
-13. Migration Guide
-14. Roadmap & Contributing
+13. Bluetooth Pairing (Android)
+14. Reader Region Configuration (Android)
+15. Migration Guide
+16. Roadmap & Contributing
 
 ## 1. Features
 - Indexed reader discovery + guarded connection state machine
@@ -31,12 +33,15 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - Safe inventory start/stop with trigger debounce & watchdog (max duration + inactivity)
 - Multi-tag locate support with relative distance measurements
 - RF parameter introspection (receiveSensitivityIndex, rfModeTableIndex placeholder)
+- Bluetooth discovery and pairing helpers for Zebra readers on Android
+- Reader regulatory region discovery and apply APIs on Android
+- Zebra Android SDK bundle refreshed to API3 `2.0.5.238`
 
 ## 2. Getting Started
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-    flutter_zebra_rfid: ^0.2.0
+  flutter_zebra_rfid: ^0.3.2
 ```
 Then run `flutter pub get`.
 
@@ -83,6 +88,7 @@ Without RFID enabled in device settings, you'll only see external Bluetooth read
 
 ### Bundled Zebra SDK AARs
 - All Zebra `.aar` binaries live in `android/RFIDAPI3Library` and are published to a local Maven repository (`android/localMaven`) during the first Android build.
+- The current Android bundle is based on Zebra API3 `2.0.5.238`.
 - No manual action is required when consuming the plugin via pub or as a path dependency; Gradle prints `[zebra] Published ...` logs on the first run.
 - If the artifacts are ever deleted, rerun:
     ```bash
@@ -91,27 +97,31 @@ Without RFID enabled in device settings, you'll only see external Bluetooth read
     ```
     (This task is also invoked automatically by `flutter build/run` when needed.)
 - USB-only deployments: as of the next release, BLE permissions are requested only when Bluetooth discovery is required. If users deny BLE prompts, USB reader discovery still succeeds.
+- The Android test configuration now includes Robolectric and Mockito-based unit test support for plugin-side behavior.
 
 ## 4. iOS Setup Notes
 - Enable Background Modes: External accessory communication, Uses BLE accessories
 - Add supported external accessory protocols for your Zebra device (see Zebra docs)
-- Parity features (timeout, auto‑reconnect, diagnostics watchdog) pending—check CHANGELOG.
+- Core RFID flows are supported on iOS.
+- Bluetooth pairing/discovery helper APIs currently return `unsupported` on iOS.
+- Reader region configuration currently returns `unsupported` on iOS.
 
 ## 5. Basic Usage
 Pseudo-flow in your app:
 ```dart
 final api = FlutterZebraRfid();
-final readers = await api.getAvailableReaders();
+await api.updateAvailableReaders(connectionType: ReaderConnectionType.all);
+final readers = await api.onAvailableReadersChanged.first;
 if (readers.isEmpty) {
     // handle no readers
 }
-await api.connect(index: 0); // triggers async connect sequence
+await api.connectReader(readerId: readers.first.id);
 
-// Listen for status / tag events (actual stream names may differ in implementation)
-api.onTags.listen((tags) { /* update UI */ });
+// Listen for status / tag events
+api.onTagsRead.listen((tags) { /* update UI */ });
 api.onTagsLocated.listen((tags) { /* handle tags with distance info */ });
-api.onErrors.listen((err) { /* switch on err.code */ });
-api.onStatus.listen((s) { /* connection state updates */ });
+api.onReaderConnectionError.listen((err) { /* switch on err.code */ });
+api.onReaderConnectionStatusChanged.listen((s) { /* connection state updates */ });
 
 // Start inventory
 await api.startInventory();
@@ -230,10 +240,72 @@ await api.stopLocating();
 - Show RSSI values alongside distance for advanced users/debugging
 - Allow users to easily switch between normal inventory and locate modes
 
-## 13. Migration Guide
+## 13. Bluetooth Pairing (Android)
+The plugin now exposes Android-side Bluetooth discovery and pairing helpers for Zebra readers.
+
+Available APIs:
+- `startBluetoothScan()` starts classic discovery and BLE scanning together.
+- `stopBluetoothScan()` stops any active scan.
+- `getBondedDevices()` returns already-paired devices.
+- `pairBluetoothDevice(address: ...)` initiates pairing for a specific device.
+
+Available streams:
+- `onBluetoothDeviceDiscovered`
+- `onBluetoothScanStatusChanged`
+- `onBluetoothPairingResult`
+
+Example:
+```dart
+final api = FlutterZebraRfidApi();
+
+api.onBluetoothDeviceDiscovered.listen((device) {
+  print('Found ${device.name ?? 'Unknown'} @ ${device.address}');
+});
+
+api.onBluetoothPairingResult.listen((result) {
+  print('Pairing ${result.success ? 'succeeded' : 'failed'} for ${result.device.address}');
+});
+
+await api.startBluetoothScan();
+final bondedDevices = await api.getBondedDevices();
+if (bondedDevices.isNotEmpty) {
+  await api.pairBluetoothDevice(address: bondedDevices.first.address);
+}
+```
+
+Notes:
+- Android requests Bluetooth permissions only when Bluetooth discovery or pairing is actually used.
+- USB reader discovery does not depend on these BLE prompts.
+- On iOS, these helper APIs currently return `unsupported`.
+
+## 14. Reader Region Configuration (Android)
+Some Zebra readers refuse RFID operations until a regulatory region is configured. The plugin now exposes helpers to inspect and apply supported regions on Android.
+
+Available APIs:
+- `supportedReaderRegions()` returns the supported region list for the current or last-selected reader.
+- `setReaderRegion(regionCode: ...)` applies a selected region.
+
+The Android implementation also attempts a limited recovery path when the Zebra SDK reports `RFID_READER_REGION_NOT_CONFIGURED`, which helps surface supported regions instead of failing silently.
+
+Example:
+```dart
+final api = FlutterZebraRfidApi();
+
+final regions = await api.supportedReaderRegions();
+if (regions.isNotEmpty) {
+  await api.setReaderRegion(regionCode: regions.first.code);
+}
+```
+
+Notes:
+- Region configuration is Android-only in this release.
+- The example app includes a `Set Region` action for this workflow.
+- iOS currently returns `unsupported` for these calls.
+
+## 15. Migration Guide
 See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps (timeouts, watchdog, auto‑reconnect implications).
 
-## 14. Roadmap & Contributing
+## 16. Roadmap & Contributing
 Roadmap: `docs/ROADMAP.md`
 
 Contributions welcome once core parity stabilizes. Please include:

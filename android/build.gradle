@@ -17,7 +17,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        // Zebra API3 (FINDIT / 2.0.5.214) AAR declares minSdkVersion 28; raising from 26 to satisfy manifest merger.
+        // Zebra API3 FINDIT AAR declares minSdkVersion 28; raising from 26 to satisfy manifest merger.
         // If consumers need API <28 they must remove FINDIT AAR or use an earlier SDK bundle.
         minSdk = 28
         // (No targetSdk needed for library; rely on consumer constraints)
@@ -135,7 +135,12 @@ tasks.register('publishZebraAarsToLocalMaven') {
 dependencies {
     zebraCoordinateList.each { coord -> implementation(coord) }
 
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:2.1.0")
     testImplementation("org.mockito:mockito-core:5.11.0")
+    testImplementation("org.mockito:mockito-inline:5.2.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine:5.11.4")
 }
 // End Dependency Region (flatDir fallback)

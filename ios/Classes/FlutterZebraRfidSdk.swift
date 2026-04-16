@@ -60,6 +60,11 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     }
     func srfidEventTriggerNotify(_ readerID: Int32, aTriggerEvent triggerEvent: SRFID_TRIGGEREVENT) {
         _logger.debug("Trigger event (reader \(readerID)): \(triggerEvent.rawValue)")
+
+        if !_scanningEnabled {
+            _logger.debug("Trigger event ignored because scanning is disabled")
+            return
+        }
         
         switch (triggerEvent) {
         case SRFID_TRIGGEREVENT_PRESSED:
@@ -100,6 +105,34 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     func updateAvailableReaders(connectionType: ReaderConnectionType, completion: @escaping (Result<Void, Error>) -> Void) {
         updateReaders()
         completion(.success(()))
+    }
+
+    func startBluetoothScan(completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Bluetooth pairing scan is not supported on iOS in this plugin",
+            details: nil
+        )))
+    }
+
+    func stopBluetoothScan(completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Bluetooth pairing scan is not supported on iOS in this plugin",
+            details: nil
+        )))
+    }
+
+    func getBondedDevices(completion: @escaping (Result<[BluetoothDevice], Error>) -> Void) {
+        completion(.success([]))
+    }
+
+    func pairBluetoothDevice(address: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Bluetooth pairing is not supported on iOS in this plugin",
+            details: address
+        )))
     }
 
     /// Connects to a reader with `readerName` name.
@@ -404,6 +437,75 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         return nil
     }
 
+    func startLocating(tags: [RfidTag], disableBeep: Bool?, completion: @escaping (Result<Void, Error>) -> Void) {
+        _isLocating = true
+        completion(.success(()))
+    }
+
+    func stopLocating(completion: @escaping (Result<Void, Error>) -> Void) {
+        _isLocating = false
+        completion(.success(()))
+    }
+
+    func resetLocateState(completion: @escaping (Result<Void, Error>) -> Void) {
+        _isLocating = false
+        completion(.success(()))
+    }
+
+    func readerConfig(completion: @escaping (Result<ReaderConfig, Error>) -> Void) {
+        completion(.success(ReaderConfig()))
+    }
+
+    func supportedReaderRegions(completion: @escaping (Result<[ReaderRegion], Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Reader region configuration is not supported on iOS in this plugin",
+            details: nil
+        )))
+    }
+
+    func setReaderRegion(regionCode: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Reader region configuration is not supported on iOS in this plugin",
+            details: regionCode
+        )))
+    }
+
+    func diagnostics(completion: @escaping (Result<Diagnostics, Error>) -> Void) {
+        let connectionState: ReaderConnectionStatus = _srfidCurrentReader == nil ? .disconnected : .connected
+        completion(.success(Diagnostics(
+            connectionState: connectionState,
+            connectAttempts: 0,
+            lastErrorCode: nil,
+            lastErrorMessage: nil,
+            lastConnectStartMs: nil,
+            lastConnectDurationMs: nil,
+            isLocating: _isLocating,
+            scanningEnabled: _scanningEnabled,
+            scanningEnabledLastToggleMs: _scanningEnabledLastToggleMs,
+            inventoryActive: nil,
+            lastInventoryStartMs: nil,
+            lastInventoryStopMs: nil,
+            pendingPurgeActive: nil,
+            lastInventoryStopReason: nil,
+            lastInventoryStartReason: nil
+        )))
+    }
+
+    func setScanningEnabled(enabled: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+        _scanningEnabled = enabled
+        _scanningEnabledLastToggleMs = Int64(Date().timeIntervalSince1970 * 1000)
+        if !enabled {
+            do {
+                try stopInventory()
+            } catch {
+                _logger.debug("Stop inventory while disabling scanning failed: \(error)")
+            }
+        }
+        completion(.success(()))
+    }
+
     // MARK:
     // Private
     private let _logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "generic")
@@ -415,6 +517,9 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     
     private var _availableReaders: Array<Reader> = []
     private var _currentReader: Reader? = nil
+    private var _isLocating: Bool = false
+    private var _scanningEnabled: Bool = true
+    private var _scanningEnabledLastToggleMs: Int64? = nil
     
     private func emitAvailableReaders() {
         _availableReaders = _srfidAvailableReaders.map {

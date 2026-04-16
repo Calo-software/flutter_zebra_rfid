@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 import 'package:flutter_zebra_rfid/shared_types.dart';
@@ -11,6 +13,9 @@ class RfidPage extends StatefulWidget {
 
 class _RfidPageState extends State<RfidPage> {
   final _flutterZebraRfidApi = FlutterZebraRfidApi();
+  static const _logTag = 'RfidPage';
+  static const _bluetoothScanDurationSeconds = 15;
+  static const _bluetoothStopUnlockSeconds = 5;
 
   // Reader
   List<Reader> _availableReaders = [];
@@ -22,11 +27,44 @@ class _RfidPageState extends State<RfidPage> {
   int _batteryUpdateCount = 0;
   ReaderError? _lastError;
   Diagnostics? _diagnostics;
+  final TextEditingController _bluetoothSearchController =
+      TextEditingController();
   bool _scanningEnabled = true;
   bool _diagnosticsDialogOpen = false;
+  final Map<String, BluetoothDevice> _bluetoothDevicesByAddress = {};
+  BluetoothScanStatus? _bluetoothScanStatus;
+  String? _pairingDeviceAddress;
+  StateSetter? _bluetoothDialogSetState;
+  Timer? _bluetoothScanTimer;
+  int _bluetoothScanSecondsRemaining = 0;
+  bool _bluetoothStopRequested = false;
+  String _bluetoothSearchQuery = '';
+  bool _bluetoothLikelyZebraOnly = true;
+  bool _bluetoothOnlyUnpaired = false;
 
   ReaderConnectionType _connectionType = ReaderConnectionType.all;
   bool _isLoading = false;
+
+  bool get _canConfigureRegion =>
+      _isRegionConfigurationError(_lastError) || _currentReader != null;
+
+  bool get _isBluetoothScanRunning =>
+      _bluetoothScanStatus == BluetoothScanStatus.scanning &&
+      _bluetoothScanSecondsRemaining > 0;
+
+  bool get _canStopBluetoothScan =>
+      _isBluetoothScanRunning &&
+      _bluetoothScanSecondsRemaining <=
+          _bluetoothScanDurationSeconds - _bluetoothStopUnlockSeconds;
+
+  double get _bluetoothScanProgress {
+    if (_bluetoothScanSecondsRemaining <= 0) {
+      return 0;
+    }
+    final elapsed =
+        _bluetoothScanDurationSeconds - _bluetoothScanSecondsRemaining;
+    return elapsed / _bluetoothScanDurationSeconds;
+  }
 
   @override
   void initState() {
@@ -86,14 +124,694 @@ class _RfidPageState extends State<RfidPage> {
       });
     });
 
+    _flutterZebraRfidApi.onBluetoothDeviceDiscovered.listen((device) {
+      debugPrint(
+        'D/$_logTag: onBluetoothDeviceDiscovered name=${device.name ?? '<unnamed>'} address=${device.address} paired=${device.isPaired}',
+      );
+      _upsertBluetoothDevice(device);
+    });
+
+    _flutterZebraRfidApi.onBluetoothScanStatusChanged.listen((status) {
+      debugPrint(
+          'D/$_logTag: onBluetoothScanStatusChanged status=${status.name}');
+      if (!mounted) return;
+      setState(() {
+        _bluetoothScanStatus = status;
+        if (status != BluetoothScanStatus.scanning) {
+          _cancelBluetoothScanTimer();
+          _bluetoothScanSecondsRemaining = 0;
+        }
+      });
+      if (status == BluetoothScanStatus.finished) {
+        final completionType = _bluetoothStopRequested ? 'manual' : 'natural';
+        debugPrint(
+          'D/$_logTag: Bluetooth scan finished via $completionType completion',
+        );
+        _bluetoothStopRequested = false;
+      }
+      if (status == BluetoothScanStatus.error) {
+        debugPrint('E/$_logTag: Bluetooth scan ended with error status');
+        _bluetoothStopRequested = false;
+      }
+      _notifyBluetoothDialog();
+    });
+
+    _flutterZebraRfidApi.onBluetoothPairingResult.listen((result) async {
+      debugPrint(
+        'D/$_logTag: onBluetoothPairingResult success=${result.success} name=${result.device.name ?? '<unnamed>'} address=${result.device.address}',
+      );
+      _upsertBluetoothDevice(result.device);
+      if (!mounted) return;
+      setState(() {
+        _pairingDeviceAddress = null;
+      });
+      if (result.success) {
+        await _loadBondedBluetoothDevices();
+      }
+      _showMessage(
+        result.success
+            ? 'Paired ${result.device.name ?? result.device.address}. Refresh reader list to connect.'
+            : 'Pairing failed for ${result.device.name ?? result.device.address}.',
+      );
+      _notifyBluetoothDialog();
+    });
+
     _flutterZebraRfidApi.onReaderConnectionError.listen((error) async {
+      final reader = await _flutterZebraRfidApi.currentReader;
       final d = await _flutterZebraRfidApi.diagnostics();
       setState(() {
         _lastError = error;
         _diagnostics = d;
+        _currentReader = reader;
         if (d.scanningEnabled != null) _scanningEnabled = d.scanningEnabled!;
       });
+      if (_isRegionConfigurationError(error)) {
+        _showMessage(
+            'Reader region is not configured. Use Set Region to continue.');
+      } else {
+        _showMessage(error.message);
+      }
       _showDiagnosticsDialog();
+    });
+  }
+
+  @override
+  void dispose() {
+    _cancelBluetoothScanTimer();
+    _bluetoothSearchController.dispose();
+    super.dispose();
+  }
+
+  List<BluetoothDevice> get _bluetoothDevices {
+    final devices = _bluetoothDevicesByAddress.values.toList();
+    devices.sort((left, right) {
+      final leftZebra = _isLikelyZebraDevice(left);
+      final rightZebra = _isLikelyZebraDevice(right);
+      if (leftZebra != rightZebra) {
+        return leftZebra ? -1 : 1;
+      }
+      if (left.isPaired != right.isPaired) {
+        return left.isPaired ? -1 : 1;
+      }
+      return (left.name ?? left.address)
+          .toLowerCase()
+          .compareTo((right.name ?? right.address).toLowerCase());
+    });
+    return devices;
+  }
+
+  List<BluetoothDevice> get _filteredBluetoothDevices {
+    final query = _bluetoothSearchQuery.trim().toLowerCase();
+    return _bluetoothDevices.where((device) {
+      if (_bluetoothLikelyZebraOnly && !_isLikelyZebraDevice(device)) {
+        return false;
+      }
+      if (_bluetoothOnlyUnpaired && device.isPaired) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      final name = device.name?.toLowerCase() ?? '';
+      final address = device.address.toLowerCase();
+      return name.contains(query) || address.contains(query);
+    }).toList();
+  }
+
+  bool _isLikelyZebraDevice(BluetoothDevice device) {
+    final name = device.name?.toUpperCase() ?? '';
+    return name.startsWith('RFD') ||
+        name.startsWith('MC') ||
+        name.startsWith('TC');
+  }
+
+  void _notifyBluetoothDialog() {
+    _bluetoothDialogSetState?.call(() {});
+  }
+
+  void _resetBluetoothFilters() {
+    _bluetoothSearchQuery = '';
+    _bluetoothSearchController.text = '';
+    _bluetoothLikelyZebraOnly = true;
+    _bluetoothOnlyUnpaired = false;
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  bool _isRegionConfigurationError(ReaderError? error) {
+    if (error == null) return false;
+    final haystack = '${error.message} ${error.details ?? ''}'.toLowerCase();
+    return haystack.contains('region') &&
+        haystack.contains('supported regions');
+  }
+
+  String _readerRegionLabel(ReaderRegion region) {
+    final standardName = region.standardName?.trim();
+    if (standardName == null || standardName.isEmpty) {
+      return region.code;
+    }
+    return '${region.code} ($standardName)';
+  }
+
+  Future<void> _openReaderRegionDialog() async {
+    List<ReaderRegion> regions;
+    try {
+      regions = await _flutterZebraRfidApi.supportedReaderRegions();
+    } catch (error) {
+      _showMessage('Unable to load reader regions: $error');
+      return;
+    }
+
+    if (!mounted) return;
+    if (regions.isEmpty) {
+      _showMessage(
+          'No supported regions were reported for the selected reader.');
+      return;
+    }
+
+    String selectedRegionCode = regions.first.code;
+    bool isApplying = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, dialogSetState) {
+            return AlertDialog(
+              title: const Text('Set Reader Region'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Select the regulatory region to apply to the currently selected reader.',
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedRegionCode,
+                    isExpanded: true,
+                    items: regions
+                        .map(
+                          (region) => DropdownMenuItem<String>(
+                            value: region.code,
+                            child: Text(_readerRegionLabel(region)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: isApplying
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            dialogSetState(() {
+                              selectedRegionCode = value;
+                            });
+                          },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      isApplying ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isApplying
+                      ? null
+                      : () async {
+                          final navigator = Navigator.of(context);
+                          dialogSetState(() {
+                            isApplying = true;
+                          });
+                          try {
+                            await _flutterZebraRfidApi.setReaderRegion(
+                              regionCode: selectedRegionCode,
+                            );
+                            if (!mounted) return;
+                            navigator.pop();
+                            _showMessage(
+                              'Applied reader region $selectedRegionCode.',
+                            );
+                          } catch (error) {
+                            dialogSetState(() {
+                              isApplying = false;
+                            });
+                            _showMessage(
+                                'Failed to apply reader region: $error');
+                          }
+                        },
+                  child: Text(isApplying ? 'Applying...' : 'Apply Region'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showBluetoothSettingsHelperDialog() async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Pair In Settings'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'If the reader does not appear here, pair it through Android Bluetooth settings first, then return and refresh bonded devices.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                  '1. Wake the Zebra reader and make sure Bluetooth pairing mode is enabled.'),
+              SizedBox(height: 8),
+              Text(
+                  '2. Open Android Settings > Connected devices > Pair new device.'),
+              SizedBox(height: 8),
+              Text('3. Pair the reader there.'),
+              SizedBox(height: 8),
+              Text(
+                  '4. Return here and tap Refresh Bonded, then refresh the Zebra reader list.'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _upsertBluetoothDevice(BluetoothDevice device) {
+    debugPrint(
+      'D/$_logTag: _upsertBluetoothDevice name=${device.name ?? '<unnamed>'} address=${device.address} paired=${device.isPaired}',
+    );
+    if (!mounted) return;
+    setState(() {
+      _bluetoothDevicesByAddress[device.address] = device;
+      debugPrint(
+          'D/$_logTag: device map size=${_bluetoothDevicesByAddress.length}');
+    });
+    _notifyBluetoothDialog();
+  }
+
+  Future<void> _loadBondedBluetoothDevices() async {
+    debugPrint('D/$_logTag: _loadBondedBluetoothDevices start');
+    final devices = await _flutterZebraRfidApi.getBondedDevices();
+    debugPrint(
+        'D/$_logTag: _loadBondedBluetoothDevices got ${devices.length} device(s)');
+    if (!mounted) return;
+    setState(() {
+      for (final device in devices) {
+        _bluetoothDevicesByAddress[device.address] = device;
+      }
+      debugPrint(
+          'D/$_logTag: device map size after bonded load=${_bluetoothDevicesByAddress.length}');
+    });
+    _notifyBluetoothDialog();
+  }
+
+  void _cancelBluetoothScanTimer() {
+    _bluetoothScanTimer?.cancel();
+    _bluetoothScanTimer = null;
+  }
+
+  Future<void> _startManagedBluetoothScan() async {
+    debugPrint('D/$_logTag: _startManagedBluetoothScan invoked');
+    _cancelBluetoothScanTimer();
+    _bluetoothStopRequested = false;
+    await _flutterZebraRfidApi.startBluetoothScan();
+    if (!mounted) return;
+    setState(() {
+      _bluetoothScanSecondsRemaining = _bluetoothScanDurationSeconds;
+      _bluetoothScanStatus = BluetoothScanStatus.scanning;
+    });
+    _notifyBluetoothDialog();
+    _bluetoothScanTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final next = _bluetoothScanSecondsRemaining - 1;
+      setState(() {
+        _bluetoothScanSecondsRemaining =
+            next.clamp(0, _bluetoothScanDurationSeconds);
+      });
+      _notifyBluetoothDialog();
+      if (next <= 0) {
+        timer.cancel();
+        debugPrint(
+            'D/$_logTag: Auto scan window elapsed, stopping Bluetooth scan');
+        _stopManagedBluetoothScan(userInitiated: false);
+      }
+    });
+  }
+
+  Future<void> _stopManagedBluetoothScan({required bool userInitiated}) async {
+    if (!_isBluetoothScanRunning &&
+        _bluetoothScanStatus != BluetoothScanStatus.scanning) {
+      return;
+    }
+    _bluetoothStopRequested = userInitiated;
+    _cancelBluetoothScanTimer();
+    if (mounted) {
+      setState(() {
+        _bluetoothScanSecondsRemaining = 0;
+      });
+    }
+    _notifyBluetoothDialog();
+    await _flutterZebraRfidApi.stopBluetoothScan();
+  }
+
+  Future<void> _openBluetoothPairingDialog() async {
+    _resetBluetoothFilters();
+    try {
+      await _loadBondedBluetoothDevices();
+    } catch (error) {
+      _showMessage('Unable to load bonded Bluetooth devices: $error');
+    }
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, dialogSetState) {
+            _bluetoothDialogSetState = dialogSetState;
+            final devices = _filteredBluetoothDevices;
+            final totalDevices = _bluetoothDevices.length;
+            final scanStatus = _bluetoothScanStatus?.name ?? 'idle';
+            return AlertDialog(
+              title: const Text('Pair Bluetooth Reader'),
+              content: SizedBox(
+                width: 520,
+                height: 520,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bonded Bluetooth devices are shown immediately. Scan adds nearby discoverable devices, then pair the reader before refreshing the Zebra reader list.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2, right: 8),
+                            child: Icon(Icons.info_outline, size: 18),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Reader not visible?',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Pair it in Android Bluetooth settings first, then come back and tap Refresh Bonded.',
+                                ),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed:
+                                        _showBluetoothSettingsHelperDialog,
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 0,
+                                        vertical: 4,
+                                      ),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child:
+                                        const Text('Show Manual Pairing Steps'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton(
+                          onPressed: _isBluetoothScanRunning
+                              ? null
+                              : () async {
+                                  debugPrint(
+                                      'D/$_logTag: Scan for Devices tapped');
+                                  try {
+                                    await _startManagedBluetoothScan();
+                                  } catch (error) {
+                                    debugPrint(
+                                        'E/$_logTag: Bluetooth scan failed: $error');
+                                    _showMessage(
+                                        'Bluetooth scan failed: $error');
+                                  }
+                                },
+                          child: Text(
+                            _isBluetoothScanRunning
+                                ? 'Scanning...'
+                                : 'Scan for Devices',
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: _canStopBluetoothScan
+                              ? () async {
+                                  try {
+                                    await _stopManagedBluetoothScan(
+                                      userInitiated: true,
+                                    );
+                                  } catch (error) {
+                                    _showMessage(
+                                        'Failed to stop Bluetooth scan: $error');
+                                  }
+                                }
+                              : null,
+                          child: const Text('Stop Scan'),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            try {
+                              await _loadBondedBluetoothDevices();
+                            } catch (error) {
+                              _showMessage(
+                                  'Failed to refresh bonded devices: $error');
+                            }
+                          },
+                          child: const Text('Refresh Bonded'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Scan status: $scanStatus'),
+                    const SizedBox(height: 4),
+                    Text('Showing ${devices.length} of $totalDevices devices'),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _bluetoothSearchController,
+                      onChanged: (value) {
+                        setState(() {
+                          _bluetoothSearchQuery = value;
+                        });
+                        _notifyBluetoothDialog();
+                      },
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: 'Search name or address',
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        suffixIcon: _bluetoothSearchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _bluetoothSearchQuery = '';
+                                  });
+                                  _bluetoothSearchController.clear();
+                                  _notifyBluetoothDialog();
+                                },
+                                icon: const Icon(Icons.clear, size: 18),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilterChip(
+                          label: const Text('Likely Zebra'),
+                          selected: _bluetoothLikelyZebraOnly,
+                          onSelected: (value) {
+                            setState(() {
+                              _bluetoothLikelyZebraOnly = value;
+                            });
+                            _notifyBluetoothDialog();
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text('Only Unpaired'),
+                          selected: _bluetoothOnlyUnpaired,
+                          onSelected: (value) {
+                            setState(() {
+                              _bluetoothOnlyUnpaired = value;
+                            });
+                            _notifyBluetoothDialog();
+                          },
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(_resetBluetoothFilters);
+                            _notifyBluetoothDialog();
+                          },
+                          child: const Text('Reset Filters'),
+                        ),
+                      ],
+                    ),
+                    if (_isBluetoothScanRunning) ...[
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(value: _bluetoothScanProgress),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Auto scan ends in ${_bluetoothScanSecondsRemaining}s',
+                      ),
+                      Text(
+                        _canStopBluetoothScan
+                            ? 'You can stop the scan now.'
+                            : 'Stop Scan unlocks in ${(_bluetoothScanSecondsRemaining - (_bluetoothScanDurationSeconds - _bluetoothStopUnlockSeconds)).clamp(0, _bluetoothStopUnlockSeconds)}s',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: devices.isEmpty
+                          ? Center(
+                              child: Text(
+                                totalDevices == 0
+                                    ? 'No Bluetooth devices loaded yet.'
+                                    : 'No devices match the current filters.',
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: devices.length,
+                              itemBuilder: (context, index) {
+                                final device = devices[index];
+                                final isPairing =
+                                    _pairingDeviceAddress == device.address;
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(device.name ?? 'Unnamed device'),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(device.address),
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          if (device.isPaired)
+                                            const _DeviceBadge(label: 'Paired'),
+                                          if (_isLikelyZebraDevice(device))
+                                            const _DeviceBadge(label: 'Zebra'),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  trailing: isPairing
+                                      ? const SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : ElevatedButton(
+                                          onPressed: device.isPaired
+                                              ? null
+                                              : () async {
+                                                  setState(() {
+                                                    _pairingDeviceAddress =
+                                                        device.address;
+                                                  });
+                                                  _notifyBluetoothDialog();
+                                                  try {
+                                                    await _flutterZebraRfidApi
+                                                        .pairBluetoothDevice(
+                                                      address: device.address,
+                                                    );
+                                                  } catch (error) {
+                                                    if (!mounted) return;
+                                                    setState(() {
+                                                      _pairingDeviceAddress =
+                                                          null;
+                                                    });
+                                                    _notifyBluetoothDialog();
+                                                    _showMessage(
+                                                      'Bluetooth pairing failed: $error',
+                                                    );
+                                                  }
+                                                },
+                                          child: Text(
+                                            device.isPaired ? 'Paired' : 'Pair',
+                                          ),
+                                        ),
+                                );
+                              },
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      _bluetoothDialogSetState = null;
+      _pairingDeviceAddress = null;
+      _cancelBluetoothScanTimer();
+      _flutterZebraRfidApi.stopBluetoothScan();
     });
   }
 
@@ -182,6 +900,16 @@ class _RfidPageState extends State<RfidPage> {
                   child: const Text('Force Status'),
                 ),
                 TextButton(
+                  onPressed: _isRegionConfigurationError(_lastError)
+                      ? () {
+                          Navigator.of(context).pop();
+                          _diagnosticsDialogOpen = false;
+                          _openReaderRegionDialog();
+                        }
+                      : null,
+                  child: const Text('Set Region'),
+                ),
+                TextButton(
                   onPressed: () {
                     Navigator.of(context).pop();
                     _diagnosticsDialogOpen = false;
@@ -220,45 +948,59 @@ class _RfidPageState extends State<RfidPage> {
                 ),
         ),
         if (_readTags.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: Text('Read tags:'),
-                ),
-                ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _readTags.length,
-                  itemBuilder: (context, index) {
-                    final item = _readTags[index];
-                    return Container(
-                      color: Colors.white,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              child: Text(item.id),
+          Flexible(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 220),
+                decoration:
+                    BoxDecoration(border: Border.all(color: Colors.black12)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 12, 12, 8),
+                      child: Text('Read tags:'),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: _readTags.length,
+                        itemBuilder: (context, index) {
+                          final item = _readTags[index];
+                          return Container(
+                            color: Colors.white,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Text(
+                                      item.id,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 8),
+                                  child: Text(item.rssi.toString()),
+                                ),
+                              ],
                             ),
-                          ),
-                          Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
-                              child: Text(item.rssi.toString()))
-                        ],
+                          );
+                        },
+                        separatorBuilder: (context, index) =>
+                            Container(height: 1, color: Colors.grey),
                       ),
-                    );
-                  },
-                  separatorBuilder: (context, index) =>
-                      Container(height: 1, color: Colors.grey),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-        SizedBox(
-          height: 60,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -291,6 +1033,11 @@ class _RfidPageState extends State<RfidPage> {
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
+                  onPressed: _openBluetoothPairingDialog,
+                  child: const Text('Pair Reader'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
                   onPressed: () async {
                     setState(() => _isLoading = true);
                     await _flutterZebraRfidApi.updateAvailableReaders(
@@ -309,11 +1056,38 @@ class _RfidPageState extends State<RfidPage> {
                   },
                   child: const Text('Show Diagnostics'),
                 ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed:
+                      _canConfigureRegion ? _openReaderRegionDialog : null,
+                  child: const Text('Set Region'),
+                ),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DeviceBadge extends StatelessWidget {
+  const _DeviceBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black12,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
     );
   }
 }

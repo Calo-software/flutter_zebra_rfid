@@ -5,9 +5,12 @@ import FlutterZebraBarcode
 import FlutterZebraBarcodeCallbacks
 import FlutterZebraRfid
 import FlutterZebraRfidCallbacks
+import BluetoothDevice
+import BluetoothScanStatus
 import Reader
 import ReaderConfig
 import ReaderConnectionType
+import ReaderRegion
 import RfidTag
 import Diagnostics
 import android.Manifest
@@ -24,6 +27,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.PluginRegistry
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
+import nz.calo.flutter_zebra_rfid.bluetooth.BluetoothPairingManager
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 
@@ -40,6 +44,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     private lateinit var applicationContext: Context
     private lateinit var rfidCallbacks: FlutterZebraRfidCallbacks
     private lateinit var scannerCallbacks: FlutterZebraBarcodeCallbacks
+    private var bluetoothPairingManager: BluetoothPairingManager? = null
 
     private val operationsOnPermission: MutableMap<Int, OperationOnPermission> = HashMap()
     private var lastEventId = 1751
@@ -55,6 +60,20 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
         rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
         rfidInterface = RFIDReaderInterface(rfidCallbacks, applicationContext)
+        bluetoothPairingManager = BluetoothPairingManager(applicationContext,
+            object : BluetoothPairingManager.Callbacks {
+                override fun onBluetoothDeviceDiscovered(device: BluetoothDevice) {
+                    rfidCallbacks.onBluetoothDeviceDiscovered(device) { }
+                }
+
+                override fun onBluetoothScanStatusChanged(status: BluetoothScanStatus) {
+                    rfidCallbacks.onBluetoothScanStatusChanged(status) { }
+                }
+
+                override fun onBluetoothPairingResult(device: BluetoothDevice, success: Boolean) {
+                    rfidCallbacks.onBluetoothPairingResult(device, success) { }
+                }
+            })
         scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
         scannerInterface = BarcodeScannerInterface(scannerCallbacks)
 
@@ -64,10 +83,42 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        dispose()
         FlutterZebraRfid.setUp(binding.binaryMessenger, null)
+        FlutterZebraBarcode.setUp(binding.binaryMessenger, null)
+    }
+
+    private fun bluetoothPermissions(includeDiscoveryPermissions: Boolean): List<String> {
+        val permissions = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 31) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+        }
+        if (Build.VERSION.SDK_INT <= 30) {
+            permissions.add(Manifest.permission.BLUETOOTH)
+            if (includeDiscoveryPermissions) {
+                permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+        return permissions
+    }
+
+    private fun logBluetoothPermissionState(includeDiscoveryPermissions: Boolean) {
+        val permissions = bluetoothPermissions(includeDiscoveryPermissions)
+        if (permissions.isEmpty()) {
+            Log.d(TAG, "No Bluetooth runtime permissions required for this API level")
+            return
+        }
+        permissions.forEach { permission ->
+            val granted = ContextCompat.checkSelfPermission(applicationContext, permission) == PackageManager.PERMISSION_GRANTED
+            Log.d(TAG, "Permission state: $permission granted=$granted")
+        }
     }
 
     private fun ensurePermissions(permissions: List<String>, operation: OperationOnPermission) {
+        if (permissions.isNotEmpty()) {
+            Log.d(TAG, "Ensuring permissions: ${permissions.joinToString()}")
+        }
         // only request permission we don't already have
         val permissionsNeeded: MutableList<String> = ArrayList()
         for (permission in permissions) {
@@ -83,9 +134,11 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
         // no work to do?
         if (permissionsNeeded.isEmpty()) {
+            Log.d(TAG, "All requested permissions already granted")
             operation.op(true, null)
             return
         }
+        Log.d(TAG, "Requesting missing permissions: ${permissionsNeeded.joinToString()}")
         askPermission(permissionsNeeded, operation)
     }
 
@@ -116,6 +169,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
             activityBinding!!.activity, arrayOf<String>(nextPermission),
             lastEventId
         )
+        Log.d(TAG, "Requested permission $nextPermission with requestCode=$lastEventId")
         lastEventId++
     }
 
@@ -127,15 +181,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         try {
             val needsBluetooth = connectionType == ReaderConnectionType.BLUETOOTH || connectionType == ReaderConnectionType.ALL
             if (needsBluetooth) {
-                val permissions = ArrayList<String>()
-                if (Build.VERSION.SDK_INT >= 31) { // Android 12 (October 2021)
-                    permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
-                    permissions.add(Manifest.permission.BLUETOOTH_SCAN);
-                }
-
-                if (Build.VERSION.SDK_INT <= 30) { // Android 11 (September 2020)
-                    permissions.add(Manifest.permission.BLUETOOTH);
-                }
+                val permissions = bluetoothPermissions(includeDiscoveryPermissions = false)
                 ensurePermissions(permissions,
                     object : OperationOnPermission {
                         override fun op(granted: Boolean, permission: String?) {
@@ -164,6 +210,91 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                 )
                 callback(Result.success(Unit))
             }
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun startBluetoothScan(callback: (Result<Unit>) -> Unit) {
+        try {
+            Log.d(TAG, "startBluetoothScan invoked")
+            logBluetoothPermissionState(includeDiscoveryPermissions = true)
+            ensurePermissions(bluetoothPermissions(includeDiscoveryPermissions = true),
+                object : OperationOnPermission {
+                    override fun op(granted: Boolean, permission: String?) {
+                        if (!granted) {
+                            Log.w(TAG, "Bluetooth scan blocked because permission was denied: ${permission ?: "unknown"}")
+                            callback(Result.failure(Error("Bluetooth scan requires permission: ${permission ?: "unknown"}")))
+                            return
+                        }
+                        try {
+                            Log.d(TAG, "Permissions satisfied, delegating Bluetooth scan to pairing manager")
+                            bluetoothPairingManager!!.startScan()
+                            callback(Result.success(Unit))
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Bluetooth scan failed", e)
+                            callback(Result.failure(e))
+                        }
+                    }
+                })
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun stopBluetoothScan(callback: (Result<Unit>) -> Unit) {
+        try {
+            bluetoothPairingManager?.stopScan()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun getBondedDevices(callback: (Result<List<BluetoothDevice>>) -> Unit) {
+        try {
+            Log.d(TAG, "getBondedDevices invoked")
+            logBluetoothPermissionState(includeDiscoveryPermissions = false)
+            ensurePermissions(bluetoothPermissions(includeDiscoveryPermissions = false),
+                object : OperationOnPermission {
+                    override fun op(granted: Boolean, permission: String?) {
+                        if (!granted) {
+                            Log.w(TAG, "getBondedDevices blocked because permission was denied: ${permission ?: "unknown"}")
+                            callback(Result.failure(Error("Bluetooth access requires permission: ${permission ?: "unknown"}")))
+                            return
+                        }
+                        try {
+                            val devices = bluetoothPairingManager!!.getBondedDevices()
+                            Log.d(TAG, "Delivering ${devices.size} bonded Bluetooth device(s) to Flutter")
+                            callback(Result.success(devices))
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "getBondedDevices failed", e)
+                            callback(Result.failure(e))
+                        }
+                    }
+                })
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun pairBluetoothDevice(address: String, callback: (Result<Unit>) -> Unit) {
+        try {
+            ensurePermissions(bluetoothPermissions(includeDiscoveryPermissions = false),
+                object : OperationOnPermission {
+                    override fun op(granted: Boolean, permission: String?) {
+                        if (!granted) {
+                            callback(Result.failure(Error("Bluetooth pairing requires permission: ${permission ?: "unknown"}")))
+                            return
+                        }
+                        try {
+                            bluetoothPairingManager!!.pairDevice(address)
+                            callback(Result.success(Unit))
+                        } catch (e: Throwable) {
+                            callback(Result.failure(e))
+                        }
+                    }
+                })
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
@@ -218,6 +349,23 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         try {
             val config = rfidInterface!!.getReaderConfig()
             callback(Result.success(config))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun supportedReaderRegions(callback: (Result<List<ReaderRegion>>) -> Unit) {
+        try {
+            callback(Result.success(rfidInterface!!.supportedReaderRegions()))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun setReaderRegion(regionCode: String, callback: (Result<Unit>) -> Unit) {
+        try {
+            rfidInterface!!.setReaderRegion(regionCode)
+            callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
@@ -330,6 +478,8 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     // Zebra API3 overrides
     private fun dispose() {
+        bluetoothPairingManager?.dispose()
+        bluetoothPairingManager = null
         if (rfidInterface != null) {
             rfidInterface!!.onDestroy()
         }
@@ -349,6 +499,13 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         grantResults: IntArray
     ): Boolean {
         val operation = operationsOnPermission[requestCode]
+
+        if (permissions.isNotEmpty() && grantResults.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "Permission result requestCode=$requestCode permission=${permissions[0]} granted=${grantResults[0] == PackageManager.PERMISSION_GRANTED}",
+            )
+        }
 
         return if (operation != null && grantResults.isNotEmpty()) {
             operation.op(grantResults[0] === PackageManager.PERMISSION_GRANTED, permissions[0])

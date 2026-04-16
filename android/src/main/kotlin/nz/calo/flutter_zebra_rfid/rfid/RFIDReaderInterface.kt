@@ -9,6 +9,7 @@ import ReaderConfigBatchMode
 import ReaderConnectionStatus
 import ReaderConnectionType
 import ReaderInfo
+import ReaderRegion
 import RfidTag
 import ReaderErrorCode
 import ReaderError
@@ -33,6 +34,9 @@ import com.zebra.rfid.api3.InvalidUsageException
 import com.zebra.rfid.api3.MEMORY_BANK
 import com.zebra.rfid.api3.OperationFailureException
 import com.zebra.rfid.api3.RFIDReader
+import com.zebra.rfid.api3.RFIDResults
+import com.zebra.rfid.api3.RegionInfo
+import com.zebra.rfid.api3.RegulatoryConfig
 import com.zebra.rfid.api3.ReaderDevice
 import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.Readers.RFIDReaderEventHandler
@@ -57,8 +61,90 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
     }
 }
 
-// NOTE: The above function is kept for reference but getAvailableReaderList()
-// now uses ENUM_TRANSPORT.ALL for USB to include both external USB and built-in serial readers
+internal fun readerConnectionTypeToDiscoveryTransports(type: ReaderConnectionType): List<ENUM_TRANSPORT> {
+    return when (type) {
+        ReaderConnectionType.BLUETOOTH -> listOf(ENUM_TRANSPORT.BLUETOOTH)
+        ReaderConnectionType.USB -> listOf(ENUM_TRANSPORT.SERVICE_SERIAL, ENUM_TRANSPORT.SERVICE_USB)
+        ReaderConnectionType.ALL -> listOf(
+            ENUM_TRANSPORT.BLUETOOTH,
+            ENUM_TRANSPORT.SERVICE_SERIAL,
+            ENUM_TRANSPORT.SERVICE_USB,
+        )
+    }
+}
+
+private class ReaderRegionConfigurationException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+internal data class SupportedRegionCandidate(
+    val regionCode: String,
+    val standardName: String?,
+    val hoppingConfigurable: Boolean,
+    val channelSelectable: Boolean,
+    val lbtConfigurable: Boolean,
+    val supportedChannels: Array<String>,
+)
+
+internal fun supportedRegionCandidates(regionInfos: List<RegionInfo>): List<SupportedRegionCandidate> {
+    return regionInfos.mapNotNull { regionInfo ->
+        val regionCode = regionInfo.regionCode?.trim().orEmpty()
+        if (regionCode.isEmpty()) return@mapNotNull null
+
+        val standardName = regionInfo.standardName?.trim()?.takeIf { it.isNotEmpty() }
+        val channels = regionInfo.supportedChannels
+            ?.filter { it.isNotBlank() }
+            ?.toTypedArray()
+            ?: emptyArray()
+
+        SupportedRegionCandidate(
+            regionCode = regionCode,
+            standardName = standardName,
+            hoppingConfigurable = regionInfo.isHoppingConfigurable(),
+            channelSelectable = regionInfo.isChannelSelectable(),
+            lbtConfigurable = regionInfo.isLBTConfigurable(),
+            supportedChannels = channels,
+        )
+    }.distinctBy { "${it.regionCode}|${it.standardName ?: ""}" }
+}
+
+internal fun buildRegulatoryConfigForSingleSupportedRegion(regionInfos: List<RegionInfo>): RegulatoryConfig? {
+    val candidates = supportedRegionCandidates(regionInfos)
+    if (candidates.size != 1) {
+        return null
+    }
+
+    val candidate = candidates.single()
+    return RegulatoryConfig().apply {
+        setRegion(candidate.regionCode)
+        candidate.standardName?.let(::setStandardName)
+        setIsHoppingOn(candidate.hoppingConfigurable)
+        setChannelSelectable(candidate.channelSelectable)
+        setLBTConfigurable(candidate.lbtConfigurable)
+        if (candidate.supportedChannels.isNotEmpty()) {
+            setEnabledChannels(candidate.supportedChannels)
+        }
+    }
+}
+
+internal fun describeSupportedRegions(regionInfos: List<RegionInfo>): String {
+    val candidates = supportedRegionCandidates(regionInfos)
+    if (candidates.isEmpty()) {
+        return "none reported"
+    }
+
+    return candidates.joinToString(", ") { candidate ->
+        candidate.standardName?.let { "${candidate.regionCode} ($it)" } ?: candidate.regionCode
+    }
+}
+
+internal fun toReaderRegions(regionInfos: List<RegionInfo>): List<ReaderRegion> {
+    return supportedRegionCandidates(regionInfos).map { candidate ->
+        ReaderRegion(
+            code = candidate.regionCode,
+            name = null,
+            standardName = candidate.standardName,
+        )
+    }
+}
 
 class RFIDReaderInterface(
     private var callbacks: FlutterZebraRfidCallbacks,
@@ -93,6 +179,8 @@ class RFIDReaderInterface(
     private var lastTriggerPressTimestamp: Long = 0L
     private var lastInventoryStartTimestamp: Long = 0L
     private var lastInventoryStopTimestamp: Long = 0L
+    private var lastInventoryStartReason: String? = null
+    private var lastInventoryStopReason: String? = null
     private var pendingPurgeRunnable: Runnable? = null
     private val INVENTORY_RELEASE_DEBOUNCE_MS = 120L
     private val PURGE_TAGS_DELAY_MS = 300L
@@ -231,30 +319,52 @@ class RFIDReaderInterface(
     ) {
         Log.i(TAG, "========== READER DISCOVERY STARTED ==========")
         Log.i(TAG, "Requested connection type: $connectionType")
-        
-        // For USB connection type, we need to discover both SERVICE_USB (external) 
-        // and SERVICE_SERIAL (built-in TC22/TC27), so we always use ALL transport
-        val transport = when (connectionType) {
-            ReaderConnectionType.BLUETOOTH -> ENUM_TRANSPORT.BLUETOOTH
-            ReaderConnectionType.USB -> ENUM_TRANSPORT.ALL  // Include both USB and Serial
-            ReaderConnectionType.ALL -> ENUM_TRANSPORT.ALL
-        }
-        Log.i(TAG, "Using SDK transport: $transport")
+
+        val transports = readerConnectionTypeToDiscoveryTransports(connectionType)
+        Log.i(TAG, "Using SDK transports: ${transports.joinToString()}")
 
         try {
-            if (readers == null || connectionType != currentConnectionType) {
-                Log.d(TAG, "Creating new Readers instance with transport: $transport")
-                readers = Readers(applicationContext, transport)
-            } else {
-                Log.d(TAG, "Reusing existing Readers instance")
+            val mergedDevices = arrayListOf<ReaderDevice>()
+            val seenKeys = linkedSetOf<String>()
+            var primaryReaders: Readers? = null
+            val discoveryFailures = mutableListOf<String>()
+
+            transports.forEach { transport ->
+                try {
+                    Log.d(TAG, "Creating Readers instance with transport: $transport")
+                    val transportReaders = Readers(applicationContext, transport)
+                    if (primaryReaders == null) {
+                        primaryReaders = transportReaders
+                    }
+
+                    Log.d(TAG, "Calling GetAvailableRFIDReaderList() for transport=$transport")
+                    val discoveredDevices = transportReaders.GetAvailableRFIDReaderList() ?: arrayListOf()
+                    Log.i(TAG, "Transport $transport discovered ${discoveredDevices.size} reader(s)")
+
+                    discoveredDevices.forEach { device ->
+                        val deviceKey = buildReaderDiscoveryKey(device)
+                        if (seenKeys.add(deviceKey)) {
+                            mergedDevices.add(device)
+                        } else {
+                            Log.d(TAG, "Skipping duplicate reader from transport=$transport key=$deviceKey")
+                        }
+                    }
+                } catch (transportError: Exception) {
+                    val failure = "$transport: ${transportError.javaClass.simpleName}: ${transportError.message}"
+                    discoveryFailures.add(failure)
+                    Log.e(TAG, "Discovery failed for transport=$transport", transportError)
+                }
             }
 
+            readers = primaryReaders
             currentConnectionType = connectionType
-            Log.d(TAG, "Calling GetAvailableRFIDReaderList()...")
-            availableRFIDReaderList = readers!!.GetAvailableRFIDReaderList()
+            availableRFIDReaderList = mergedDevices
             
             val readerCount = availableRFIDReaderList?.size ?: 0
             Log.i(TAG, "Discovery complete. Found $readerCount reader(s)")
+            if (discoveryFailures.isNotEmpty()) {
+                Log.w(TAG, "One or more transport discovery attempts failed: ${discoveryFailures.joinToString(" | ")}")
+            }
             
             // Log detailed info about each discovered reader
             availableRFIDReaderList?.forEachIndexed { index, device ->
@@ -276,7 +386,7 @@ class RFIDReaderInterface(
             if (readerCount == 0) {
                 Log.w(TAG, "WARNING: No readers found!")
                 Log.w(TAG, "  - Connection type requested: $connectionType")
-                Log.w(TAG, "  - Transport used: $transport")
+                Log.w(TAG, "  - Transports used: ${transports.joinToString()}")
                 Log.w(TAG, "  - If using TC22 built-in RFID, verify:")
                 Log.w(TAG, "    1. Device actually has RFID hardware (not all TC22s do)")
                 Log.w(TAG, "    2. RFID works in Zebra's 123RFID Mobile app")
@@ -297,6 +407,15 @@ class RFIDReaderInterface(
         }
         
         Log.i(TAG, "========== READER DISCOVERY ENDED ==========")
+    }
+
+    private fun buildReaderDiscoveryKey(device: ReaderDevice): String {
+        val address = runCatching { device.address }.getOrNull()?.trim().orEmpty()
+        val name = device.name?.trim().orEmpty()
+        return listOf(name, address)
+            .filter { it.isNotEmpty() }
+            .joinToString("|")
+            .ifEmpty { device.toString() }
     }
 
     @Synchronized
@@ -325,8 +444,10 @@ class RFIDReaderInterface(
         // If already connected to this reader
         reader?.let { existing ->
             if (existing.isConnected && currentReader()?.id == readerId) {
-                Log.d(TAG, "Reader $readerId already connected (idempotent connect)")
-                return readerInfo
+                return rearmConnectedReaderSession(
+                    existing,
+                    "Reader $readerId already connected (idempotent connect)",
+                )
             }
         }
 
@@ -353,9 +474,10 @@ class RFIDReaderInterface(
         Log.d(TAG, "RFIDReader object obtained: $targetReader")
 
         if (targetReader.isConnected) {
-            Log.i(TAG, "Reader already physically connected")
-            updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader already physically connected")
-            return readerInfo
+            return rearmConnectedReaderSession(
+                targetReader,
+                "Reader already physically connected",
+            )
         }
         
         Log.i(TAG, "Reader not connected, starting connection sequence...")
@@ -386,7 +508,7 @@ class RFIDReaderInterface(
         pendingConnectFuture = ioExecutor.submit {
             try {
                 Log.d(TAG, "Calling targetReader.connect()...")
-                targetReader.connect()
+                connectWithRegionRecovery(targetReader)
                 Log.i(TAG, "targetReader.connect() completed successfully!")
                 // If timed out already, skip success path
                 synchronized(this) {
@@ -424,6 +546,13 @@ class RFIDReaderInterface(
                     emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
                 }
+            } catch (e: ReaderRegionConfigurationException) {
+                synchronized(this) {
+                    clearConnectTimeout()
+                    Log.e(TAG, "Reader region configuration required during connect: ${e.message}", e)
+                    emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Reader region is not configured", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader region is not configured", e)
+                }
             } catch (e: OperationFailureException) {
                 synchronized(this) {
                     clearConnectTimeout()
@@ -444,6 +573,157 @@ class RFIDReaderInterface(
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
                 }
             }
+        }
+    }
+
+    @Throws(InvalidUsageException::class, OperationFailureException::class, ReaderRegionConfigurationException::class)
+    private fun connectWithRegionRecovery(targetReader: RFIDReader) {
+        try {
+            targetReader.connect()
+        } catch (e: OperationFailureException) {
+            if (e.results != RFIDResults.RFID_READER_REGION_NOT_CONFIGURED) {
+                throw e
+            }
+
+            Log.w(TAG, "Reader reported RFID_READER_REGION_NOT_CONFIGURED during connect; attempting recovery")
+            val supportedRegions = getSupportedRegions(targetReader)
+            val regionConfig = buildRegulatoryConfigForSingleSupportedRegion(supportedRegions)
+                ?: throw ReaderRegionConfigurationException(
+                    "Reader requires regulatory region setup. Supported regions: ${describeSupportedRegions(supportedRegions)}. Configure the region in Zebra 123RFID Mobile and retry.",
+                    e,
+                )
+
+            val configuredRegion = supportedRegionCandidates(supportedRegions).single()
+
+            try {
+                targetReader.Config.setRegulatoryConfig(regionConfig)
+                targetReader.PostConnectReaderUpdate()
+                val regionLabel = configuredRegion.standardName?.let { "${configuredRegion.regionCode} ($it)" }
+                    ?: configuredRegion.regionCode
+                Log.i(TAG, "Applied regulatory region $regionLabel after connect reported region not configured")
+            } catch (configError: InvalidUsageException) {
+                throw ReaderRegionConfigurationException(
+                    "Reader requires regulatory region setup, but the SDK rejected automatic configuration: ${configError.info ?: configError.message}",
+                    configError,
+                )
+            } catch (configError: OperationFailureException) {
+                val details = configError.vendorMessage ?: configError.statusDescription ?: configError.message
+                throw ReaderRegionConfigurationException(
+                    "Reader requires regulatory region setup, but the SDK failed to apply the region: $details",
+                    configError,
+                )
+            }
+        }
+    }
+
+    private fun getSupportedRegions(targetReader: RFIDReader): List<RegionInfo> {
+        val supportedRegions = targetReader.ReaderCapabilities.SupportedRegions ?: return emptyList()
+        return (0 until supportedRegions.length()).mapNotNull { index ->
+            try {
+                supportedRegions.getRegionInfo(index)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    private fun buildRegulatoryConfigForRegionCode(
+        regionCode: String,
+        regionInfos: List<RegionInfo>,
+    ): RegulatoryConfig? {
+        val candidate = supportedRegionCandidates(regionInfos).firstOrNull {
+            it.regionCode.equals(regionCode, ignoreCase = true)
+        } ?: return null
+
+        return RegulatoryConfig().apply {
+            setRegion(candidate.regionCode)
+            candidate.standardName?.let(::setStandardName)
+            setIsHoppingOn(candidate.hoppingConfigurable)
+            setChannelSelectable(candidate.channelSelectable)
+            setLBTConfigurable(candidate.lbtConfigurable)
+            if (candidate.supportedChannels.isNotEmpty()) {
+                setEnabledChannels(candidate.supportedChannels)
+            }
+        }
+    }
+
+    private fun refreshReaderInfo(targetReader: RFIDReader): ReaderInfo {
+        val capabilities = targetReader.ReaderCapabilities
+        val levels = capabilities.transmitPowerLevelValues
+        return ReaderInfo(
+            levels.asList(),
+            capabilities.firwareVersion,
+            capabilities.modelName,
+            capabilities.scannerName,
+            capabilities.serialNumber,
+        )
+    }
+
+    @Synchronized
+    private fun rearmConnectedReaderSession(targetReader: RFIDReader, logMessage: String): ReaderInfo {
+        Log.i(TAG, logMessage)
+        setupReader()
+        val info = refreshReaderInfo(targetReader)
+        readerInfo = info
+        clearConnectTimeout()
+        if (lastConnectStartTimestamp != 0L) {
+            lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
+        }
+        updateConnectionState(
+            InternalConnectionState.CONNECTED,
+            ReaderConnectionStatus.CONNECTED,
+            logMessage,
+        )
+        triggerDeviceStatus()
+        return info
+    }
+
+    @Synchronized
+    fun supportedReaderRegions(): List<ReaderRegion> {
+        val targetReader = reader ?: readerDevice?.rfidReader
+            ?: throw IllegalStateException("No reader selected. Discover and connect to a reader first.")
+        return toReaderRegions(getSupportedRegions(targetReader))
+    }
+
+    @Synchronized
+    fun setReaderRegion(regionCode: String) {
+        val normalizedRegionCode = regionCode.trim().uppercase()
+        require(normalizedRegionCode.isNotEmpty()) { "Region code must not be empty" }
+
+        val targetReader = reader ?: readerDevice?.rfidReader
+            ?: throw IllegalStateException("No reader selected. Discover and connect to a reader first.")
+        reader = targetReader
+
+        val supportedRegions = getSupportedRegions(targetReader)
+        val regulatoryConfig = buildRegulatoryConfigForRegionCode(normalizedRegionCode, supportedRegions)
+            ?: throw IllegalArgumentException(
+                "Region $normalizedRegionCode is not supported by this reader. Supported regions: ${describeSupportedRegions(supportedRegions)}"
+            )
+
+        try {
+            targetReader.Config.setRegulatoryConfig(regulatoryConfig)
+            targetReader.PostConnectReaderUpdate()
+            setupReader()
+            readerInfo = refreshReaderInfo(targetReader)
+            clearConnectTimeout()
+            reconnectAttempt = 0
+            cancelPendingReconnect()
+            lastErrorCode = null
+            lastErrorMessage = null
+            updateConnectionState(
+                InternalConnectionState.CONNECTED,
+                ReaderConnectionStatus.CONNECTED,
+                "Applied reader region $normalizedRegionCode",
+            )
+            triggerDeviceStatus()
+        } catch (e: InvalidUsageException) {
+            emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while setting reader region", e.info ?: e.message, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while setting reader region", e)
+            throw e
+        } catch (e: OperationFailureException) {
+            emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Failed to set reader region", e.vendorMessage ?: e.statusDescription, e)
+            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Failed to set reader region", e)
+            throw e
         }
     }
 
@@ -494,7 +774,13 @@ class RFIDReaderInterface(
             lastConnectDurationMs,
             isLocating,
             scanningEnabled,
-            if (scanningEnabledLastToggleMs == 0L) null else scanningEnabledLastToggleMs
+            if (scanningEnabledLastToggleMs == 0L) null else scanningEnabledLastToggleMs,
+            inventoryActive,
+            if (lastInventoryStartTimestamp == 0L) null else lastInventoryStartTimestamp,
+            if (lastInventoryStopTimestamp == 0L) null else lastInventoryStopTimestamp,
+            pendingPurgeRunnable != null,
+            lastInventoryStopReason,
+            lastInventoryStartReason
         )
     }
 
@@ -506,6 +792,18 @@ class RFIDReaderInterface(
             // Stop any active inventory immediately
             if (inventoryActive) {
                 safeStopInventory("scanning disabled")
+            }
+        } else {
+            val hadStaleInventoryState = inventoryActive || inventoryWatchdogRunnable != null || pendingPurgeRunnable != null
+            if (hadStaleInventoryState) {
+                Log.w(TAG, "Scanning re-enabled with lingering inventory state; forcing trigger-ready recovery")
+            }
+            inventoryActive = false
+            cancelInventoryWatchdog()
+            cancelScheduledPurge()
+            if (hadStaleInventoryState) {
+                lastInventoryStopTimestamp = System.currentTimeMillis()
+                lastInventoryStopReason = "scanning re-enabled recovery"
             }
         }
         Log.d(TAG, "Scanning enabled set to $scanningEnabled")
@@ -1136,7 +1434,7 @@ class RFIDReaderInterface(
     }
 
     @Synchronized
-    fun performInventory() {
+    fun performInventory(reason: String) {
         // Legacy direct call retained (now guarded via safeStartInventory). Prefer safeStartInventory.
         if (!isReaderConnected()) return
         if (inventoryActive) {
@@ -1148,6 +1446,7 @@ class RFIDReaderInterface(
             inventoryActive = true
             lastInventoryStartTimestamp = System.currentTimeMillis()
             lastTagReadTimestamp = lastInventoryStartTimestamp
+            lastInventoryStartReason = reason
             scheduleInventoryWatchdog()
             Log.d(TAG, "Inventory started (performInventory)")
         } catch (e: InvalidUsageException) {
@@ -1172,16 +1471,17 @@ class RFIDReaderInterface(
         }
         try {
             reader!!.Actions.Inventory.stop()
+            Log.d(TAG, "Inventory stopped (stopInventory)")
+        } catch (e: InvalidUsageException) {
+            Log.w(TAG, "Inventory stop failed with InvalidUsageException; forcing recovery state reset: ${e.message}")
+        } catch (e: OperationFailureException) {
+            Log.w(TAG, "Inventory stop failed with OperationFailureException; forcing recovery state reset: ${e.message}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Inventory stop failed unexpectedly; forcing recovery state reset: ${t.message}")
+        } finally {
             inventoryActive = false
             lastInventoryStopTimestamp = System.currentTimeMillis()
             cancelInventoryWatchdog()
-            Log.d(TAG, "Inventory stopped (stopInventory)")
-        } catch (e: InvalidUsageException) {
-            Log.d(TAG, "InvalidUsageException stopping inventory: ${e.message}")
-        } catch (e: OperationFailureException) {
-            Log.d(TAG, "OperationFailureException stopping inventory: ${e.message}")
-        } catch (t: Throwable) {
-            Log.d(TAG, "Unexpected error stopping inventory: ${t.message}")
         }
     }
 
@@ -1198,7 +1498,7 @@ class RFIDReaderInterface(
             return
         }
         Log.d(TAG, "safeStartInventory($reason) -> starting inventory")
-        performInventory()
+        performInventory(reason)
     }
 
     // Guarded stop that defers purge to allow late tag reads to flush through
@@ -1213,6 +1513,7 @@ class RFIDReaderInterface(
             return
         }
         Log.d(TAG, "safeStopInventory($reason) -> stopping inventory")
+        lastInventoryStopReason = reason
         stopInventory()
         schedulePurgeTags()
     }

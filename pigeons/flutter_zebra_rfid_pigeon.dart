@@ -17,6 +17,22 @@ abstract class FlutterZebraRfid {
   @async
   void updateAvailableReaders(ReaderConnectionType connectionType);
 
+  /// Starts Bluetooth classic device discovery for pairing.
+  @async
+  void startBluetoothScan();
+
+  /// Stops Bluetooth classic device discovery.
+  @async
+  void stopBluetoothScan();
+
+  /// Returns currently bonded Bluetooth devices.
+  @async
+  List<BluetoothDevice> getBondedDevices();
+
+  /// Starts pairing with the Bluetooth device at `address`.
+  @async
+  void pairBluetoothDevice(String address);
+
   /// Connects to a reader with `readerId` ID.
   @async
   void connectReader(int readerId);
@@ -53,6 +69,14 @@ abstract class FlutterZebraRfid {
   @async
   ReaderConfig readerConfig();
 
+  /// Supported regulatory regions for the current or last-selected reader.
+  @async
+  List<ReaderRegion> supportedReaderRegions();
+
+  /// Applies a regulatory region to the current reader.
+  @async
+  void setReaderRegion(String regionCode);
+
   /// Runtime diagnostics snapshot (counters / last error / state)
   @async
   Diagnostics diagnostics();
@@ -70,6 +94,9 @@ abstract class FlutterZebraRfidCallbacks {
   void onTagsRead(List<RfidTag> tags);
   void onBatteryDataReceived(BatteryData batteryData);
   void onTagsLocated(List<RfidTag> tags);
+  void onBluetoothDeviceDiscovered(BluetoothDevice device);
+  void onBluetoothScanStatusChanged(BluetoothScanStatus status);
+  void onBluetoothPairingResult(BluetoothDevice device, bool success);
   // Fired when a connection-related error occurs. Status callback will also emit `ReaderConnectionStatus.error`.
   void onReaderConnectionError(ReaderError error);
 }
@@ -85,6 +112,12 @@ enum ReaderConnectionStatus {
   connected,
   disconnecting,
   disconnected,
+  error,
+}
+
+enum BluetoothScanStatus {
+  scanning,
+  finished,
   error,
 }
 
@@ -121,6 +154,18 @@ class Reader {
   final String? name;
   final int id;
   final ReaderInfo? info;
+}
+
+class BluetoothDevice {
+  BluetoothDevice({
+    required this.name,
+    required this.address,
+    required this.isPaired,
+  });
+
+  final String? name;
+  final String address;
+  final bool isPaired;
 }
 
 enum ReaderConfigBatchMode {
@@ -176,6 +221,18 @@ class ReaderInfo {
   final String? serialNumber;
 }
 
+class ReaderRegion {
+  ReaderRegion({
+    required this.code,
+    this.name,
+    this.standardName,
+  });
+
+  final String code;
+  final String? name;
+  final String? standardName;
+}
+
 class RfidTag {
   RfidTag({
     required this.id,
@@ -211,6 +268,12 @@ class Diagnostics {
     required this.isLocating,
     this.scanningEnabled,
     this.scanningEnabledLastToggleMs,
+    this.inventoryActive,
+    this.lastInventoryStartMs,
+    this.lastInventoryStopMs,
+    this.pendingPurgeActive,
+    this.lastInventoryStopReason,
+    this.lastInventoryStartReason,
   });
 
   final ReaderConnectionStatus connectionState;
@@ -224,4 +287,16 @@ class Diagnostics {
   final bool? scanningEnabled;
   // Epoch ms of last toggle (null if never toggled or unsupported).
   final int? scanningEnabledLastToggleMs;
+  // Whether the plugin currently believes inventory is active.
+  final bool? inventoryActive;
+  // Epoch ms of the last successful inventory start.
+  final int? lastInventoryStartMs;
+  // Epoch ms of the last inventory stop or forced recovery cleanup.
+  final int? lastInventoryStopMs;
+  // Whether a delayed purge is currently scheduled.
+  final bool? pendingPurgeActive;
+  // Reason associated with the latest inventory stop or forced cleanup.
+  final String? lastInventoryStopReason;
+  // Reason associated with the latest successful inventory start.
+  final String? lastInventoryStartReason;
 }

@@ -10,6 +10,18 @@ class FlutterZebraRfidApi {
   BehaviorSubject<ConnectionStatus> get onReaderConnectionStatusChanged =>
       _callbacks.connectionStatusChanged;
 
+  /// Behavior subject wrapping discovered Bluetooth devices during pairing scan.
+  BehaviorSubject<BluetoothDevice> get onBluetoothDeviceDiscovered =>
+      _callbacks.bluetoothDeviceDiscovered;
+
+  /// Behavior subject wrapping Bluetooth scan status updates.
+  BehaviorSubject<BluetoothScanStatus> get onBluetoothScanStatusChanged =>
+      _callbacks.bluetoothScanStatusChanged;
+
+  /// Behavior subject wrapping Bluetooth pairing result events.
+  BehaviorSubject<BluetoothPairingResult> get onBluetoothPairingResult =>
+      _callbacks.bluetoothPairingResult;
+
   /// Behavior subject wrapping reader list updates callback from the plugin
   BehaviorSubject<List<Reader>> get onAvailableReadersChanged =>
       _callbacks.availableReadersChanged;
@@ -34,6 +46,20 @@ class FlutterZebraRfidApi {
   }) =>
       _api.updateAvailableReaders(connectionType);
 
+  /// Starts Bluetooth classic discovery for pairing a new reader.
+  Future<void> startBluetoothScan() => _api.startBluetoothScan();
+
+  /// Stops Bluetooth discovery if currently running.
+  Future<void> stopBluetoothScan() => _api.stopBluetoothScan();
+
+  /// Returns the list of currently bonded Bluetooth devices.
+  Future<List<BluetoothDevice>> getBondedDevices() async =>
+      (await _api.getBondedDevices()).whereType<BluetoothDevice>().toList();
+
+  /// Starts pairing with the Bluetooth device at `address`.
+  Future<void> pairBluetoothDevice({required String address}) =>
+      _api.pairBluetoothDevice(address);
+
   /// Connects a reader with `readerName`
   Future<void> connectReader({required int readerId}) =>
       _api.connectReader(readerId);
@@ -54,7 +80,8 @@ class FlutterZebraRfidApi {
 
   /// Start locating the specified `tags`.
   /// If `disableBeep` is true, the reader will not beep for tags not in the locate list.
-  Future<void> startLocating({required List<RfidTag> tags, bool? disableBeep}) =>
+  Future<void> startLocating(
+          {required List<RfidTag> tags, bool? disableBeep}) =>
       _api.startLocating(tags: tags, disableBeep: disableBeep);
 
   /// Stop locating.
@@ -68,6 +95,14 @@ class FlutterZebraRfidApi {
 
   /// Returns current reader config.
   Future<ReaderConfig> get readerConfig => _api.readerConfig();
+
+  /// Returns supported regulatory regions for the current or last-selected reader.
+  Future<List<ReaderRegion>> supportedReaderRegions() async =>
+      (await _api.supportedReaderRegions()).whereType<ReaderRegion>().toList();
+
+  /// Applies a regulatory region to the current reader.
+  Future<void> setReaderRegion({required String regionCode}) =>
+      _api.setReaderRegion(regionCode);
 
   /// Returns a diagnostics snapshot (counters, last error, timing, state).
   Future<Diagnostics> diagnostics() => _api.diagnostics();
@@ -89,6 +124,23 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   @override
   void onReaderConnectionStatusChanged(ReaderConnectionStatus status) =>
       connectionStatusChanged.add(status.connectionStatus);
+
+  @override
+  void onBluetoothDeviceDiscovered(BluetoothDevice device) {
+    bluetoothDeviceDiscovered.add(device);
+  }
+
+  @override
+  void onBluetoothScanStatusChanged(BluetoothScanStatus status) {
+    bluetoothScanStatusChanged.add(status);
+  }
+
+  @override
+  void onBluetoothPairingResult(BluetoothDevice device, bool success) {
+    bluetoothPairingResult.add(
+      BluetoothPairingResult(device: device, success: success),
+    );
+  }
 
   @override
   void onAvailableReadersChanged(List<Reader?> readers) =>
@@ -120,11 +172,21 @@ class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {
   final connectionStatusChanged = BehaviorSubject<ConnectionStatus>()
     ..add(ConnectionStatus.disconnected);
 
+  final bluetoothDeviceDiscovered = BehaviorSubject<BluetoothDevice>();
+  final bluetoothScanStatusChanged = BehaviorSubject<BluetoothScanStatus>();
+  final bluetoothPairingResult = BehaviorSubject<BluetoothPairingResult>();
   final availableReadersChanged = BehaviorSubject<List<Reader>>();
   final tagsRead = BehaviorSubject<List<RfidTag>>();
   final batteryDataReceived = BehaviorSubject<BatteryData>();
   final tagsLocated = BehaviorSubject<List<RfidTag>>();
   final connectionErrors = BehaviorSubject<ReaderError>();
+}
+
+class BluetoothPairingResult {
+  BluetoothPairingResult({required this.device, required this.success});
+
+  final BluetoothDevice device;
+  final bool success;
 }
 
 extension ReaderInfoX on ReaderInfo {
