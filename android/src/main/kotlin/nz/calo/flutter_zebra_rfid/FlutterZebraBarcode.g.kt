@@ -71,6 +71,32 @@ enum class ScannerConnectionStatus(val raw: Int) {
   }
 }
 
+enum class BarcodeScannerSource(val raw: Int) {
+  BUILT_IN_TERMINAL(0),
+  RFID_SLED(1),
+  EXTERNAL_BLUETOOTH(2),
+  EXTERNAL_USB(3),
+  UNKNOWN(4);
+
+  companion object {
+    fun ofRaw(raw: Int): BarcodeScannerSource? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
+enum class BarcodeScannerMode(val raw: Int) {
+  AUTO(0),
+  DATA_WEDGE(1),
+  SCANNER_SDK(2);
+
+  companion object {
+    fun ofRaw(raw: Int): BarcodeScannerMode? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class BarcodeScanner (
   val name: String? = null,
@@ -102,7 +128,10 @@ data class BarcodeScanner (
 data class Barcode (
   val data: String,
   val scannerId: Long,
-  val barcodeType: Long? = null
+  val barcodeType: Long? = null,
+  val endpointId: String? = null,
+  val source: BarcodeScannerSource? = null,
+  val scannerName: String? = null
 )
  {
   companion object {
@@ -110,7 +139,10 @@ data class Barcode (
       val data = pigeonVar_list[0] as String
       val scannerId = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
       val barcodeType = pigeonVar_list[2].let { num -> if (num is Int) num.toLong() else num as Long? }
-      return Barcode(data, scannerId, barcodeType)
+      val endpointId = pigeonVar_list[3] as String?
+      val source = pigeonVar_list[4] as BarcodeScannerSource?
+      val scannerName = pigeonVar_list[5] as String?
+      return Barcode(data, scannerId, barcodeType, endpointId, source, scannerName)
     }
   }
   fun toList(): List<Any?> {
@@ -118,6 +150,60 @@ data class Barcode (
       data,
       scannerId,
       barcodeType,
+      endpointId,
+      source,
+      scannerName,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class BarcodeScannerEndpoint (
+  val endpointId: String,
+  val displayName: String,
+  val source: BarcodeScannerSource,
+  val mode: BarcodeScannerMode,
+  val connectionStatus: ScannerConnectionStatus,
+  val active: Boolean,
+  val preferred: Boolean,
+  val zebraScannerIdentifier: String? = null,
+  val scannerIndex: Long? = null,
+  val scannerId: Long? = null,
+  val model: String? = null,
+  val serialNumber: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BarcodeScannerEndpoint {
+      val endpointId = pigeonVar_list[0] as String
+      val displayName = pigeonVar_list[1] as String
+      val source = pigeonVar_list[2] as BarcodeScannerSource
+      val mode = pigeonVar_list[3] as BarcodeScannerMode
+      val connectionStatus = pigeonVar_list[4] as ScannerConnectionStatus
+      val active = pigeonVar_list[5] as Boolean
+      val preferred = pigeonVar_list[6] as Boolean
+      val zebraScannerIdentifier = pigeonVar_list[7] as String?
+      val scannerIndex = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val scannerId = pigeonVar_list[9].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val model = pigeonVar_list[10] as String?
+      val serialNumber = pigeonVar_list[11] as String?
+      return BarcodeScannerEndpoint(endpointId, displayName, source, mode, connectionStatus, active, preferred, zebraScannerIdentifier, scannerIndex, scannerId, model, serialNumber)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      endpointId,
+      displayName,
+      source,
+      mode,
+      connectionStatus,
+      active,
+      preferred,
+      zebraScannerIdentifier,
+      scannerIndex,
+      scannerId,
+      model,
+      serialNumber,
     )
   }
 }
@@ -135,13 +221,28 @@ private object FlutterZebraBarcodePigeonCodec : StandardMessageCodec() {
         }
       }
       131.toByte() -> {
+        return (readValue(buffer) as Int?)?.let {
+          BarcodeScannerSource.ofRaw(it)
+        }
+      }
+      132.toByte() -> {
+        return (readValue(buffer) as Int?)?.let {
+          BarcodeScannerMode.ofRaw(it)
+        }
+      }
+      133.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           BarcodeScanner.fromList(it)
         }
       }
-      132.toByte() -> {
+      134.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           Barcode.fromList(it)
+        }
+      }
+      135.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BarcodeScannerEndpoint.fromList(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -157,12 +258,24 @@ private object FlutterZebraBarcodePigeonCodec : StandardMessageCodec() {
         stream.write(130)
         writeValue(stream, value.raw)
       }
-      is BarcodeScanner -> {
+      is BarcodeScannerSource -> {
         stream.write(131)
+        writeValue(stream, value.raw)
+      }
+      is BarcodeScannerMode -> {
+        stream.write(132)
+        writeValue(stream, value.raw)
+      }
+      is BarcodeScanner -> {
+        stream.write(133)
         writeValue(stream, value.toList())
       }
       is Barcode -> {
-        stream.write(132)
+        stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is BarcodeScannerEndpoint -> {
+        stream.write(135)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -179,8 +292,19 @@ interface FlutterZebraBarcode {
   fun connectScanner(scannerId: Long, callback: (Result<Unit>) -> Unit)
   /** Disconnects a current scanner. */
   fun disconnectScanner(callback: (Result<Unit>) -> Unit)
+  /**
+   * Refreshes all barcode scanner endpoints, including DataWedge-managed
+   * terminal scanners and Scanner SDK external scanners where available.
+   */
+  fun refreshBarcodeScanners(callback: (Result<Unit>) -> Unit)
+  /** Selects the endpoint that should be treated as the active barcode source. */
+  fun setActiveBarcodeScanner(endpointId: String, callback: (Result<Unit>) -> Unit)
+  /** Clears the explicit active barcode source. */
+  fun clearActiveBarcodeScanner(callback: (Result<Unit>) -> Unit)
   /** Reader currently in use */
   fun currentScanner(): BarcodeScanner?
+  /** Barcode scanner endpoint currently selected, if any. */
+  fun activeBarcodeScanner(): BarcodeScannerEndpoint?
 
   companion object {
     /** The codec used by FlutterZebraBarcode. */
@@ -245,11 +369,79 @@ interface FlutterZebraBarcode {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.refreshBarcodeScanners$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.refreshBarcodeScanners{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.setActiveBarcodeScanner$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val endpointIdArg = args[0] as String
+            api.setActiveBarcodeScanner(endpointIdArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.clearActiveBarcodeScanner$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.clearActiveBarcodeScanner{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.currentScanner$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.currentScanner())
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.activeBarcodeScanner$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.activeBarcodeScanner())
             } catch (exception: Throwable) {
               wrapError(exception)
             }
@@ -276,6 +468,40 @@ class FlutterZebraBarcodeCallbacks(private val binaryMessenger: BinaryMessenger,
     val channelName = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableScannersChanged$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(readersArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterBarcodeError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onAvailableBarcodeScannersChanged(endpointsArg: List<BarcodeScannerEndpoint>, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableBarcodeScannersChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(endpointsArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterBarcodeError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(createConnectionError(channelName)))
+      } 
+    }
+  }
+  fun onActiveBarcodeScannerChanged(endpointArg: BarcodeScannerEndpoint?, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onActiveBarcodeScannerChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(endpointArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterBarcodeError(it[0] as String, it[1] as String, it[2] as String?)))

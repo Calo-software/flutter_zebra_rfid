@@ -1,6 +1,7 @@
 package nz.calo.flutter_zebra_rfid
 
 import BarcodeScanner
+import BarcodeScannerEndpoint
 import FlutterZebraBarcode
 import FlutterZebraBarcodeCallbacks
 import FlutterZebraRfid
@@ -466,8 +467,39 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         }
     }
 
+    override fun refreshBarcodeScanners(callback: (Result<Unit>) -> Unit) {
+        try {
+            scannerInterface!!.refreshBarcodeScanners(applicationContext)
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun setActiveBarcodeScanner(endpointId: String, callback: (Result<Unit>) -> Unit) {
+        try {
+            scannerInterface!!.setActiveEndpoint(endpointId)
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
+    override fun clearActiveBarcodeScanner(callback: (Result<Unit>) -> Unit) {
+        try {
+            scannerInterface!!.clearActiveEndpoint()
+            callback(Result.success(Unit))
+        } catch (e: Throwable) {
+            callback(Result.failure(e))
+        }
+    }
+
     override fun currentScanner(): BarcodeScanner? {
         return scannerInterface!!.currentScanner()
+    }
+
+    override fun activeBarcodeScanner(): BarcodeScannerEndpoint? {
+        return scannerInterface!!.activeEndpoint()
     }
 
 
@@ -483,9 +515,9 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         if (rfidInterface != null) {
             rfidInterface!!.onDestroy()
         }
-//        if (scannerInterface != null) {
-//            scannerInterface!!.onDestroy()
-//        }
+        if (scannerInterface != null) {
+            scannerInterface!!.onDestroy()
+        }
     }
 
     companion object {

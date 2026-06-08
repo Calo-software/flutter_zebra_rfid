@@ -1,9 +1,22 @@
 import 'package:flutter_zebra_rfid/shared_types.dart';
 import 'package:rxdart/subjects.dart';
 
+import 'flutter_zebra_barcode.dart';
 import 'flutter_zebra_rfid.g.dart';
 
 export 'flutter_zebra_rfid.g.dart';
+export 'flutter_zebra_barcode.dart' hide wrapResponse;
+
+class FlutterZebraDataCaptureApi {
+  FlutterZebraDataCaptureApi({
+    FlutterZebraRfidApi? rfid,
+    FlutterZebraBarcodeApi? barcode,
+  })  : rfid = rfid ?? FlutterZebraRfidApi(),
+        barcode = barcode ?? FlutterZebraBarcodeApi();
+
+  final FlutterZebraRfidApi rfid;
+  final FlutterZebraBarcodeApi barcode;
+}
 
 class FlutterZebraRfidApi {
   /// Behavior subject wrapping connection updates callback from the plugin

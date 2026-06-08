@@ -81,6 +81,20 @@ enum ScannerConnectionStatus: Int {
   case error = 4
 }
 
+enum BarcodeScannerSource: Int {
+  case builtInTerminal = 0
+  case rfidSled = 1
+  case externalBluetooth = 2
+  case externalUsb = 3
+  case unknown = 4
+}
+
+enum BarcodeScannerMode: Int {
+  case auto = 0
+  case dataWedge = 1
+  case scannerSdk = 2
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct BarcodeScanner {
   var name: String? = nil
@@ -119,6 +133,9 @@ struct Barcode {
   var data: String
   var scannerId: Int64
   var barcodeType: Int64? = nil
+  var endpointId: String? = nil
+  var source: BarcodeScannerSource? = nil
+  var scannerName: String? = nil
 
 
 
@@ -127,11 +144,17 @@ struct Barcode {
     let data = pigeonVar_list[0] as! String
     let scannerId = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
     let barcodeType: Int64? = isNullish(pigeonVar_list[2]) ? nil : (pigeonVar_list[2] is Int64? ? pigeonVar_list[2] as! Int64? : Int64(pigeonVar_list[2] as! Int32))
+    let endpointId: String? = nilOrValue(pigeonVar_list[3])
+    let source: BarcodeScannerSource? = nilOrValue(pigeonVar_list[4])
+    let scannerName: String? = nilOrValue(pigeonVar_list[5])
 
     return Barcode(
       data: data,
       scannerId: scannerId,
-      barcodeType: barcodeType
+      barcodeType: barcodeType,
+      endpointId: endpointId,
+      source: source,
+      scannerName: scannerName
     )
   }
   func toList() -> [Any?] {
@@ -139,6 +162,74 @@ struct Barcode {
       data,
       scannerId,
       barcodeType,
+      endpointId,
+      source,
+      scannerName,
+    ]
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct BarcodeScannerEndpoint {
+  var endpointId: String
+  var displayName: String
+  var source: BarcodeScannerSource
+  var mode: BarcodeScannerMode
+  var connectionStatus: ScannerConnectionStatus
+  var active: Bool
+  var preferred: Bool
+  var zebraScannerIdentifier: String? = nil
+  var scannerIndex: Int64? = nil
+  var scannerId: Int64? = nil
+  var model: String? = nil
+  var serialNumber: String? = nil
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> BarcodeScannerEndpoint? {
+    let endpointId = pigeonVar_list[0] as! String
+    let displayName = pigeonVar_list[1] as! String
+    let source = pigeonVar_list[2] as! BarcodeScannerSource
+    let mode = pigeonVar_list[3] as! BarcodeScannerMode
+    let connectionStatus = pigeonVar_list[4] as! ScannerConnectionStatus
+    let active = pigeonVar_list[5] as! Bool
+    let preferred = pigeonVar_list[6] as! Bool
+    let zebraScannerIdentifier: String? = nilOrValue(pigeonVar_list[7])
+    let scannerIndex: Int64? = isNullish(pigeonVar_list[8]) ? nil : (pigeonVar_list[8] is Int64? ? pigeonVar_list[8] as! Int64? : Int64(pigeonVar_list[8] as! Int32))
+    let scannerId: Int64? = isNullish(pigeonVar_list[9]) ? nil : (pigeonVar_list[9] is Int64? ? pigeonVar_list[9] as! Int64? : Int64(pigeonVar_list[9] as! Int32))
+    let model: String? = nilOrValue(pigeonVar_list[10])
+    let serialNumber: String? = nilOrValue(pigeonVar_list[11])
+
+    return BarcodeScannerEndpoint(
+      endpointId: endpointId,
+      displayName: displayName,
+      source: source,
+      mode: mode,
+      connectionStatus: connectionStatus,
+      active: active,
+      preferred: preferred,
+      zebraScannerIdentifier: zebraScannerIdentifier,
+      scannerIndex: scannerIndex,
+      scannerId: scannerId,
+      model: model,
+      serialNumber: serialNumber
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      endpointId,
+      displayName,
+      source,
+      mode,
+      connectionStatus,
+      active,
+      preferred,
+      zebraScannerIdentifier,
+      scannerIndex,
+      scannerId,
+      model,
+      serialNumber,
     ]
   }
 }
@@ -159,9 +250,23 @@ private class FlutterZebraBarcodePigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 131:
-      return BarcodeScanner.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return BarcodeScannerSource(rawValue: enumResultAsInt)
+      }
+      return nil
     case 132:
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return BarcodeScannerMode(rawValue: enumResultAsInt)
+      }
+      return nil
+    case 133:
+      return BarcodeScanner.fromList(self.readValue() as! [Any?])
+    case 134:
       return Barcode.fromList(self.readValue() as! [Any?])
+    case 135:
+      return BarcodeScannerEndpoint.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -176,11 +281,20 @@ private class FlutterZebraBarcodePigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ScannerConnectionStatus {
       super.writeByte(130)
       super.writeValue(value.rawValue)
-    } else if let value = value as? BarcodeScanner {
+    } else if let value = value as? BarcodeScannerSource {
       super.writeByte(131)
+      super.writeValue(value.rawValue)
+    } else if let value = value as? BarcodeScannerMode {
+      super.writeByte(132)
+      super.writeValue(value.rawValue)
+    } else if let value = value as? BarcodeScanner {
+      super.writeByte(133)
       super.writeValue(value.toList())
     } else if let value = value as? Barcode {
-      super.writeByte(132)
+      super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? BarcodeScannerEndpoint {
+      super.writeByte(135)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -211,8 +325,17 @@ protocol FlutterZebraBarcode {
   func connectScanner(scannerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
   /// Disconnects a current scanner.
   func disconnectScanner(completion: @escaping (Result<Void, Error>) -> Void)
+  /// Refreshes all barcode scanner endpoints, including DataWedge-managed
+  /// terminal scanners and Scanner SDK external scanners where available.
+  func refreshBarcodeScanners(completion: @escaping (Result<Void, Error>) -> Void)
+  /// Selects the endpoint that should be treated as the active barcode source.
+  func setActiveBarcodeScanner(endpointId: String, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Clears the explicit active barcode source.
+  func clearActiveBarcodeScanner(completion: @escaping (Result<Void, Error>) -> Void)
   /// Reader currently in use
   func currentScanner() throws -> BarcodeScanner?
+  /// Barcode scanner endpoint currently selected, if any.
+  func activeBarcodeScanner() throws -> BarcodeScannerEndpoint?
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -271,6 +394,57 @@ class FlutterZebraBarcodeSetup {
     } else {
       disconnectScannerChannel.setMessageHandler(nil)
     }
+    /// Refreshes all barcode scanner endpoints, including DataWedge-managed
+    /// terminal scanners and Scanner SDK external scanners where available.
+    let refreshBarcodeScannersChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.refreshBarcodeScanners\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      refreshBarcodeScannersChannel.setMessageHandler { _, reply in
+        api.refreshBarcodeScanners { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      refreshBarcodeScannersChannel.setMessageHandler(nil)
+    }
+    /// Selects the endpoint that should be treated as the active barcode source.
+    let setActiveBarcodeScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.setActiveBarcodeScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setActiveBarcodeScannerChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let endpointIdArg = args[0] as! String
+        api.setActiveBarcodeScanner(endpointId: endpointIdArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      setActiveBarcodeScannerChannel.setMessageHandler(nil)
+    }
+    /// Clears the explicit active barcode source.
+    let clearActiveBarcodeScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.clearActiveBarcodeScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearActiveBarcodeScannerChannel.setMessageHandler { _, reply in
+        api.clearActiveBarcodeScanner { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      clearActiveBarcodeScannerChannel.setMessageHandler(nil)
+    }
     /// Reader currently in use
     let currentScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.currentScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
@@ -285,11 +459,27 @@ class FlutterZebraBarcodeSetup {
     } else {
       currentScannerChannel.setMessageHandler(nil)
     }
+    /// Barcode scanner endpoint currently selected, if any.
+    let activeBarcodeScannerChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.activeBarcodeScanner\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      activeBarcodeScannerChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.activeBarcodeScanner()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      activeBarcodeScannerChannel.setMessageHandler(nil)
+    }
   }
 }
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol FlutterZebraBarcodeCallbacksProtocol {
   func onAvailableScannersChanged(readers readersArg: [BarcodeScanner], completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void)
+  func onAvailableBarcodeScannersChanged(endpoints endpointsArg: [BarcodeScannerEndpoint], completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void)
+  func onActiveBarcodeScannerChanged(endpoint endpointArg: BarcodeScannerEndpoint?, completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void)
   func onScannerConnectionStatusChanged(status statusArg: ScannerConnectionStatus, completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void)
   func onBarcodeRead(barcode barcodeArg: Barcode, completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void)
 }
@@ -307,6 +497,42 @@ class FlutterZebraBarcodeCallbacks: FlutterZebraBarcodeCallbacksProtocol {
     let channelName: String = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableScannersChanged\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([readersArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(FlutterBarcodeError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onAvailableBarcodeScannersChanged(endpoints endpointsArg: [BarcodeScannerEndpoint], completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableBarcodeScannersChanged\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([endpointsArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(FlutterBarcodeError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(Void()))
+      }
+    }
+  }
+  func onActiveBarcodeScannerChanged(endpoint endpointArg: BarcodeScannerEndpoint?, completion: @escaping (Result<Void, FlutterBarcodeError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onActiveBarcodeScannerChanged\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([endpointArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

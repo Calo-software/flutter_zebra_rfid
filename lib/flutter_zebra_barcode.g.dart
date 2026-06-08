@@ -38,6 +38,20 @@ enum ScannerConnectionStatus {
   error,
 }
 
+enum BarcodeScannerSource {
+  builtInTerminal,
+  rfidSled,
+  externalBluetooth,
+  externalUsb,
+  unknown,
+}
+
+enum BarcodeScannerMode {
+  auto,
+  dataWedge,
+  scannerSdk,
+}
+
 class BarcodeScanner {
   BarcodeScanner({
     this.name,
@@ -79,6 +93,9 @@ class Barcode {
     required this.data,
     required this.scannerId,
     this.barcodeType,
+    this.endpointId,
+    this.source,
+    this.scannerName,
   });
 
   String data;
@@ -87,11 +104,20 @@ class Barcode {
 
   int? barcodeType;
 
+  String? endpointId;
+
+  BarcodeScannerSource? source;
+
+  String? scannerName;
+
   Object encode() {
     return <Object?>[
       data,
       scannerId,
       barcodeType,
+      endpointId,
+      source,
+      scannerName,
     ];
   }
 
@@ -101,6 +127,85 @@ class Barcode {
       data: result[0]! as String,
       scannerId: result[1]! as int,
       barcodeType: result[2] as int?,
+      endpointId: result[3] as String?,
+      source: result[4] as BarcodeScannerSource?,
+      scannerName: result[5] as String?,
+    );
+  }
+}
+
+class BarcodeScannerEndpoint {
+  BarcodeScannerEndpoint({
+    required this.endpointId,
+    required this.displayName,
+    required this.source,
+    required this.mode,
+    required this.connectionStatus,
+    required this.active,
+    required this.preferred,
+    this.zebraScannerIdentifier,
+    this.scannerIndex,
+    this.scannerId,
+    this.model,
+    this.serialNumber,
+  });
+
+  String endpointId;
+
+  String displayName;
+
+  BarcodeScannerSource source;
+
+  BarcodeScannerMode mode;
+
+  ScannerConnectionStatus connectionStatus;
+
+  bool active;
+
+  bool preferred;
+
+  String? zebraScannerIdentifier;
+
+  int? scannerIndex;
+
+  int? scannerId;
+
+  String? model;
+
+  String? serialNumber;
+
+  Object encode() {
+    return <Object?>[
+      endpointId,
+      displayName,
+      source,
+      mode,
+      connectionStatus,
+      active,
+      preferred,
+      zebraScannerIdentifier,
+      scannerIndex,
+      scannerId,
+      model,
+      serialNumber,
+    ];
+  }
+
+  static BarcodeScannerEndpoint decode(Object result) {
+    result as List<Object?>;
+    return BarcodeScannerEndpoint(
+      endpointId: result[0]! as String,
+      displayName: result[1]! as String,
+      source: result[2]! as BarcodeScannerSource,
+      mode: result[3]! as BarcodeScannerMode,
+      connectionStatus: result[4]! as ScannerConnectionStatus,
+      active: result[5]! as bool,
+      preferred: result[6]! as bool,
+      zebraScannerIdentifier: result[7] as String?,
+      scannerIndex: result[8] as int?,
+      scannerId: result[9] as int?,
+      model: result[10] as String?,
+      serialNumber: result[11] as String?,
     );
   }
 }
@@ -116,11 +221,20 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is ScannerConnectionStatus) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    } else     if (value is BarcodeScanner) {
+    } else     if (value is BarcodeScannerSource) {
       buffer.putUint8(131);
+      writeValue(buffer, value.index);
+    } else     if (value is BarcodeScannerMode) {
+      buffer.putUint8(132);
+      writeValue(buffer, value.index);
+    } else     if (value is BarcodeScanner) {
+      buffer.putUint8(133);
       writeValue(buffer, value.encode());
     } else     if (value is Barcode) {
-      buffer.putUint8(132);
+      buffer.putUint8(134);
+      writeValue(buffer, value.encode());
+    } else     if (value is BarcodeScannerEndpoint) {
+      buffer.putUint8(135);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -137,9 +251,17 @@ class _PigeonCodec extends StandardMessageCodec {
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ScannerConnectionStatus.values[value];
       case 131: 
-        return BarcodeScanner.decode(readValue(buffer)!);
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : BarcodeScannerSource.values[value];
       case 132: 
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : BarcodeScannerMode.values[value];
+      case 133: 
+        return BarcodeScanner.decode(readValue(buffer)!);
+      case 134: 
         return Barcode.decode(readValue(buffer)!);
+      case 135: 
+        return BarcodeScannerEndpoint.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -228,6 +350,76 @@ class FlutterZebraBarcode {
     }
   }
 
+  /// Refreshes all barcode scanner endpoints, including DataWedge-managed
+  /// terminal scanners and Scanner SDK external scanners where available.
+  Future<void> refreshBarcodeScanners() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.refreshBarcodeScanners$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Selects the endpoint that should be treated as the active barcode source.
+  Future<void> setActiveBarcodeScanner(String endpointId) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.setActiveBarcodeScanner$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[endpointId]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Clears the explicit active barcode source.
+  Future<void> clearActiveBarcodeScanner() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.clearActiveBarcodeScanner$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
   /// Reader currently in use
   Future<BarcodeScanner?> currentScanner() async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.currentScanner$pigeonVar_messageChannelSuffix';
@@ -250,12 +442,39 @@ class FlutterZebraBarcode {
       return (pigeonVar_replyList[0] as BarcodeScanner?);
     }
   }
+
+  /// Barcode scanner endpoint currently selected, if any.
+  Future<BarcodeScannerEndpoint?> activeBarcodeScanner() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcode.activeBarcodeScanner$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return (pigeonVar_replyList[0] as BarcodeScannerEndpoint?);
+    }
+  }
 }
 
 abstract class FlutterZebraBarcodeCallbacks {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
   void onAvailableScannersChanged(List<BarcodeScanner?> readers);
+
+  void onAvailableBarcodeScannersChanged(List<BarcodeScannerEndpoint?> endpoints);
+
+  void onActiveBarcodeScannerChanged(BarcodeScannerEndpoint? endpoint);
 
   void onScannerConnectionStatusChanged(ScannerConnectionStatus status);
 
@@ -279,6 +498,54 @@ abstract class FlutterZebraBarcodeCallbacks {
               'Argument for dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableScannersChanged was null, expected non-null List<BarcodeScanner?>.');
           try {
             api.onAvailableScannersChanged(arg_readers!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableBarcodeScannersChanged$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableBarcodeScannersChanged was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final List<BarcodeScannerEndpoint?>? arg_endpoints = (args[0] as List<Object?>?)?.cast<BarcodeScannerEndpoint?>();
+          assert(arg_endpoints != null,
+              'Argument for dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onAvailableBarcodeScannersChanged was null, expected non-null List<BarcodeScannerEndpoint?>.');
+          try {
+            api.onAvailableBarcodeScannersChanged(arg_endpoints!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onActiveBarcodeScannerChanged$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.flutter_zebra_barcode.FlutterZebraBarcodeCallbacks.onActiveBarcodeScannerChanged was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final BarcodeScannerEndpoint? arg_endpoint = (args[0] as BarcodeScannerEndpoint?);
+          try {
+            api.onActiveBarcodeScannerChanged(arg_endpoint);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

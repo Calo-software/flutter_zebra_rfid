@@ -13,7 +13,7 @@ void main() {
   testWidgets('Shows RFID actions on launch', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
-    expect(find.text('Zebra Reader API3 example app'), findsOneWidget);
+    expect(find.text('Zebra RFID + Barcode example'), findsOneWidget);
     expect(find.text('Pair Reader'), findsOneWidget);
     expect(find.text('Get Reader List'), findsOneWidget);
   });

@@ -397,7 +397,14 @@ class RFIDReaderInterface(
                 Reader(reader.name, index.toLong())
             }
             callbacks.onAvailableReadersChanged(readers) {}
-            
+
+            // Replay connection state so that a freshly-attached Dart side (e.g. after
+            // a hot reload) immediately learns about an existing live connection.
+            if (internalState == InternalConnectionState.CONNECTED) {
+                Log.i(TAG, "Replaying CONNECTED status to freshly-attached Dart listeners (reader.isConnected=${reader?.isConnected})")
+                callbacks.onReaderConnectionStatusChanged(ReaderConnectionStatus.CONNECTED) {}
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "ERROR during reader discovery: ${e.message}", e)
             Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
@@ -660,22 +667,50 @@ class RFIDReaderInterface(
     }
 
     @Synchronized
-    private fun rearmConnectedReaderSession(targetReader: RFIDReader, logMessage: String): ReaderInfo {
+    private fun rearmConnectedReaderSession(targetReader: RFIDReader, logMessage: String): ReaderInfo? {
         Log.i(TAG, logMessage)
-        setupReader()
-        val info = refreshReaderInfo(targetReader)
-        readerInfo = info
-        clearConnectTimeout()
-        if (lastConnectStartTimestamp != 0L) {
-            lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
+        // Dispatch hardware I/O off the main thread — SDK commands like setStartTrigger
+        // timeout when called on the main (Pigeon message handler) thread.
+        ioExecutor.submit {
+            try {
+                setupReader()
+                val info = refreshReaderInfo(targetReader)
+                synchronized(this) {
+                    readerInfo = info
+                    clearConnectTimeout()
+                    if (lastConnectStartTimestamp != 0L) {
+                        lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
+                    }
+                    updateConnectionState(
+                        InternalConnectionState.CONNECTED,
+                        ReaderConnectionStatus.CONNECTED,
+                        logMessage,
+                    )
+                }
+                triggerDeviceStatus()
+            } catch (e: OperationFailureException) {
+                synchronized(this) {
+                    Log.e(TAG, "OperationFailureException re-arming reader session: ${e.message}", e)
+                    Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
+                    Log.e(TAG, "  Status description: ${e.statusDescription}")
+                    emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed re-arming reader session", e.vendorMessage, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed re-arming reader session", e)
+                }
+            } catch (e: InvalidUsageException) {
+                synchronized(this) {
+                    Log.e(TAG, "InvalidUsageException re-arming reader session: ${e.message}", e)
+                    emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage re-arming reader session", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage re-arming reader session", e)
+                }
+            } catch (e: Throwable) {
+                synchronized(this) {
+                    Log.e(TAG, "Unexpected error re-arming reader session: ${e.message}", e)
+                    emitError(ReaderErrorCode.UNKNOWN, "Unexpected error re-arming reader session", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error re-arming reader session", e)
+                }
+            }
         }
-        updateConnectionState(
-            InternalConnectionState.CONNECTED,
-            ReaderConnectionStatus.CONNECTED,
-            logMessage,
-        )
-        triggerDeviceStatus()
-        return info
+        return null
     }
 
     @Synchronized
@@ -1441,23 +1476,38 @@ class RFIDReaderInterface(
             Log.d(TAG, "performInventory() called but inventory already active; ignoring")
             return
         }
-        try {
-            reader!!.Actions.Inventory.perform()
-            inventoryActive = true
-            lastInventoryStartTimestamp = System.currentTimeMillis()
-            lastTagReadTimestamp = lastInventoryStartTimestamp
-            lastInventoryStartReason = reason
-            scheduleInventoryWatchdog()
-            Log.d(TAG, "Inventory started (performInventory)")
-        } catch (e: InvalidUsageException) {
-            inventoryActive = false
-            Log.d(TAG, "InvalidUsageException starting inventory: ${e.message}")
-        } catch (e: OperationFailureException) {
-            inventoryActive = false
-            Log.d(TAG, "OperationFailureException starting inventory: ${e.message}")
-        } catch (t: Throwable) {
-            inventoryActive = false
-            Log.d(TAG, "Unexpected error starting inventory: ${t.message}")
+        // Set state eagerly before dispatching so duplicate trigger events are blocked immediately.
+        inventoryActive = true
+        lastInventoryStartTimestamp = System.currentTimeMillis()
+        lastTagReadTimestamp = lastInventoryStartTimestamp
+        lastInventoryStartReason = reason
+        scheduleInventoryWatchdog()
+        // Dispatch blocking SDK I/O to background thread — calling perform() on the main or SDK
+        // callback thread causes RFID_API_COMMAND_TIMEOUT.
+        val readerRef = reader!!
+        ioExecutor.submit {
+            try {
+                readerRef.Actions.Inventory.perform()
+                Log.d(TAG, "Inventory started (performInventory)")
+            } catch (e: InvalidUsageException) {
+                synchronized(this) {
+                    inventoryActive = false
+                    cancelInventoryWatchdog()
+                }
+                Log.d(TAG, "InvalidUsageException starting inventory: ${e.message}")
+            } catch (e: OperationFailureException) {
+                synchronized(this) {
+                    inventoryActive = false
+                    cancelInventoryWatchdog()
+                }
+                Log.d(TAG, "OperationFailureException starting inventory: ${e.message}")
+            } catch (t: Throwable) {
+                synchronized(this) {
+                    inventoryActive = false
+                    cancelInventoryWatchdog()
+                }
+                Log.d(TAG, "Unexpected error starting inventory: ${t.message}")
+            }
         }
     }
 
@@ -1469,19 +1519,24 @@ class RFIDReaderInterface(
             Log.d(TAG, "stopInventory() called but inventory not active; ignoring")
             return
         }
-        try {
-            reader!!.Actions.Inventory.stop()
-            Log.d(TAG, "Inventory stopped (stopInventory)")
-        } catch (e: InvalidUsageException) {
-            Log.w(TAG, "Inventory stop failed with InvalidUsageException; forcing recovery state reset: ${e.message}")
-        } catch (e: OperationFailureException) {
-            Log.w(TAG, "Inventory stop failed with OperationFailureException; forcing recovery state reset: ${e.message}")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Inventory stop failed unexpectedly; forcing recovery state reset: ${t.message}")
-        } finally {
-            inventoryActive = false
-            lastInventoryStopTimestamp = System.currentTimeMillis()
-            cancelInventoryWatchdog()
+        // Update state eagerly so watchdog and duplicate stop calls are blocked immediately.
+        inventoryActive = false
+        lastInventoryStopTimestamp = System.currentTimeMillis()
+        cancelInventoryWatchdog()
+        // Dispatch blocking SDK I/O to background thread — calling stop() on the main thread
+        // (e.g. from the watchdog Handler) causes RFID_API_COMMAND_TIMEOUT.
+        val readerRef = reader!!
+        ioExecutor.submit {
+            try {
+                readerRef.Actions.Inventory.stop()
+                Log.d(TAG, "Inventory stopped (stopInventory)")
+            } catch (e: InvalidUsageException) {
+                Log.w(TAG, "Inventory stop failed with InvalidUsageException: ${e.message}")
+            } catch (e: OperationFailureException) {
+                Log.w(TAG, "Inventory stop failed with OperationFailureException: ${e.message}")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Inventory stop failed unexpectedly: ${t.message}")
+            }
         }
     }
 
@@ -1522,12 +1577,16 @@ class RFIDReaderInterface(
     private fun schedulePurgeTags() {
         cancelScheduledPurge()
         val runnable = Runnable {
-            try {
-                if (!isReaderConnected()) return@Runnable
-                Log.d(TAG, "Purging tags after delay (${PURGE_TAGS_DELAY_MS}ms)")
-                reader?.Actions?.purgeTags()
-            } catch (t: Throwable) {
-                Log.d(TAG, "Error purging tags: ${t.message}")
+            if (!isReaderConnected()) return@Runnable
+            Log.d(TAG, "Purging tags after delay (${PURGE_TAGS_DELAY_MS}ms)")
+            // Dispatch blocking purgeTags() off the main thread.
+            val readerRef = reader ?: return@Runnable
+            ioExecutor.submit {
+                try {
+                    readerRef.Actions?.purgeTags()
+                } catch (t: Throwable) {
+                    Log.d(TAG, "Error purging tags: ${t.message}")
+                }
             }
         }
         pendingPurgeRunnable = runnable

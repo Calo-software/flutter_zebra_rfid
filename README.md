@@ -21,8 +21,9 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 12. Tag Locating
 13. Bluetooth Pairing (Android)
 14. Reader Region Configuration (Android)
-15. Migration Guide
-16. Roadmap & Contributing
+15. Barcode Scanner Topology
+16. Migration Guide
+17. Roadmap & Contributing
 
 ## 1. Features
 - Indexed reader discovery + guarded connection state machine
@@ -35,6 +36,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - RF parameter introspection (receiveSensitivityIndex, rfModeTableIndex placeholder)
 - Bluetooth discovery and pairing helpers for Zebra readers on Android
 - Reader regulatory region discovery and apply APIs on Android
+- Hardware-aware barcode scanner endpoints for built-in terminal scanners, RFD sled scanners, and external Zebra scanners
 - Zebra Android SDK bundle refreshed to API3 `2.0.5.238`
 
 ## 2. Getting Started
@@ -302,10 +304,41 @@ Notes:
 - The example app includes a `Set Region` action for this workflow.
 - iOS currently returns `unsupported` for these calls.
 
-## 15. Migration Guide
+## 15. Barcode Scanner Topology
+The plugin exposes barcode scanners as topology-aware endpoints so apps can handle mixed hardware, such as a TC22/TC27 built-in imager plus an RFD40/RFD90 sled barcode scanner.
+
+```dart
+final capture = FlutterZebraDataCaptureApi();
+
+capture.barcode.onAvailableBarcodeScannersChanged.listen((endpoints) {
+  // Show a picker when more than one endpoint is present.
+});
+
+capture.barcode.onBarcodeRead.listen((barcode) {
+  print('${barcode.data} from ${barcode.source} / ${barcode.scannerName}');
+});
+
+await capture.barcode.refreshBarcodeScanners();
+final endpoints = await capture.barcode.onAvailableBarcodeScannersChanged.first;
+if (endpoints.length == 1) {
+  await capture.barcode.setActiveBarcodeScanner(
+    endpointId: endpoints.first.endpointId,
+  );
+}
+```
+
+Android uses two barcode paths:
+- DataWedge for built-in Zebra terminal scanners. DataWedge is barcode-only and does not configure RFID.
+- Zebra Scanner Control SDK for external Bluetooth/USB scanners and sled scanners where exposed by the SDK.
+
+When multiple barcode endpoints are available, the plugin reports all of them and leaves active scanner selection explicit. Barcode events include endpoint/source metadata where available, making it visible whether a scan came from the terminal scanner or an attached sled.
+
+The example app includes a barcode tab that lists endpoints by hardware source, allows selecting the active scanner, and shows recent scans with source metadata.
+
+## 16. Migration Guide
 See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps (timeouts, watchdog, auto‑reconnect implications).
 
-## 16. Roadmap & Contributing
+## 17. Roadmap & Contributing
 Roadmap: `docs/ROADMAP.md`
 
 Contributions welcome once core parity stabilizes. Please include:
@@ -318,4 +351,3 @@ See `LICENSE` file.
 
 ## Disclaimer
 This project is not affiliated with Zebra Technologies. All SDK binaries remain subject to original vendor licensing.
-
