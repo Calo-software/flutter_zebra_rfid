@@ -1,0 +1,244 @@
+{
+  "READER_NAME": {
+    "value": "ET65",
+    "mode": "readonly",
+    "default": "ET65",
+    "unit": "Byte"
+  },
+  "VERSION": {
+    "value": "1.0",
+    "mode": "readonly",
+    "default": "1.0",
+    "unit": "Byte"
+  },
+  "DEBUG_LOGGER_STATE": {
+    "value": "OFF",
+    "mode": "rw",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SLEEP_COUNTDOWN_TIMER": {
+    "value": "20000",
+    "mode": "readonly",
+    "default": "20000",
+    "unit": "int"
+  },
+  "OPERATE_WHILE_CHARGING": {
+    "value": "OFF",
+    "mode": "readonly",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SUPPORT_TRIGGER": {
+    "value": "ON",
+    "mode": "readonly",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SUPPORT_LED": {
+    "value": "OFF",
+    "mode": "rw",
+    "default": "ON",
+    "unit": "Byte"
+  },
+  "SUPPORT_BEEPER": {
+    "value": "ON",
+    "mode": "rw",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SUPPORT_TAG_LOCATIONING": {
+    "value": "OFF",
+    "mode": "readonly",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SUPPORT_SMART_PERIODIC_INVENTORY": {
+    "value": "MANDATORY",
+    "mode": "readonly",
+    "default": "OPTIONAL",
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_MINIMUM_DUTY_CYCLE": {
+    "value": 20,
+    "mode": "readonly",
+    "default": 20,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_DUTY_CYCLE_LIMIT": {
+    "value": 30,
+    "mode": "readonly",
+    "default": 20,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_DUTY_CYCLE_ADJUSTABLE": {
+    "value": "ON",
+    "mode": "readonly",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "SMART_PERIODIC_INVENTORY_DUTY_CYCLE_ADJUSTABLE_TABLE": {
+    "value": [
+      {
+        "tx": 24,
+        "dc": 30
+      },
+      {
+        "tx": 20,
+        "dc": 35
+      },
+      {
+        "tx": 16,
+        "dc": 40
+      }
+    ],
+    "mode": "readonly",
+    "default": "null",
+    "unit": "Table"
+  },
+  "SMART_PERIODIC_INVENTORY_RF_BURST_DEFAULT_VALUE": {
+    "value": 150,
+    "mode": "readonly",
+    "default": 150,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_RF_BURST_MIN_VALUE": {
+    "value": 100,
+    "mode": "readonly",
+    "default": 100,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_RF_BURST_MAX_VALUE": {
+    "value": 5000,
+    "mode": "readonly",
+    "default": 5000,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_LOOP_DEFAULT_VALUE": {
+    "value": 500,
+    "mode": "readonly",
+    "default": 500,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_LOOP_MIN_VALUE": {
+    "value": 300,
+    "mode": "readonly",
+    "default": 300,
+    "unit": "int"
+  },
+  "SMART_PERIODIC_INVENTORY_LOOP_MAX_VALUE": {
+    "value": 10000,
+    "mode": "readonly",
+    "default": 10000,
+    "unit": "int"
+  },
+  "SUPPORT_MAX_RF_TRANSMIT_LIMIT": {
+    "value": "ON",
+    "mode": "readonly",
+    "default": "OFF",
+    "unit": "Byte"
+  },
+  "MAX_RF_TRANSMIT_LIMIT": {
+    "value": 24,
+    "mode": "readonly",
+    "default": 24,
+    "unit": "int"
+  },
+  "DEFAULT_RFID_PROFILE": {
+    "value": "BALANCED_PERFORMANCE",
+    "mode": "rw",
+    "default": "BALANCED_PERFORMANCE",
+    "unit": "String"
+  },
+  "HANDHELD_TRIGGER_MODE": {
+    "value": "ON",
+    "mode": "readonly",
+    "default": "ON",
+    "unit": "Byte"
+  },
+  "RFID_PROFILES": {
+    "value": [
+      {
+        "profile_name": "OPTIMAL_BATTERY",
+        "friendly_name": "Optimal Battery",
+        "description": "Gives best battery live",
+        "rf_burst": 100,
+        "loop": 667,
+        "tx": 20,
+        "session": "S0",
+        "dutyCycle": 15,
+        "Tag_population": 3,
+        "link": 0,
+        "inventory_state": 2
+      },
+      {
+        "profile_name": "BALANCED_PERFORMANCE",
+        "friendly_name": "Balanced performance",
+        "description": "Maintains balance between perfomance and battery life",
+        "rf_burst": 150,
+        "loop": 600,
+        "tx": 20,
+        "session": "S0",
+        "dutyCycle": 25,
+        "Tag_population": 3,
+        "link": 0,
+        "inventory_state": 2
+      },
+      {
+        "profile_name": "MAX_RANGE",
+        "friendly_name": "Max Range",
+        "description": "Reads as many tags as fast as possible in longer range",
+        "rf_burst": 150,
+        "loop": 500,
+        "tx": 24,
+        "session": "S0",
+        "dutyCycle": 30,
+        "Tag_population": 10,
+        "link": 2,
+        "inventory_state": 2
+      },
+      {
+        "profile_name": "FASTEST_READ",
+        "friendly_name": "Fastest Read",
+        "description": "Reads as many tags as possible in shorter range",
+        "rf_burst": 175,
+        "loop": 500,
+        "tx": 20,
+        "session": "S0",
+        "dutyCycle": 35,
+        "Tag_population": 10,
+        "link": 2,
+        "inventory_state": 2
+      },
+      {
+        "profile_name": "CYCLE_COUNT",
+        "friendly_name": "Cycle Count",
+        "description": "Reads as many unique tags as possible",
+        "rf_burst": 150,
+        "loop": 500,
+        "tx": 24,
+        "session": "S2",
+        "dutyCycle": 30,
+        "Tag_population": 50,
+        "link": 0,
+        "inventory_state": 0
+      },
+      {
+        "profile_name": "USER_DEFINED",
+        "friendly_name": "User Defined",
+        "description": "Custom profile Used for custom requirement",
+        "rf_burst": 150,
+        "loop": 600,
+        "tx": 20,
+        "session": "S0",
+        "dutyCycle": 30,
+        "Tag_population": 3,
+        "link": 0,
+        "inventory_state": 2
+      }
+    ],
+    "mode": "readonly",
+    "default": "null",
+    "unit": "Table"
+  }
+}

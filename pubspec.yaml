@@ -1,5 +1,5 @@
 name: flutter_zebra_rfid
-description: "Flutter wrapper for Zebra RFID SDK for iOS and Android"
+description: "Flutter wrapper for Zebra RFID SDK for iOS, Android, and Windows"
 version: 0.3.2
 homepage: null
 
@@ -27,3 +27,5 @@ flutter:
         pluginClass: FlutterZebraRfidPlugin
       ios:
         pluginClass: FlutterZebraRfidPlugin
+      windows:
+        pluginClass: FlutterZebraRfidPluginCApi

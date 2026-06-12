@@ -8,6 +8,12 @@ import 'package:pigeon/pigeon.dart';
     kotlinOptions: KotlinOptions(errorClassName: 'FlutterBarcodeError'),
     swiftOut: 'ios/Classes/FlutterZebraBarcode.g.swift',
     swiftOptions: SwiftOptions(errorClassName: 'FlutterBarcodeError'),
+    cppHeaderOut: 'windows/flutter_zebra_barcode.g.h',
+    cppSourceOut: 'windows/flutter_zebra_barcode.g.cpp',
+    cppOptions: CppOptions(
+      namespace: 'flutter_zebra_barcode',
+      headerIncludePath: 'flutter_zebra_barcode.g.h',
+    ),
     dartPackageName: 'flutter_zebra_barcode',
   ),
 )
@@ -48,7 +54,8 @@ abstract class FlutterZebraBarcode {
 @FlutterApi()
 abstract class FlutterZebraBarcodeCallbacks {
   void onAvailableScannersChanged(List<BarcodeScanner> readers);
-  void onAvailableBarcodeScannersChanged(List<BarcodeScannerEndpoint> endpoints);
+  void onAvailableBarcodeScannersChanged(
+      List<BarcodeScannerEndpoint> endpoints);
   void onActiveBarcodeScannerChanged(BarcodeScannerEndpoint? endpoint);
   void onScannerConnectionStatusChanged(ScannerConnectionStatus status);
   void onBarcodeRead(Barcode barcode);

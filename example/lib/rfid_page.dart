@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
@@ -46,8 +47,11 @@ class _RfidPageState extends State<RfidPage>
   bool _bluetoothLikelyZebraOnly = true;
   bool _bluetoothOnlyUnpaired = false;
 
-  ReaderConnectionType _connectionType = ReaderConnectionType.all;
+  ReaderConnectionType _connectionType =
+      Platform.isWindows ? ReaderConnectionType.usb : ReaderConnectionType.all;
   bool _isLoading = false;
+
+  bool get _supportsBluetoothPairing => !Platform.isWindows;
 
   bool get _canConfigureRegion =>
       _isRegionConfigurationError(_lastError) || _currentReader != null;
@@ -507,6 +511,12 @@ class _RfidPageState extends State<RfidPage>
   }
 
   Future<void> _openBluetoothPairingDialog() async {
+    if (!_supportsBluetoothPairing) {
+      _showMessage(
+        'Bluetooth pairing is not supported by the Windows implementation yet.',
+      );
+      return;
+    }
     _resetBluetoothFilters();
     try {
       await _loadBondedBluetoothDevices();
@@ -1040,26 +1050,29 @@ class _RfidPageState extends State<RfidPage>
                     labelText: 'Connection',
                     isDense: true,
                   ),
-                  items: const [
-                    DropdownMenuItem(
+                  items: [
+                    const DropdownMenuItem(
                       value: ReaderConnectionType.all,
                       child: Text('All'),
                     ),
-                    DropdownMenuItem(
+                    const DropdownMenuItem(
                       value: ReaderConnectionType.usb,
                       child: Text('USB'),
                     ),
-                    DropdownMenuItem(
-                      value: ReaderConnectionType.bluetooth,
-                      child: Text('Bluetooth'),
-                    ),
+                    if (_supportsBluetoothPairing)
+                      const DropdownMenuItem(
+                        value: ReaderConnectionType.bluetooth,
+                        child: Text('Bluetooth'),
+                      ),
                   ],
                   onChanged: (value) =>
                       setState(() => _connectionType = value!),
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: _openBluetoothPairingDialog,
+                onPressed: _supportsBluetoothPairing
+                    ? _openBluetoothPairingDialog
+                    : null,
                 icon: const Icon(Icons.bluetooth_searching),
                 label: const Text('Pair Reader'),
               ),

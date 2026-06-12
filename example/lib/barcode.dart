@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_barcode.dart';
@@ -26,6 +27,8 @@ class _BarcodePageState extends State<BarcodePage>
   bool _isLoading = false;
   String? _message;
 
+  bool get _isBarcodeSupported => !Platform.isWindows;
+
   @override
   void initState() {
     super.initState();
@@ -47,7 +50,12 @@ class _BarcodePageState extends State<BarcodePage>
           }
         });
       }));
-    _refresh();
+    if (_isBarcodeSupported) {
+      _refresh();
+    } else {
+      _message =
+          'Barcode scanning is not supported by the Windows plugin implementation yet.';
+    }
   }
 
   @override
@@ -78,7 +86,7 @@ class _BarcodePageState extends State<BarcodePage>
           runSpacing: 8,
           children: [
             ElevatedButton.icon(
-              onPressed: _isLoading ? null : _refresh,
+              onPressed: _isLoading || !_isBarcodeSupported ? null : _refresh,
               icon: _isLoading
                   ? const SizedBox(
                       height: 18,
@@ -181,6 +189,13 @@ class _BarcodePageState extends State<BarcodePage>
   }
 
   Future<void> _refresh() async {
+    if (!_isBarcodeSupported) {
+      setState(() {
+        _message =
+            'Barcode scanning is not supported by the Windows plugin implementation yet.';
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
       _message = null;
