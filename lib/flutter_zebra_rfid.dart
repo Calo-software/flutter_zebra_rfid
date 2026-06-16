@@ -2,20 +2,25 @@ import 'package:flutter_zebra_rfid/shared_types.dart';
 import 'package:rxdart/subjects.dart';
 
 import 'flutter_zebra_barcode.dart';
+import 'flutter_zebra_capture.dart';
 import 'flutter_zebra_rfid.g.dart';
 
 export 'flutter_zebra_rfid.g.dart';
 export 'flutter_zebra_barcode.dart' hide wrapResponse;
+export 'flutter_zebra_capture.dart' hide wrapResponse;
 
 class FlutterZebraDataCaptureApi {
   FlutterZebraDataCaptureApi({
     FlutterZebraRfidApi? rfid,
     FlutterZebraBarcodeApi? barcode,
+    FlutterZebraCaptureApi? capture,
   })  : rfid = rfid ?? FlutterZebraRfidApi(),
-        barcode = barcode ?? FlutterZebraBarcodeApi();
+        barcode = barcode ?? FlutterZebraBarcodeApi(),
+        capture = capture ?? FlutterZebraCaptureApi();
 
   final FlutterZebraRfidApi rfid;
   final FlutterZebraBarcodeApi barcode;
+  final FlutterZebraCaptureApi capture;
 }
 
 class FlutterZebraRfidApi {
@@ -124,8 +129,10 @@ class FlutterZebraRfidApi {
   Future<void> setScanningEnabled({required bool enabled}) =>
       _api.setScanningEnabled(enabled);
 
+  static final _sharedCallbacks = _FlutterZebraRfidCallbacksImpl();
+
   final _api = FlutterZebraRfid();
-  final _callbacks = _FlutterZebraRfidCallbacksImpl();
+  final _callbacks = _sharedCallbacks;
 }
 
 class _FlutterZebraRfidCallbacksImpl implements FlutterZebraRfidCallbacks {

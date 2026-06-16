@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 
 import 'package:flutter_zebra_rfid_example/barcode.dart';
+import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
 import 'package:flutter_zebra_rfid_example/rfid_page.dart';
+import 'package:flutter_zebra_rfid_example/scan_log_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,13 +20,58 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final _pageController = PageController(initialPage: 0, keepPage: true);
+  static const _maxScanLogEntries = 300;
 
+  final _captureApi = FlutterZebraDataCaptureApi();
+  final _subscriptions = <StreamSubscription<dynamic>>[];
+  final _scanLogEntries = <ScanLogEntry>[];
   int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
+    _subscriptions
+      ..add(_captureApi.rfid.onTagsRead.listen(_logRfidTags))
+      ..add(_captureApi.barcode.onBarcodeRead.listen(_logBarcode));
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+
+  void _logRfidTags(List<RfidTag> tags) {
+    if (!mounted || tags.isEmpty) return;
+    setState(() {
+      _scanLogEntries.insertAll(
+        0,
+        tags.map(ScanLogEntry.rfid),
+      );
+      _trimScanLog();
+    });
+  }
+
+  void _logBarcode(Barcode barcode) {
+    if (!mounted) return;
+    setState(() {
+      _scanLogEntries.insert(0, ScanLogEntry.barcode(barcode));
+      _trimScanLog();
+    });
+  }
+
+  void _trimScanLog() {
+    if (_scanLogEntries.length <= _maxScanLogEntries) return;
+    _scanLogEntries.removeRange(
+      _maxScanLogEntries,
+      _scanLogEntries.length,
+    );
+  }
+
+  void _clearScanLog() {
+    setState(_scanLogEntries.clear);
   }
 
   @override
@@ -55,13 +105,15 @@ class _MyAppState extends State<MyApp> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: 2,
-                  onPageChanged: (page) => setState(() => _currentPage = page),
-                  itemBuilder: (context, index) =>
-                      index == 0 ? const RfidPage() : const BarcodePage(),
-                ),
+                child: switch (_currentPage) {
+                  0 => const CaptureDashboard(),
+                  1 => const RfidPage(),
+                  2 => const BarcodePage(),
+                  _ => ScanLogPage(
+                      entries: _scanLogEntries,
+                      onClear: _clearScanLog,
+                    ),
+                },
               ),
             ),
           ),
@@ -70,6 +122,11 @@ class _MyAppState extends State<MyApp> {
           selectedIndex: _currentPage,
           onDestinationSelected: _toPage,
           destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.settings_input_component_outlined),
+              selectedIcon: Icon(Icons.settings_input_component),
+              label: 'Capture',
+            ),
             NavigationDestination(
               icon: Icon(Icons.nfc_outlined),
               selectedIcon: Icon(Icons.nfc),
@@ -80,6 +137,11 @@ class _MyAppState extends State<MyApp> {
               selectedIcon: Icon(Icons.barcode_reader),
               label: 'Barcode',
             ),
+            NavigationDestination(
+              icon: Icon(Icons.fact_check_outlined),
+              selectedIcon: Icon(Icons.fact_check),
+              label: 'Scan Log',
+            ),
           ],
         ),
       ),
@@ -87,11 +149,6 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _toPage(int page) {
-    _pageController.animateToPage(
-      page,
-      duration: Durations.short2,
-      curve: Curves.easeOutCubic,
-    );
     setState(() => _currentPage = page);
   }
 }

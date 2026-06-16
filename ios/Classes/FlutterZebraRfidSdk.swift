@@ -437,6 +437,10 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         return nil
     }
 
+    func availableReadersSnapshot() -> [Reader] {
+        return _availableReaders
+    }
+
     func startLocating(tags: [RfidTag], disableBeep: Bool?, completion: @escaping (Result<Void, Error>) -> Void) {
         _isLocating = true
         completion(.success(()))

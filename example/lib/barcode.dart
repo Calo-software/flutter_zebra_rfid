@@ -62,8 +62,8 @@ class _BarcodePageState extends State<BarcodePage>
   Widget build(BuildContext context) {
     super.build(context);
     final grouped = _groupEndpoints(_endpoints);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ListView(
+      padding: EdgeInsets.zero,
       children: [
         _StatusHeader(
           activeEndpoint: _activeEndpoint,
@@ -73,99 +73,95 @@ class _BarcodePageState extends State<BarcodePage>
           scanCount: _scans.length,
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : _refresh,
-              icon: _isLoading
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: const Text('Refresh scanners'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _activeEndpoint?.mode == BarcodeScannerMode.scannerSdk
-                  ? () => _connectScanner(_activeEndpoint!)
-                  : null,
-              icon: const Icon(Icons.link),
-              label: const Text('Connect external'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _activeEndpoint?.mode == BarcodeScannerMode.scannerSdk
-                  ? _disconnectScanner
-                  : null,
-              icon: const Icon(Icons.link_off),
-              label: const Text('Disconnect'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _scans.isEmpty ? null : () => setState(_scans.clear),
-              icon: const Icon(Icons.clear_all),
-              label: const Text('Clear scans'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (_endpoints.length > 1 && _activeEndpoint == null)
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.amber.shade100,
-            child: const Text(
-              'Multiple barcode scanners found. Select the scanner that should handle barcode reads.',
-            ),
-          ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.zero,
+        ExampleSectionCard(
+          padding: const EdgeInsets.all(12),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (_endpoints.isEmpty && !_isLoading)
-                const ExampleSectionCard(
-                  child: ExampleEmptyState(
-                    icon: Icons.barcode_reader,
-                    title: 'No barcode scanners detected',
-                    message:
-                        'Refresh scanners after connecting Zebra hardware or enabling the scanner service.',
-                  ),
-                ),
-              for (final entry in grouped.entries) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 6),
-                  child: Text(
-                    entry.key.label,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                for (final endpoint in entry.value)
-                  _EndpointTile(
-                    endpoint: endpoint,
-                    onSelect: () => _selectEndpoint(endpoint),
-                  ),
-              ],
-              const SizedBox(height: 20),
-              Text(
-                'Recent scans',
-                style: Theme.of(context).textTheme.titleMedium,
+              ElevatedButton.icon(
+                onPressed: _isLoading ? null : _refresh,
+                icon: _isLoading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+                label: const Text('Refresh scanners'),
               ),
-              const SizedBox(height: 8),
-              if (_scans.isEmpty)
-                const ExampleSectionCard(
-                  child: ExampleEmptyState(
-                    icon: Icons.document_scanner_outlined,
-                    title: 'No scans yet',
-                    message:
-                        'Scan a barcode to see the most recent reads here.',
-                  ),
-                )
-              else
-                for (final scan in _scans) _ScanTile(scan: scan),
+              OutlinedButton.icon(
+                onPressed:
+                    _activeEndpoint?.mode == BarcodeScannerMode.scannerSdk
+                        ? () => _connectScanner(_activeEndpoint!)
+                        : null,
+                icon: const Icon(Icons.link),
+                label: const Text('Connect external'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    _activeEndpoint?.mode == BarcodeScannerMode.scannerSdk
+                        ? _disconnectScanner
+                        : null,
+                icon: const Icon(Icons.link_off),
+                label: const Text('Disconnect'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _scans.isEmpty ? null : () => setState(_scans.clear),
+                icon: const Icon(Icons.clear_all),
+                label: const Text('Clear scans'),
+              ),
             ],
           ),
         ),
+        if (_endpoints.length > 1 && _activeEndpoint == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: ExampleSectionCard(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: Colors.amber.shade900),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Multiple barcode scanners found. Select the scanner that should handle barcode reads.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: 12),
+        if (_endpoints.isEmpty && !_isLoading)
+          const ExampleSectionCard(
+            padding: EdgeInsets.all(8),
+            child: ExampleEmptyState(
+              icon: Icons.barcode_reader,
+              title: 'No barcode scanners detected',
+              message:
+                  'Refresh scanners after connecting Zebra hardware or enabling the scanner service.',
+              compact: true,
+            ),
+          ),
+        for (final entry in grouped.entries) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 6),
+            child: Text(
+              entry.key.label,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          for (final endpoint in entry.value)
+            _EndpointTile(
+              endpoint: endpoint,
+              onSelect: () => _selectEndpoint(endpoint),
+            ),
+        ],
+        const SizedBox(height: 16),
+        _RecentScansSection(scans: _scans),
       ],
     );
   }
@@ -354,6 +350,58 @@ class _StatusHeader extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _RecentScansSection extends StatelessWidget {
+  const _RecentScansSection({required this.scans});
+
+  final List<_BarcodeScan> scans;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExampleSectionCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 260),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Recent scans',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const Spacer(),
+                ExampleStatusPill(
+                  label: '${scans.length}',
+                  icon: Icons.qr_code_scanner,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (scans.isEmpty)
+              const ExampleEmptyState(
+                icon: Icons.document_scanner_outlined,
+                title: 'No scans yet',
+                message: 'Scan a barcode to see the most recent reads here.',
+                compact: true,
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: scans.length,
+                  itemBuilder: (context, index) =>
+                      _ScanTile(scan: scans[index]),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

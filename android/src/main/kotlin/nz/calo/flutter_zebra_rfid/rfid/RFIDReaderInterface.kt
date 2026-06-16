@@ -14,13 +14,17 @@ import RfidTag
 import ReaderErrorCode
 import ReaderError
 import Diagnostics
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.util.ArrayMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import android.util.Log
+import android.os.Build
+import androidx.core.content.ContextCompat
 import com.zebra.rfid.api3.ACCESS_OPERATION_STATUS
 import com.zebra.rfid.api3.Antennas
 import com.zebra.rfid.api3.BATCH_MODE
@@ -66,9 +70,9 @@ internal fun readerConnectionTypeToDiscoveryTransports(type: ReaderConnectionTyp
         ReaderConnectionType.BLUETOOTH -> listOf(ENUM_TRANSPORT.BLUETOOTH)
         ReaderConnectionType.USB -> listOf(ENUM_TRANSPORT.SERVICE_SERIAL, ENUM_TRANSPORT.SERVICE_USB)
         ReaderConnectionType.ALL -> listOf(
-            ENUM_TRANSPORT.BLUETOOTH,
             ENUM_TRANSPORT.SERVICE_SERIAL,
             ENUM_TRANSPORT.SERVICE_USB,
+            ENUM_TRANSPORT.BLUETOOTH,
         )
     }
 }
@@ -220,6 +224,9 @@ class RFIDReaderInterface(
     // Battery fallback derivation state
     private var lastBatteryLevel: Int? = null
     private var lastBatteryCharging: Boolean = false
+    var readersChangedListener: (() -> Unit)? = null
+    var connectionStatusListener: ((ReaderConnectionStatus) -> Unit)? = null
+    var connectionErrorListener: ((ReaderError) -> Unit)? = null
 
     private fun estimateBatteryPercentFromVoltageMv(voltageMv: Int): Int {
         val v = voltageMv / 1000.0
@@ -297,6 +304,7 @@ class RFIDReaderInterface(
         externalStatus?.let { status ->
             mainHandler.post {
                 callbacks.onReaderConnectionStatusChanged(status) {}
+                connectionStatusListener?.invoke(status)
             }
         }
     }
@@ -306,7 +314,10 @@ class RFIDReaderInterface(
         val err = ReaderError(code, message, details ?: throwable?.message)
         lastErrorCode = code
         lastErrorMessage = message
-        mainHandler.post { callbacks.onReaderConnectionError(err) {} }
+        mainHandler.post {
+            callbacks.onReaderConnectionError(err) {}
+            connectionErrorListener?.invoke(err)
+        }
     }
 
     init {
@@ -319,8 +330,19 @@ class RFIDReaderInterface(
     ) {
         Log.i(TAG, "========== READER DISCOVERY STARTED ==========")
         Log.i(TAG, "Requested connection type: $connectionType")
+        val preferLocalTransports = shouldPreferLocalTransports(connectionType)
+        if (preferLocalTransports) {
+            Log.i(TAG, "Zebra terminal detected; preferring local RFID transports before Bluetooth fallback")
+        }
 
-        val transports = readerConnectionTypeToDiscoveryTransports(connectionType)
+        val transports = readerConnectionTypeToDiscoveryTransports(connectionType).filter { transport ->
+            if (transport != ENUM_TRANSPORT.BLUETOOTH || hasBluetoothDiscoveryPermission()) {
+                true
+            } else {
+                Log.w(TAG, "Skipping Bluetooth RFID discovery because Bluetooth permission is missing")
+                false
+            }
+        }
         Log.i(TAG, "Using SDK transports: ${transports.joinToString()}")
 
         try {
@@ -329,7 +351,7 @@ class RFIDReaderInterface(
             var primaryReaders: Readers? = null
             val discoveryFailures = mutableListOf<String>()
 
-            transports.forEach { transport ->
+            for (transport in transports) {
                 try {
                     Log.d(TAG, "Creating Readers instance with transport: $transport")
                     val transportReaders = Readers(applicationContext, transport)
@@ -348,6 +370,14 @@ class RFIDReaderInterface(
                         } else {
                             Log.d(TAG, "Skipping duplicate reader from transport=$transport key=$deviceKey")
                         }
+                    }
+                    if (
+                        preferLocalTransports &&
+                        transport != ENUM_TRANSPORT.BLUETOOTH &&
+                        mergedDevices.isNotEmpty()
+                    ) {
+                        Log.i(TAG, "Local RFID reader found; suppressing Bluetooth fallback for this discovery pass")
+                        break
                     }
                 } catch (transportError: Exception) {
                     val failure = "$transport: ${transportError.javaClass.simpleName}: ${transportError.message}"
@@ -397,6 +427,7 @@ class RFIDReaderInterface(
                 Reader(reader.name, index.toLong())
             }
             callbacks.onAvailableReadersChanged(readers) {}
+            readersChangedListener?.invoke()
 
             // Replay connection state so that a freshly-attached Dart side (e.g. after
             // a hot reload) immediately learns about an existing live connection.
@@ -423,6 +454,32 @@ class RFIDReaderInterface(
             .filter { it.isNotEmpty() }
             .joinToString("|")
             .ifEmpty { device.toString() }
+    }
+
+    private fun hasBluetoothDiscoveryPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= 31) {
+            return ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        return ContextCompat.checkSelfPermission(
+            applicationContext,
+            Manifest.permission.BLUETOOTH,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun shouldPreferLocalTransports(connectionType: ReaderConnectionType): Boolean {
+        if (connectionType != ReaderConnectionType.ALL) return false
+        val manufacturer = Build.MANUFACTURER.orEmpty().uppercase()
+        val model = Build.MODEL.orEmpty().uppercase()
+        val product = Build.PRODUCT.orEmpty().uppercase()
+        val device = Build.DEVICE.orEmpty().uppercase()
+        val isZebra = manufacturer.contains("ZEBRA") || manufacturer.contains("MOTOROLA")
+        val isTcSeries = listOf(model, product, device).any {
+            it.startsWith("TC") || it.contains("TC22") || it.contains("TC27")
+        }
+        return isZebra || isTcSeries
     }
 
     @Synchronized
@@ -817,6 +874,15 @@ class RFIDReaderInterface(
             lastInventoryStopReason,
             lastInventoryStartReason
         )
+    }
+
+    @Synchronized
+    fun availableReadersSnapshot(): List<Reader> {
+        val list = availableRFIDReaderList ?: return emptyList()
+        return list.mapIndexed { index, device ->
+            val info = if (device == readerDevice) readerInfo else null
+            Reader(device.name, index.toLong(), info)
+        }
     }
 
     fun setScanningEnabled(enabled: Boolean) {

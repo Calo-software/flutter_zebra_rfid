@@ -4,7 +4,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 
 > **Note:** Large portions of this repository (code, Gradle wiring, and documentation) were generated or refactored with help from large language models and then reviewed in this project.
 
-> Status: Android reliability features are in place, and the current release also adds Bluetooth pairing helpers, reader region configuration, and a refreshed Zebra SDK bundle. iOS still supports core reader flows, but Bluetooth pairing and reader-region APIs currently return `unsupported`.
+> Status: Android reliability features are in place, and the current release adds Capture Device orchestration for combined RFID + barcode setups. iOS supports core external reader/scanner integrations, but Bluetooth pairing helpers and reader-region APIs currently return `unsupported`.
 
 ## Contents
 1. Features
@@ -21,9 +21,11 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 12. Tag Locating
 13. Bluetooth Pairing (Android)
 14. Reader Region Configuration (Android)
-15. Barcode Scanner Topology
-16. Migration Guide
-17. Roadmap & Contributing
+15. Capture Device Orchestration
+16. Barcode Scanner Topology
+17. Migration Guide
+18. User Handoff & Hardware Verification
+19. Roadmap & Contributing
 
 ## 1. Features
 - Indexed reader discovery + guarded connection state machine
@@ -37,13 +39,15 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - Bluetooth discovery and pairing helpers for Zebra readers on Android
 - Reader regulatory region discovery and apply APIs on Android
 - Hardware-aware barcode scanner endpoints for built-in terminal scanners, RFD sled scanners, and external Zebra scanners
+- Capture Device orchestration for phone + Bluetooth combo reader and TC22 + RFID sled topologies
+- Combined example-app Scan Log that color-codes RFID versus barcode scans
 - Zebra Android SDK bundle refreshed to API3 `2.0.5.238`
 
 ## 2. Getting Started
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-  flutter_zebra_rfid: ^0.3.2
+  flutter_zebra_rfid: ^0.4.0
 ```
 Then run `flutter pub get`.
 
@@ -304,7 +308,38 @@ Notes:
 - The example app includes a `Set Region` action for this workflow.
 - iOS currently returns `unsupported` for these calls.
 
-## 15. Barcode Scanner Topology
+## 15. Capture Device Orchestration
+Use the Capture Device API when your app should select one physical working setup and let the plugin manage the RFID and barcode capability paths behind it.
+
+```dart
+final capture = FlutterZebraDataCaptureApi();
+
+capture.capture.onAvailableCaptureDevicesChanged.listen((devices) {
+  // Show Capture Devices as the primary user-facing choices.
+});
+
+capture.capture.onActiveCaptureDeviceChanged.listen((device) {
+  print('${device?.displayName}: ${device?.status}');
+});
+
+await capture.capture.refreshCaptureDevices();
+final devices = await capture.capture.onAvailableCaptureDevicesChanged.first;
+if (devices.isNotEmpty) {
+  await capture.capture.connectCaptureDevice(
+    captureDeviceId: devices.first.id,
+  );
+}
+```
+
+The first supported topologies are:
+- Phone plus Bluetooth combo reader, where the external Zebra unit provides RFID and barcode capabilities.
+- TC22 docked into an RFID sled, where the sled provides RFID and the TC22 built-in imager provides barcode through DataWedge.
+
+Capture Device status can be `connected`, `degraded`, or `error`; per-capability status and errors identify whether RFID, barcode, or both need attention. If automatic barcode matching is uncertain, call `setCaptureDeviceBarcodeOverride(...)` with a discovered barcode endpoint.
+
+The example app opens on a Capture tab for this workflow, while the RFID and Barcode tabs remain available for lower-level troubleshooting.
+
+## 16. Barcode Scanner Topology
 The plugin exposes barcode scanners as topology-aware endpoints so apps can handle mixed hardware, such as a TC22/TC27 built-in imager plus an RFD40/RFD90 sled barcode scanner.
 
 ```dart
@@ -335,10 +370,30 @@ When multiple barcode endpoints are available, the plugin reports all of them an
 
 The example app includes a barcode tab that lists endpoints by hardware source, allows selecting the active scanner, and shows recent scans with source metadata.
 
-## 16. Migration Guide
-See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps (timeouts, watchdog, auto‑reconnect implications).
+## 17. Migration Guide
+See `docs/MIGRATION_vNEXT.md` for detailed behavioral diffs and required upgrade steps.
 
-## 17. Roadmap & Contributing
+Treat `0.4.0` as a compatibility-review release:
+- Existing RFID and barcode APIs remain available.
+- User-facing connection flows should prefer Capture Device orchestration.
+- Android apps should be fully rebuilt/reinstalled after upgrading because native Kotlin and generated Pigeon surfaces changed.
+- Apps that previously connected RFID and barcode separately should retest setup order and scan routing.
+
+## 18. User Handoff & Hardware Verification
+Use `docs/PLUGIN_USER_HANDOFF.md` when passing this release to app teams or plugin consumers.
+
+Use `docs/CAPTURE_DEVICE_MANUAL_TEST_MATRIX.md` for hardware verification across:
+- Android phone plus Bluetooth combo reader
+- iOS phone plus Bluetooth combo reader
+- TC22 docked into RFID sled with TC22 built-in barcode scanner
+
+The example app has four tabs:
+- **Capture**: primary setup connection workflow.
+- **RFID**: lower-level RFID troubleshooting.
+- **Barcode**: lower-level barcode endpoint troubleshooting.
+- **Scan Log**: combined RFID and barcode scan evidence, color-coded by type.
+
+## 19. Roadmap & Contributing
 Roadmap: `docs/ROADMAP.md`
 
 Contributions welcome once core parity stabilizes. Please include:

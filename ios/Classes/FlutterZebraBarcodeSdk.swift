@@ -109,6 +109,15 @@ class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate 
         }
         return scannerForEndpoint(endpointId).map { endpoint(for: $0, active: true) }
     }
+
+    func barcodeEndpointsSnapshot() -> [BarcodeScannerEndpoint] {
+        guard let availableList = _availableScannerList else {
+            return []
+        }
+        return availableList.compactMap { $0 as? SbtScannerInfo }.map {
+            endpoint(for: $0, active: endpointId(for: $0) == _activeEndpointId)
+        }
+    }
     
     // MARK: ISbtSdkApiDelegate
     func sbtEventScannerAppeared(_ availableScanner: SbtScannerInfo!) {

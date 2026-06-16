@@ -1,5 +1,30 @@
 ## Unreleased
 
+## 0.4.0 - 2026-06-16
+
+### Added
+- Capture Device orchestration API above the existing RFID and barcode APIs. Apps can now discover and connect one physical working setup while the plugin coordinates RFID Reader and Barcode Endpoint activation.
+- Barcode endpoint APIs for built-in terminal DataWedge scanners, RFID sled scanners, and external Zebra Scanner SDK scanners.
+- Combined example-app Capture Dashboard and Scan Log tabs. The Scan Log color-codes RFID and barcode reads and keeps recording while users move between tabs.
+- User-facing context, ADR, migration, handoff, and manual hardware verification docs for Capture Device workflows.
+
+### Changed
+- Android `ReaderConnectionType.all` now prefers local Zebra terminal transports before Bluetooth, and suppresses Bluetooth fallback when a local USB/serial RFID reader is found.
+- Android Scanner SDK discovery suppresses USB CDC on Zebra/TC-series terminals so the RFID sled USB path remains owned by the RFID SDK. Bluetooth Scanner SDK discovery remains enabled.
+- The example app now opens on the Capture Dashboard; lower-level RFID and Barcode pages are advanced debug tabs.
+- Dart wrapper callback streams are shared across API instances so app pages do not replace each other's native callback handlers.
+
+### Fixed
+- Prevent Android Bluetooth Scanner SDK startup from crashing when `BLUETOOTH_CONNECT` is missing.
+- Prevent barcode DataWedge receivers from treating RFID-looking DataWedge payloads as barcode scans.
+- Prevent example RFID page stream listeners from calling `setState()` after disposal.
+- Improve RFID and Barcode debug page layouts so connection/status cards do not crowd scan evidence.
+
+### Migration Notes
+- This is a compatibility-review release. Existing RFID APIs remain available, but apps should consider moving user-facing connection flows to the Capture Device API.
+- Apps that previously connected RFID and barcode independently may see different default discovery/selection behavior on Zebra terminals.
+- Perform a full rebuild/reinstall after upgrading Android apps because native Kotlin and generated Pigeon surfaces changed.
+
 ### Fixed
 - USB reader discovery no longer fails when users deny Bluetooth permissions. Bluetooth permissions are only required when discovering wireless readers; USB enumeration now proceeds even if BLE access is withheld.
 

@@ -7,15 +7,18 @@ import BarcodeScannerMode
 import BarcodeScannerSource
 import FlutterZebraBarcodeCallbacks
 import ScannerConnectionStatus
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.zebra.scannercontrol.DCSSDKDefs
 import com.zebra.scannercontrol.DCSScannerInfo
 import com.zebra.scannercontrol.FirmwareUpdateEvent
@@ -45,6 +48,8 @@ class BarcodeScannerInterface(
     private var dataWedgeEndpoints: List<DataWedgeScanner> = emptyList()
     private var activeEndpointId: String? = null
     private var preferredEndpointId: String? = null
+    var endpointsChangedListener: (() -> Unit)? = null
+    var connectionStatusListener: ((ScannerConnectionStatus) -> Unit)? = null
 
     fun updateAvailableScanners(context: Context) {
         refreshBarcodeScanners(context)
@@ -53,6 +58,8 @@ class BarcodeScannerInterface(
     fun refreshBarcodeScanners(context: Context) {
         if (!isInitialized) {
             initialize(context.applicationContext)
+        } else {
+            ensureScannerSdkInitialized(context.applicationContext)
         }
         getAvailableScannerList()
         enumerateDataWedgeScanners()
@@ -71,9 +78,11 @@ class BarcodeScannerInterface(
 
         val handler = sdkHandler ?: throw Error("Barcode Scanner SDK is not initialized")
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTING) {}
+        connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTING)
         val result = handler.dcssdkEstablishCommunicationSession(scanner.scannerID)
         if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
             callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
+            connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
             throw Error("Failed to connect to scanner ${scanner.scannerName}: $result")
         }
         setActiveEndpoint(scannerSdkEndpointId(scanner.scannerID))
@@ -82,9 +91,11 @@ class BarcodeScannerInterface(
     fun disconnectCurrentScanner() {
         val scanner = currentScanner ?: return
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTING) {}
+        connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTING)
         val result = sdkHandler?.dcssdkTerminateCommunicationSession(scanner.scannerID)
         if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
             callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.ERROR) {}
+            connectionStatusListener?.invoke(ScannerConnectionStatus.ERROR)
             throw Error("Failed to disconnect from current scanner")
         }
     }
@@ -157,6 +168,7 @@ class BarcodeScannerInterface(
         currentScanner = scanner
         scanner?.let { activeEndpointId = scannerSdkEndpointId(it.scannerID) }
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTED) {}
+        connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTED)
         emitEndpoints()
     }
 
@@ -166,6 +178,7 @@ class BarcodeScannerInterface(
             currentScanner = null
         }
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
+        connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
         emitEndpoints()
     }
 
@@ -195,21 +208,79 @@ class BarcodeScannerInterface(
         preferredEndpointId = context
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(PREF_ACTIVE_ENDPOINT, null)
-        sdkHandler = SDKHandler(context).also { handler ->
-            handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
-            handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
-            handler.dcssdkSetDelegate(this)
-            val notificationsMask =
-                DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value or
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
-            handler.dcssdkSubsribeForEvents(notificationsMask)
-            handler.dcssdkEnableAvailableScannersDetection(true)
-        }
         registerDataWedgeReceiver(context)
+        ensureScannerSdkInitialized(context)
         isInitialized = true
+    }
+
+    private fun ensureScannerSdkInitialized(context: Context) {
+        if (sdkHandler != null) return
+        if (!hasScannerSdkBluetoothPermission(context)) {
+            Log.w(
+                tag,
+                "Skipping Zebra Scanner SDK Bluetooth initialization because Bluetooth permission is missing; DataWedge endpoints remain available",
+            )
+            synchronized(availableScannerList) {
+                availableScannerList.clear()
+                callbacks.onAvailableScannersChanged(emptyList()) {}
+            }
+            return
+        }
+
+        try {
+            sdkHandler = SDKHandler(context).also { handler ->
+                handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
+                if (shouldEnableScannerSdkUsbCdc()) {
+                    handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
+                } else {
+                    Log.i(
+                        tag,
+                        "Suppressing Scanner SDK USB CDC on Zebra terminal so RFID sled USB remains owned by RFID SDK",
+                    )
+                }
+                handler.dcssdkSetDelegate(this)
+                val notificationsMask =
+                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
+                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value or
+                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
+                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value or
+                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
+                handler.dcssdkSubsribeForEvents(notificationsMask)
+                handler.dcssdkEnableAvailableScannersDetection(true)
+            }
+        } catch (e: SecurityException) {
+            Log.w(
+                tag,
+                "Zebra Scanner SDK initialization blocked by Bluetooth permission; DataWedge endpoints remain available",
+                e,
+            )
+            sdkHandler = null
+        }
+    }
+
+    private fun shouldEnableScannerSdkUsbCdc(): Boolean {
+        val manufacturer = Build.MANUFACTURER.orEmpty().uppercase()
+        val model = Build.MODEL.orEmpty().uppercase()
+        val product = Build.PRODUCT.orEmpty().uppercase()
+        val device = Build.DEVICE.orEmpty().uppercase()
+        val isZebra = manufacturer.contains("ZEBRA") || manufacturer.contains("MOTOROLA")
+        val isTcSeries = listOf(model, product, device).any {
+            it.startsWith("TC") || it.contains("TC22") || it.contains("TC27")
+        }
+        return !(isZebra || isTcSeries)
+    }
+
+    private fun hasScannerSdkBluetoothPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= 31) {
+            return ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH,
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun getAvailableScannerList() {
@@ -299,7 +370,10 @@ class BarcodeScannerInterface(
         }
         callbacks.onAvailableBarcodeScannersChanged(resolved) {}
         callbacks.onActiveBarcodeScannerChanged(resolved.firstOrNull { it.active }) {}
+        endpointsChangedListener?.invoke()
     }
+
+    fun barcodeEndpoints(): List<BarcodeScannerEndpoint> = currentEndpoints()
 
     private fun emitBarcode(barcode: Barcode) {
         mainHandler.post {
@@ -367,6 +441,10 @@ class BarcodeScannerInterface(
     }
 
     private fun handleDataWedgeBarcode(intent: Intent) {
+        if (isDataWedgeRfidIntent(intent)) {
+            Log.i(tag, "Ignoring DataWedge RFID payload on barcode stream")
+            return
+        }
         val data = intent.getStringExtra(DATAWEDGE_DATA_STRING) ?: return
         val labelType = intent.getStringExtra(DATAWEDGE_LABEL_TYPE)
         val endpoint = activeEndpoint()
@@ -434,6 +512,7 @@ class BarcodeScannerInterface(
                 putString("PLUGIN_NAME", "BARCODE")
                 putString("RESET_CONFIG", "false")
                 putBundle("PARAM_LIST", Bundle().apply {
+                    putString("scanner_input_enabled", "true")
                     endpoint?.zebraScannerIdentifier?.let {
                         putString("scanner_selection_by_identifier", it)
                     }
@@ -460,6 +539,27 @@ class BarcodeScannerInterface(
             })
         }
         sendDataWedgeIntent(EXTRA_SET_CONFIG, intentConfig)
+    }
+
+    private fun isDataWedgeRfidIntent(intent: Intent): Boolean {
+        val source = intent.getStringExtra(DATAWEDGE_SOURCE)
+            ?: intent.getStringExtra(DATAWEDGE_LEGACY_SOURCE)
+        if (source?.contains("rfid", ignoreCase = true) == true) {
+            return true
+        }
+
+        val labelType = intent.getStringExtra(DATAWEDGE_LABEL_TYPE)
+            ?: intent.getStringExtra(DATAWEDGE_LEGACY_LABEL_TYPE)
+        if (labelType?.contains("rfid", ignoreCase = true) == true) {
+            return true
+        }
+
+        val decodedMode = intent.getStringExtra(DATAWEDGE_DECODED_MODE)
+        if (decodedMode?.contains("rfid", ignoreCase = true) == true) {
+            return true
+        }
+
+        return false
     }
 
     private fun registerForDataWedgeStatus() {
@@ -549,5 +649,9 @@ class BarcodeScannerInterface(
         private const val NOTIFICATION_SCANNER_STATUS = "SCANNER_STATUS"
         private const val DATAWEDGE_DATA_STRING = "com.symbol.datawedge.data_string"
         private const val DATAWEDGE_LABEL_TYPE = "com.symbol.datawedge.label_type"
+        private const val DATAWEDGE_SOURCE = "com.symbol.datawedge.source"
+        private const val DATAWEDGE_DECODED_MODE = "com.symbol.datawedge.decoded_mode"
+        private const val DATAWEDGE_LEGACY_SOURCE = "com.motorolasolutions.emdk.datawedge.source"
+        private const val DATAWEDGE_LEGACY_LABEL_TYPE = "com.motorolasolutions.emdk.datawedge.label_type"
     }
 }

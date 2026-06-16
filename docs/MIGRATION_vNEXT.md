@@ -1,13 +1,17 @@
-# Migration Guide (Upcoming Release)
+# Migration Guide: 0.4.0 Capture Device Release
 
-This guide summarizes the changes in the upcoming release you need to review when upgrading from the previous published version (<= 0.0.1 prototype state).
+This guide summarizes the changes to review when upgrading to `flutter_zebra_rfid` `0.4.0`.
 
 ## Summary
-The release focuses on reliability, observability, and RF configuration introspection. It introduces a connection state machine, structured error codes, diagnostics snapshots, auto‑reconnect, safer inventory lifecycle, and a watchdog preventing runaway scans. Android implementation is complete; iOS parity is pending (will arrive shortly—treat current iOS side as transitional if consuming early).
+The release adds Capture Device orchestration above the existing RFID and barcode APIs. It lets apps present one physical capture setup to users while the plugin coordinates the RFID Reader and Barcode Endpoint behind the scenes.
+
+The release also keeps the earlier reliability, observability, and RF configuration improvements: structured errors, diagnostics snapshots, auto-reconnect, safer inventory lifecycle, and watchdog behavior.
 
 ## 1. Versioning & Semantic Expectations
-- Previous version was a prototype; this release formalizes public API surfaces via Pigeon models.
-- Any removal or rename of a Pigeon field will trigger a minor/major version bump. This release is additive (new fields) except where behavioral semantics changed.
+- `0.4.0` is a compatibility-review release.
+- Existing RFID and barcode APIs remain available.
+- New Capture Device and barcode endpoint APIs are additive.
+- Default Android discovery/orchestration behavior changed, so user-facing connection flows should be retested.
 
 ## 2. New Concepts
 | Concept | Description | Developer Action |
@@ -19,6 +23,8 @@ The release focuses on reliability, observability, and RF configuration introspe
 | Inventory Watchdog | Stops inventory after 30s max session or 5s inactivity (no tag reads) | If you relied on indefinite inventory, adjust by re‑starting inventory on demand or make watchdog configurable (future option). |
 | RF Parameters Exposure | `rfModeTableIndex` (placeholder null on Android currently), `receiveSensitivityIndex` (read‑only) | Use for diagnostics; do not rely on rfMode being settable yet. |
 | Scanning Suppression (setScanningEnabled) | Allows globally disabling trigger‑initiated inventory and stops any running session | Call `setScanningEnabled(false)` when on non‑scanning screens; re‑enable when entering scan workflows. Diagnostics now includes `scanningEnabled`. |
+| Capture Device | User-facing physical capture setup with RFID and barcode capabilities | Prefer this for normal app connection flows instead of asking users to connect RFID and barcode separately. |
+| Barcode Endpoint | A specific barcode path, such as DataWedge built-in terminal scanner or Scanner SDK external scanner | Use override APIs when automatic grouping is uncertain. |
 
 ## 3. API Additions (Pigeon Schema)
 Added fields / classes (names may vary slightly pending final generation):
@@ -36,6 +42,24 @@ Added fields / classes (names may vary slightly pending final generation):
   - `rfModeTableIndex` (nullable Integer/Long)
   - `receiveSensitivityIndex` (nullable Integer/Long)
 - Host method: `diagnostics()` (returns `Diagnostics`)
+- New `FlutterZebraDataCaptureApi` facade with `rfid`, `barcode`, and `capture` APIs.
+- New Capture Device host methods:
+  - `refreshCaptureDevices()`
+  - `connectCaptureDevice(captureDeviceId, rfidConfig?)`
+  - `disconnectCaptureDevice(captureDeviceId)`
+  - `setCaptureDeviceBarcodeOverride(captureDeviceId, barcodeEndpointId)`
+- New Capture Device streams:
+  - `onAvailableCaptureDevicesChanged`
+  - `onActiveCaptureDeviceChanged`
+  - `onCaptureDeviceStatusChanged`
+- New barcode endpoint APIs and streams:
+  - `refreshBarcodeScanners()`
+  - `setActiveBarcodeScanner(endpointId)`
+  - `clearActiveBarcodeScanner()`
+  - `activeBarcodeScanner`
+  - `onAvailableBarcodeScannersChanged`
+  - `onActiveBarcodeScannerChanged`
+  - `onBarcodeRead`
 
 ## 4. Behavioral Changes
 | Area | Previous | New Behavior | Impact |
@@ -46,6 +70,9 @@ Added fields / classes (names may vary slightly pending final generation):
 | inventory start/stop | Possible duplicate or out‑of‑order calls | Guarded via `inventoryActive` and debounced trigger events | Simplifies app logic; rely on safe methods |
 | runaway scan (stuck trigger) | Possible indefinite tag stream | Inventory force‑stops after watchdog conditions | If long sessions required, plan for future configurability |
 | trigger suppression needed | Not possible to mute trigger without disconnect | `setScanningEnabled(false)` gates trigger events | Simplifies UX on non‑inventory pages |
+| user connects RFID + barcode | App had to connect each SDK path separately | Capture Device connect coordinates RFID and barcode capability activation | Move primary UI to Capture Device; keep direct pages for debug |
+| TC22/RFD sled discovery | Barcode Scanner SDK could touch the sled over USB CDC | Scanner SDK USB CDC is suppressed on Zebra/TC terminals so RFID SDK owns sled USB | Retest TC22 sled flows after full reinstall |
+| USB RFID discovery | Could be affected by Bluetooth permission flow | Local USB/serial transports are preferred before Bluetooth on Zebra terminals | Bluetooth permission prompts should not block TC22 USB RFID discovery |
 
 ## 5. Error Handling Migration
 Instead of catching broad exceptions, subscribe to the plugin’s error/status stream and switch on `ReaderErrorCode`. Recommended mapping:
@@ -62,11 +89,12 @@ Instead of catching broad exceptions, subscribe to the plugin’s error/status s
 - Auto-dismiss diagnostics panel when connection returns to CONNECTED (example app behavior).
 
 ## 7. Removal / Deprecations
-- None (no removed public Pigeon fields). All changes additive.
-- Implicit “fire-and-forget” connect semantics are effectively deprecated—client code should observe state stream.
+- None. No public Pigeon fields were removed.
+- Implicit "fire-and-forget" connect semantics remain discouraged. Client code should observe status streams.
+- Manually connecting RFID and barcode separately is now an advanced/debug flow. Prefer Capture Device orchestration for normal operator workflows.
 
 ## 8. iOS Parity Status
-Pending replication of: timeout, auto‑reconnect, watchdog, structured errors, diagnostics. Until complete, iOS will lack these features (calls may succeed but without new resilience semantics). Avoid relying on diagnostics for iOS in mixed deployments temporarily.
+iOS supports external Zebra reader/scanner surfaces reported by the existing SDK integrations. iOS Bluetooth pairing helpers are not included in this slice. Avoid building UX that expects the plugin to pair iOS Bluetooth devices.
 
 ## 9. Testing & Validation Checklist
 | Scenario | Expected |
@@ -76,13 +104,20 @@ Pending replication of: timeout, auto‑reconnect, watchdog, structured errors, 
 | No tags seen for >5s during inventory | Inventory stops (inactivity) |
 | Bluetooth interference causing slow connect | Timeout fires → retry once → either success or error surfaced |
 | Rapid double-tap Connect button | Second tap yields `alreadyConnecting` error (should be disabled in UI) |
+| Android phone plus Bluetooth combo reader | One Capture Device appears; RFID and barcode both scan after one connect action |
+| TC22 docked into RFID sled | One Capture Device groups sled RFID with built-in terminal barcode |
+| Barcode activation followed by RFID scan | RFID remains on RFID stream; barcode remains on barcode stream |
+| Scan Log tab | RFID entries are green; barcode entries are blue |
 
 ## 10. Action Items for Upgraders
-1. Update to new plugin version in `pubspec.yaml`.
-2. Review error stream handling; replace generic exception logic.
-3. Add optional diagnostics panel or logging on failure reports.
-4. Remove manual reconnect loops.
-5. QA the watchdog behavior with your operational tag density.
+1. Update to `flutter_zebra_rfid: ^0.4.0`.
+2. Full rebuild/reinstall Android apps after upgrade.
+3. Move primary connection UI to Capture Device orchestration where possible.
+4. Keep direct RFID and Barcode APIs for debug/escape hatches.
+5. Review error stream handling; replace generic exception logic.
+6. Remove manual reconnect loops.
+7. QA watchdog behavior with your operational tag density.
+8. Run `docs/CAPTURE_DEVICE_MANUAL_TEST_MATRIX.md`.
 
 ## 11. Future Configuration (Not Yet Implemented)
 Planned tunables (subject to change):
@@ -95,4 +130,4 @@ Planned tunables (subject to change):
 Open issues with: diagnostics snapshot, error code, reader model, reproduction steps. Include platform (Android/iOS), SDK device model, and plugin version.
 
 ---
-Generated: 2025-09-29
+Generated: 2026-06-16

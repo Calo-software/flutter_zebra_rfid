@@ -4,6 +4,8 @@ import BarcodeScanner
 import BarcodeScannerEndpoint
 import FlutterZebraBarcode
 import FlutterZebraBarcodeCallbacks
+import FlutterZebraCapture
+import FlutterZebraCaptureCallbacks
 import FlutterZebraRfid
 import FlutterZebraRfidCallbacks
 import BluetoothDevice
@@ -29,6 +31,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.PluginRegistry
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.bluetooth.BluetoothPairingManager
+import nz.calo.flutter_zebra_rfid.capture.CaptureDeviceCoordinator
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 
@@ -45,6 +48,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     private lateinit var applicationContext: Context
     private lateinit var rfidCallbacks: FlutterZebraRfidCallbacks
     private lateinit var scannerCallbacks: FlutterZebraBarcodeCallbacks
+    private lateinit var captureCallbacks: FlutterZebraCaptureCallbacks
     private var bluetoothPairingManager: BluetoothPairingManager? = null
 
     private val operationsOnPermission: MutableMap<Int, OperationOnPermission> = HashMap()
@@ -77,9 +81,17 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
             })
         scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
         scannerInterface = BarcodeScannerInterface(scannerCallbacks)
+        captureCallbacks = FlutterZebraCaptureCallbacks(flutterPluginBinding.binaryMessenger)
+        captureCoordinator = CaptureDeviceCoordinator(
+            applicationContext,
+            rfidInterface!!,
+            scannerInterface!!,
+            captureCallbacks,
+        )
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
         FlutterZebraBarcode.setUp(flutterPluginBinding.binaryMessenger, this)
+        FlutterZebraCapture.setUp(flutterPluginBinding.binaryMessenger, captureCoordinator)
     }
 
 
@@ -87,6 +99,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         dispose()
         FlutterZebraRfid.setUp(binding.binaryMessenger, null)
         FlutterZebraBarcode.setUp(binding.binaryMessenger, null)
+        FlutterZebraCapture.setUp(binding.binaryMessenger, null)
     }
 
     private fun bluetoothPermissions(includeDiscoveryPermissions: Boolean): List<String> {
@@ -180,24 +193,18 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         callback: (Result<Unit>) -> Unit
     ) {
         try {
-            val needsBluetooth = connectionType == ReaderConnectionType.BLUETOOTH || connectionType == ReaderConnectionType.ALL
+            val needsBluetooth = connectionType == ReaderConnectionType.BLUETOOTH
             if (needsBluetooth) {
                 val permissions = bluetoothPermissions(includeDiscoveryPermissions = false)
                 ensurePermissions(permissions,
                     object : OperationOnPermission {
                         override fun op(granted: Boolean, permission: String?) {
                             if (!granted) {
-                                if (connectionType == ReaderConnectionType.ALL) {
-                                    Log.w(TAG, "BLE permission not granted; continuing with USB-only discovery")
-                                    rfidInterface!!.getAvailableReaderList(ReaderConnectionType.USB)
-                                    callback(Result.success(Unit))
-                                } else {
-                                    callback(Result.failure(Error("Bluetooth permissions are required to discover wireless readers")))
-                                    Log.e(TAG, "BLE permission not granted for Bluetooth discovery")
-                                }
+                                callback(Result.failure(Error("Bluetooth permissions are required to discover wireless readers")))
+                                Log.e(TAG, "BLE permission not granted for Bluetooth discovery")
                                 return
                             }
-                            Log.e(TAG, "BLE permission granted, can continue...")
+                            Log.d(TAG, "BLE permission granted, can continue...")
 
                             rfidInterface!!.getAvailableReaderList(
                                 connectionType
@@ -510,6 +517,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     // Zebra API3 overrides
     private fun dispose() {
+        captureCoordinator = null
         bluetoothPairingManager?.dispose()
         bluetoothPairingManager = null
         if (rfidInterface != null) {
@@ -523,6 +531,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     companion object {
         private var rfidInterface: RFIDReaderInterface? = null
         private var scannerInterface: BarcodeScannerInterface? = null
+        private var captureCoordinator: CaptureDeviceCoordinator? = null
     }
 
     override fun onRequestPermissionsResult(

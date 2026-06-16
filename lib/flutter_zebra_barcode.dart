@@ -44,8 +44,7 @@ class FlutterZebraBarcodeApi {
       _api.setActiveBarcodeScanner(endpointId);
 
   /// Clears the selected active barcode scanner endpoint.
-  Future<void> clearActiveBarcodeScanner() =>
-      _api.clearActiveBarcodeScanner();
+  Future<void> clearActiveBarcodeScanner() => _api.clearActiveBarcodeScanner();
 
   /// Returns scanner in use (or null if none in use)
   Future<BarcodeScanner?> get currentScanner => _api.currentScanner();
@@ -54,8 +53,10 @@ class FlutterZebraBarcodeApi {
   Future<BarcodeScannerEndpoint?> get activeBarcodeScanner =>
       _api.activeBarcodeScanner();
 
+  static final _sharedCallbacks = _FlutterZebraBarcodeCallbacksImpl();
+
   final _api = FlutterZebraBarcode();
-  final _callbacks = _FlutterZebraBarcodeCallbacksImpl();
+  final _callbacks = _sharedCallbacks;
 }
 
 class _FlutterZebraBarcodeCallbacksImpl
@@ -96,8 +97,8 @@ class _FlutterZebraBarcodeCallbacksImpl
   final availableScannersChanged = BehaviorSubject<List<BarcodeScanner>>();
   final availableBarcodeScannersChanged =
       BehaviorSubject<List<BarcodeScannerEndpoint>>();
-  final activeBarcodeScannerChanged =
-      BehaviorSubject<BarcodeScannerEndpoint?>()..add(null);
+  final activeBarcodeScannerChanged = BehaviorSubject<BarcodeScannerEndpoint?>()
+    ..add(null);
   final barcodeRead = BehaviorSubject<Barcode>();
 }
 

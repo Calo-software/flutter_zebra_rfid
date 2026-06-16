@@ -1,0 +1,200 @@
+import 'package:pigeon/pigeon.dart';
+
+@ConfigurePigeon(
+  PigeonOptions(
+    dartOut: 'lib/flutter_zebra_capture.g.dart',
+    kotlinOut:
+        'android/src/main/kotlin/nz/calo/flutter_zebra_rfid/FlutterZebraCapture.g.kt',
+    kotlinOptions: KotlinOptions(errorClassName: 'FlutterCaptureError'),
+    swiftOut: 'ios/Classes/FlutterZebraCapture.g.swift',
+    swiftOptions: SwiftOptions(errorClassName: 'FlutterCaptureError'),
+    dartPackageName: 'flutter_zebra_capture',
+  ),
+)
+@HostApi()
+abstract class FlutterZebraCapture {
+  @async
+  void refreshCaptureDevices();
+
+  @async
+  void connectCaptureDevice(
+      String captureDeviceId, CaptureReaderConfig? rfidConfig);
+
+  @async
+  void disconnectCaptureDevice(String captureDeviceId);
+
+  @async
+  void setCaptureDeviceBarcodeOverride(
+    String captureDeviceId,
+    String barcodeEndpointId,
+  );
+
+  CaptureDevice? activeCaptureDevice();
+}
+
+@FlutterApi()
+abstract class FlutterZebraCaptureCallbacks {
+  void onAvailableCaptureDevicesChanged(List<CaptureDevice> devices);
+  void onActiveCaptureDeviceChanged(CaptureDevice? device);
+  void onCaptureDeviceStatusChanged(CaptureDevice device);
+}
+
+enum CaptureDeviceStatus {
+  connecting,
+  connected,
+  degraded,
+  disconnecting,
+  disconnected,
+  error,
+}
+
+enum CaptureCapabilityStatus {
+  unavailable,
+  disconnected,
+  connecting,
+  connected,
+  error,
+}
+
+enum CaptureCapabilityType {
+  rfid,
+  barcode,
+}
+
+enum CaptureDeviceTopology {
+  bluetoothComboReader,
+  tc22RfidSled,
+  externalRfidWithTerminalBarcode,
+  rfidOnly,
+  barcodeOnly,
+  unknown,
+}
+
+enum CaptureMatchConfidence {
+  exact,
+  high,
+  medium,
+  low,
+  manual,
+}
+
+enum CaptureBarcodeSource {
+  builtInTerminal,
+  rfidSled,
+  externalBluetooth,
+  externalUsb,
+  unknown,
+}
+
+enum CaptureBarcodeMode {
+  auto,
+  dataWedge,
+  scannerSdk,
+}
+
+enum CaptureReaderConfigBatchMode {
+  auto,
+  enabled,
+  disabled,
+}
+
+enum CaptureReaderBeeperVolume {
+  quiet,
+  low,
+  medium,
+  high,
+}
+
+class CaptureReaderConfig {
+  CaptureReaderConfig({
+    this.transmitPowerIndex,
+    this.tari,
+    this.beeperVolume,
+    this.enableDynamicPower,
+    this.enableLedBlink,
+    this.batchMode,
+    this.scanBatchMode,
+    this.rfModeTableIndex,
+    this.receiveSensitivityIndex,
+  });
+
+  final int? transmitPowerIndex;
+  final int? tari;
+  final CaptureReaderBeeperVolume? beeperVolume;
+  final bool? enableDynamicPower;
+  final bool? enableLedBlink;
+  final CaptureReaderConfigBatchMode? batchMode;
+  final CaptureReaderConfigBatchMode? scanBatchMode;
+  final int? rfModeTableIndex;
+  final int? receiveSensitivityIndex;
+}
+
+class CaptureRfidCapability {
+  CaptureRfidCapability({
+    required this.readerId,
+    required this.displayName,
+    required this.status,
+    this.model,
+    this.serialNumber,
+    this.error,
+  });
+
+  final int readerId;
+  final String displayName;
+  final CaptureCapabilityStatus status;
+  final String? model;
+  final String? serialNumber;
+  final String? error;
+}
+
+class CaptureBarcodeCapability {
+  CaptureBarcodeCapability({
+    required this.endpointId,
+    required this.displayName,
+    required this.source,
+    required this.mode,
+    required this.status,
+    required this.preferred,
+    this.scannerId,
+    this.model,
+    this.serialNumber,
+    this.error,
+  });
+
+  final String endpointId;
+  final String displayName;
+  final CaptureBarcodeSource source;
+  final CaptureBarcodeMode mode;
+  final CaptureCapabilityStatus status;
+  final bool preferred;
+  final int? scannerId;
+  final String? model;
+  final String? serialNumber;
+  final String? error;
+}
+
+class CaptureDevice {
+  CaptureDevice({
+    required this.id,
+    required this.displayName,
+    required this.topology,
+    required this.status,
+    required this.matchConfidence,
+    required this.matchReason,
+    required this.active,
+    this.rfid,
+    this.barcode,
+    this.lastError,
+  });
+
+  final String id;
+  final String displayName;
+  final CaptureDeviceTopology topology;
+  final CaptureDeviceStatus status;
+  final CaptureMatchConfidence matchConfidence;
+  final String matchReason;
+  final bool active;
+  final CaptureRfidCapability? rfid;
+  final CaptureBarcodeCapability? barcode;
+  final String? lastError;
+}

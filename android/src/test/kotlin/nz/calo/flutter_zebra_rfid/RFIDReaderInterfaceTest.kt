@@ -102,14 +102,14 @@ internal class RFIDReaderInterfaceTest {
   }
 
   @Test
-  fun readerConnectionTypeToDiscoveryTransports_allEnumeratesTransportsExplicitly() {
+  fun readerConnectionTypeToDiscoveryTransports_allPrefersLocalBeforeBluetooth() {
     val transports = readerConnectionTypeToDiscoveryTransports(ReaderConnectionType.ALL)
 
     assertEquals(
       listOf(
-        ENUM_TRANSPORT.BLUETOOTH,
         ENUM_TRANSPORT.SERVICE_SERIAL,
         ENUM_TRANSPORT.SERVICE_USB,
+        ENUM_TRANSPORT.BLUETOOTH,
       ),
       transports,
     )
