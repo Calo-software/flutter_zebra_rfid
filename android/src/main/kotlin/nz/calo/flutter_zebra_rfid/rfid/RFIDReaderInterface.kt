@@ -276,7 +276,11 @@ class RFIDReaderInterface(
                 // Reset connect attempt counters for a clean sequence
                 connectAttempt = 1
                 totalConnectAttemptsCounter += 1
-                beginAsyncConnect(readerId, isRetry = reconnectAttempt > 1)
+                beginAsyncConnect(
+                    readerId,
+                    isRetry = reconnectAttempt > 1,
+                    fromAutoReconnect = true,
+                )
             }
         }
         pendingReconnectRunnable = runnable
@@ -300,6 +304,10 @@ class RFIDReaderInterface(
     private fun updateConnectionState(newState: InternalConnectionState, externalStatus: ReaderConnectionStatus? = null, logMsg: String? = null, error: Throwable? = null) {
         if (internalState == newState) return
         if (logMsg != null) Log.d(TAG, logMsg + (error?.let { " | error=${it.message}" } ?: ""))
+        if (newState == InternalConnectionState.CONNECTED || newState == InternalConnectionState.DISCONNECTED) {
+            lastErrorCode = null
+            lastErrorMessage = null
+        }
         internalState = newState
         externalStatus?.let { status ->
             mainHandler.post {
@@ -307,6 +315,30 @@ class RFIDReaderInterface(
                 connectionStatusListener?.invoke(status)
             }
         }
+    }
+
+    @Synchronized
+    private fun handleUnexpectedReaderDisconnect(reason: String) {
+        if (internalState == InternalConnectionState.DISCONNECTED) {
+            Log.d(TAG, "Unexpected disconnect ignored; reader already disconnected (reason=$reason)")
+            return
+        }
+        Log.d(TAG, "Unexpected disconnect ($reason); initiating auto-reconnect sequence")
+        lastDisconnectTimestamp = System.currentTimeMillis()
+        unexpectedDisconnectCount += 1
+        if (inventoryActive) {
+            inventoryActive = false
+            lastInventoryStopTimestamp = lastDisconnectTimestamp
+            lastInventoryStopReason = reason
+        }
+        cancelInventoryWatchdog()
+        cancelScheduledPurge()
+        updateConnectionState(
+            InternalConnectionState.DISCONNECTED,
+            ReaderConnectionStatus.DISCONNECTED,
+            "Reader disconnected: $reason",
+        )
+        scheduleAutoReconnect(reason)
     }
 
     private fun emitError(code: ReaderErrorCode, message: String, details: String? = null, throwable: Throwable? = null) {
@@ -555,7 +587,11 @@ class RFIDReaderInterface(
     }
 
     @Synchronized
-    private fun beginAsyncConnect(readerId: Long, isRetry: Boolean = false) {
+    private fun beginAsyncConnect(
+        readerId: Long,
+        isRetry: Boolean = false,
+        fromAutoReconnect: Boolean = false,
+    ) {
         val targetReader = reader ?: return
         
         val attemptType = if (isRetry) "Retrying" else "Starting"
@@ -574,8 +610,10 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Calling targetReader.connect()...")
                 connectWithRegionRecovery(targetReader)
                 Log.i(TAG, "targetReader.connect() completed successfully!")
-                // If timed out already, skip success path
+                // The timeout only guards the blocking SDK connect call. Bluetooth reader
+                // setup can legitimately take longer than the connect window.
                 synchronized(this) {
+                    clearConnectTimeout()
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.w(TAG, "Connection succeeded but state changed to $internalState, ignoring")
                         return@submit
@@ -597,7 +635,6 @@ class RFIDReaderInterface(
                 )
                 synchronized(this) {
                     readerInfo = info
-                    clearConnectTimeout()
                     lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
                     updateConnectionState(InternalConnectionState.CONNECTED, ReaderConnectionStatus.CONNECTED, "Reader connected (attempt #$connectAttempt)")
                 }
@@ -607,6 +644,20 @@ class RFIDReaderInterface(
                     clearConnectTimeout()
                     Log.e(TAG, "InvalidUsageException during connect: ${e.message}", e)
                     Log.e(TAG, "  Info: ${e.info}")
+                    if (internalState != InternalConnectionState.CONNECTING) {
+                        Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
+                        return@submit
+                    }
+                    if (fromAutoReconnect) {
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Auto-reconnect failed; reader remains disconnected",
+                            e,
+                        )
+                        scheduleAutoReconnect("auto-reconnect invalid usage")
+                        return@submit
+                    }
                     emitError(ReaderErrorCode.SDK_INVALID_USAGE, "Invalid usage while connecting", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Invalid usage while connecting", e)
                 }
@@ -614,6 +665,10 @@ class RFIDReaderInterface(
                 synchronized(this) {
                     clearConnectTimeout()
                     Log.e(TAG, "Reader region configuration required during connect: ${e.message}", e)
+                    if (internalState != InternalConnectionState.CONNECTING) {
+                        Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
+                        return@submit
+                    }
                     emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Reader region is not configured", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader region is not configured", e)
                 }
@@ -624,6 +679,20 @@ class RFIDReaderInterface(
                     Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
                     Log.e(TAG, "  Status description: ${e.statusDescription}")
                     Log.e(TAG, "  Results: ${e.results}")
+                    if (internalState != InternalConnectionState.CONNECTING) {
+                        Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
+                        return@submit
+                    }
+                    if (fromAutoReconnect) {
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Auto-reconnect failed; reader remains disconnected",
+                            e,
+                        )
+                        scheduleAutoReconnect("auto-reconnect operation failure")
+                        return@submit
+                    }
                     emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Operation failed while connecting", e.vendorMessage, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
                 }
@@ -633,6 +702,20 @@ class RFIDReaderInterface(
                     Log.e(TAG, "Unexpected error during connect: ${e.message}", e)
                     Log.e(TAG, "  Exception type: ${e.javaClass.name}")
                     e.printStackTrace()
+                    if (internalState != InternalConnectionState.CONNECTING) {
+                        Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
+                        return@submit
+                    }
+                    if (fromAutoReconnect) {
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Auto-reconnect failed; reader remains disconnected",
+                            e,
+                        )
+                        scheduleAutoReconnect("auto-reconnect unexpected failure")
+                        return@submit
+                    }
                     emitError(ReaderErrorCode.UNKNOWN, "Unexpected error while connecting", e.message, e)
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Unexpected error while connecting", e)
                 }
@@ -644,6 +727,13 @@ class RFIDReaderInterface(
     private fun connectWithRegionRecovery(targetReader: RFIDReader) {
         try {
             targetReader.connect()
+        } catch (e: InvalidUsageException) {
+            val sdkMessage = e.info ?: e.message.orEmpty()
+            if (!sdkMessage.contains("Try Reconnect", ignoreCase = true)) {
+                throw e
+            }
+            Log.i(TAG, "SDK requested reconnect() instead of connect(); retrying with reconnect()")
+            targetReader.reconnect()
         } catch (e: OperationFailureException) {
             if (e.results != RFIDResults.RFID_READER_REGION_NOT_CONFIGURED) {
                 throw e
@@ -1392,6 +1482,10 @@ class RFIDReaderInterface(
                 handlePowerEventFallback(rfidStatusEvents, fromExplicitPowerEvent = true)
             }
 
+            STATUS_EVENT_TYPE.DISCONNECTION_EVENT -> {
+                handleUnexpectedReaderDisconnect("status disconnection event")
+            }
+
             STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT -> {
                 Log.d(TAG, "Handheld trigger event detected")
                 try {
@@ -1821,11 +1915,7 @@ class RFIDReaderInterface(
         if (device != null && readerDevice != null && device == readerDevice) {
             val wasConnected = internalState == InternalConnectionState.CONNECTED
             if (wasConnected) {
-                Log.d(TAG, "Unexpected disconnect (device disappeared); initiating auto-reconnect sequence")
-                lastDisconnectTimestamp = System.currentTimeMillis()
-                unexpectedDisconnectCount += 1
-                updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disappeared")
-                scheduleAutoReconnect("device disappeared")
+                handleUnexpectedReaderDisconnect("device disappeared")
             }
         }
     }

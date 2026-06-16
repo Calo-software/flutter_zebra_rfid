@@ -118,6 +118,17 @@ class _RfidPageState extends State<RfidPage>
                 _diagnosticsDialogOpen = false;
               });
             }
+          } else if (_connectionStatus == ConnectionStatus.disconnected) {
+            _lastError = null;
+            _diagnostics = null;
+            if (_diagnosticsDialogOpen) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  Navigator.of(context, rootNavigator: true).maybePop();
+                }
+                _diagnosticsDialogOpen = false;
+              });
+            }
           }
         });
       }))

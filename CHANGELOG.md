@@ -1,5 +1,20 @@
 ## Unreleased
 
+## 0.4.1 - 2026-06-17
+
+### Fixed
+- Treat Android Zebra RFID sled battery removal and Bluetooth disconnection events as normal `DISCONNECTED` state transitions instead of surfacing transient SDK reconnect failures as diagnostics.
+- Prevent Android auto-reconnect failures from leaving stale diagnostics after the reader has already settled to `DISCONNECTED`.
+- Avoid self-triggered Android Bluetooth connect retries by clearing the connect timeout once the blocking SDK `connect()` call succeeds, before slower reader configuration continues.
+
+### Changed
+- Refactored Capture Device planning into shared Android and iOS planner modules. Public Capture, RFID, and Barcode API shapes are unchanged.
+
+### Migration Notes
+- No public Dart API migration is required for existing consumers.
+- Android consumers should still perform a full rebuild/reinstall after upgrading because this release changes native Kotlin behavior.
+- Apps that show custom diagnostics from `onReaderConnectionError` should expect fewer error callbacks during physical sled removal; use connection status `DISCONNECTED` as the user-facing state for that case.
+
 ## 0.4.0 - 2026-06-16
 
 ### Added

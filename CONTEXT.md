@@ -28,11 +28,16 @@ _Avoid_: Feature, module
 The physical arrangement that determines where RFID and barcode capabilities live.
 _Avoid_: Mode, setup
 
+**Capture Device Plan**:
+A computed view of available Capture Devices from RFID Reader snapshots, Barcode Endpoint snapshots, active capability state, and manual Barcode Endpoint overrides.
+_Avoid_: Device list, scanner matching result
+
 ## Relationships
 
 - A **Capture Device** has one optional **RFID Reader** capability and one optional **Barcode Endpoint** capability.
 - A **Barcode Scanner** may expose one or more **Barcode Endpoints**.
 - A **Topology** explains why a **Capture Device** may need multiple SDK connections.
+- A **Capture Device Plan** assigns each Barcode Endpoint to at most one Capture Device unless a manual override changes that assignment.
 
 ## Example dialogue
 
