@@ -77,6 +77,10 @@ class FlutterZebraRfidApi {
   Future<void> connectReader({required int readerId}) =>
       _api.connectReader(readerId);
 
+  /// Connects directly to a network reader by IP address or host name.
+  Future<void> connectReaderByIp({required String host, int? port}) =>
+      _api.connectReaderByIp(host, port);
+
   /// Configures the connected reader, if `shouldPersist` is true then the
   /// configuration is stored in the reader
   Future<void> configureReader({
@@ -84,6 +88,16 @@ class FlutterZebraRfidApi {
     required bool shouldPersist,
   }) =>
       _api.configureReader(config, shouldPersist);
+
+  /// Configures Wi-Fi on the connected reader.
+  ///
+  /// On Windows this currently supports USB-connected readers and WPA/WPA2
+  /// personal or open networks.
+  Future<void> configureWifi({required WifiConfig config}) =>
+      _api.configureWifi(config);
+
+  /// Returns Wi-Fi status for the connected reader.
+  Future<WifiStatus> wifiStatus() => _api.wifiStatus();
 
   /// Disconnects current reader
   Future<void> disconectCurrentReader() => _api.disconnectReader();

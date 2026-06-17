@@ -49,7 +49,8 @@ class FlutterRfidError (
 enum class ReaderConnectionType(val raw: Int) {
   BLUETOOTH(0),
   USB(1),
-  ALL(2);
+  IP(2),
+  ALL(3);
 
   companion object {
     fun ofRaw(raw: Int): ReaderConnectionType? {
@@ -122,6 +123,17 @@ enum class ReaderBeeperVolume(val raw: Int) {
 
   companion object {
     fun ofRaw(raw: Int): ReaderBeeperVolume? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
+enum class WifiSecurity(val raw: Int) {
+  OPEN(0),
+  WPA_PERSONAL(1);
+
+  companion object {
+    fun ofRaw(raw: Int): WifiSecurity? {
       return values().firstOrNull { it.raw == raw }
     }
   }
@@ -237,6 +249,66 @@ data class ReaderConfig (
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class WifiConfig (
+  val ssid: String,
+  val password: String? = null,
+  val security: WifiSecurity,
+  val connectAfterSave: Boolean,
+  val persist: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): WifiConfig {
+      val ssid = pigeonVar_list[0] as String
+      val password = pigeonVar_list[1] as String?
+      val security = pigeonVar_list[2] as WifiSecurity
+      val connectAfterSave = pigeonVar_list[3] as Boolean
+      val persist = pigeonVar_list[4] as Boolean
+      return WifiConfig(ssid, password, security, connectAfterSave, persist)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      ssid,
+      password,
+      security,
+      connectAfterSave,
+      persist,
+    )
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class WifiStatus (
+  val status: String? = null,
+  val ssid: String? = null,
+  val ipAddress: String? = null,
+  val macAddress: String? = null,
+  val properties: Map<String?, String?>
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): WifiStatus {
+      val status = pigeonVar_list[0] as String?
+      val ssid = pigeonVar_list[1] as String?
+      val ipAddress = pigeonVar_list[2] as String?
+      val macAddress = pigeonVar_list[3] as String?
+      val properties = pigeonVar_list[4] as Map<String?, String?>
+      return WifiStatus(status, ssid, ipAddress, macAddress, properties)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      status,
+      ssid,
+      ipAddress,
+      macAddress,
+      properties,
     )
   }
 }
@@ -436,46 +508,61 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         }
       }
       135.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderError.fromList(it)
+        return (readValue(buffer) as Int?)?.let {
+          WifiSecurity.ofRaw(it)
         }
       }
       136.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Reader.fromList(it)
+          ReaderError.fromList(it)
         }
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BluetoothDevice.fromList(it)
+          Reader.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderConfig.fromList(it)
+          BluetoothDevice.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderInfo.fromList(it)
+          ReaderConfig.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderRegion.fromList(it)
+          WifiConfig.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidTag.fromList(it)
+          WifiStatus.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BatteryData.fromList(it)
+          ReaderInfo.fromList(it)
         }
       }
       143.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ReaderRegion.fromList(it)
+        }
+      }
+      144.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RfidTag.fromList(it)
+        }
+      }
+      145.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BatteryData.fromList(it)
+        }
+      }
+      146.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           Diagnostics.fromList(it)
         }
@@ -509,40 +596,52 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(134)
         writeValue(stream, value.raw)
       }
-      is ReaderError -> {
+      is WifiSecurity -> {
         stream.write(135)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw)
       }
-      is Reader -> {
+      is ReaderError -> {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is BluetoothDevice -> {
+      is Reader -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is ReaderConfig -> {
+      is BluetoothDevice -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is ReaderInfo -> {
+      is ReaderConfig -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is ReaderRegion -> {
+      is WifiConfig -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is RfidTag -> {
+      is WifiStatus -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is BatteryData -> {
+      is ReaderInfo -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is Diagnostics -> {
+      is ReaderRegion -> {
         stream.write(143)
+        writeValue(stream, value.toList())
+      }
+      is RfidTag -> {
+        stream.write(144)
+        writeValue(stream, value.toList())
+      }
+      is BatteryData -> {
+        stream.write(145)
+        writeValue(stream, value.toList())
+      }
+      is Diagnostics -> {
+        stream.write(146)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -565,8 +664,18 @@ interface FlutterZebraRfid {
   fun pairBluetoothDevice(address: String, callback: (Result<Unit>) -> Unit)
   /** Connects to a reader with `readerId` ID. */
   fun connectReader(readerId: Long, callback: (Result<Unit>) -> Unit)
+  /** Connects directly to a network reader by IP address or host name. */
+  fun connectReaderByIp(host: String, port: Long?, callback: (Result<Unit>) -> Unit)
   /** Configures reader with `config`. */
   fun configureReader(config: ReaderConfig, shouldPersist: Boolean, callback: (Result<Unit>) -> Unit)
+  /**
+   * Configures Wi-Fi on the connected reader.
+   *
+   * The reader must be connected over USB before applying Wi-Fi settings.
+   */
+  fun configureWifi(config: WifiConfig, callback: (Result<Unit>) -> Unit)
+  /** Returns Wi-Fi status for the connected reader. */
+  fun wifiStatus(callback: (Result<WifiStatus>) -> Unit)
   /** Disconnects a current reader. */
   fun disconnectReader(callback: (Result<Unit>) -> Unit)
   /** Trigger device status */
@@ -715,6 +824,26 @@ interface FlutterZebraRfid {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReaderByIp$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val hostArg = args[0] as String
+            val portArg = args[1].let { num -> if (num is Int) num.toLong() else num as Long? }
+            api.connectReaderByIp(hostArg, portArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
@@ -727,6 +856,43 @@ interface FlutterZebraRfid {
                 reply.reply(wrapError(error))
               } else {
                 reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureWifi$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val configArg = args[0] as WifiConfig
+            api.configureWifi(configArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.wifiStatus$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.wifiStatus{ result: Result<WifiStatus> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
               }
             }
           }

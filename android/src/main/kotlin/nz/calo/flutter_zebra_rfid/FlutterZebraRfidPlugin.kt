@@ -14,6 +14,8 @@ import ReaderConnectionType
 import ReaderRegion
 import RfidTag
 import Diagnostics
+import WifiConfig
+import WifiStatus
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -322,6 +324,18 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
+    }
+
+    override fun connectReaderByIp(host: String, port: Long?, callback: (Result<Unit>) -> Unit) {
+        callback(Result.failure(UnsupportedOperationException("Direct IP connection is currently implemented on Windows only.")))
+    }
+
+    override fun configureWifi(config: WifiConfig, callback: (Result<Unit>) -> Unit) {
+        callback(Result.failure(UnsupportedOperationException("Wi-Fi configuration is currently implemented on Windows only.")))
+    }
+
+    override fun wifiStatus(callback: (Result<WifiStatus>) -> Unit) {
+        callback(Result.failure(UnsupportedOperationException("Wi-Fi status is currently implemented on Windows only.")))
     }
 
     override fun disconnectReader(callback: (Result<Unit>) -> Unit) {

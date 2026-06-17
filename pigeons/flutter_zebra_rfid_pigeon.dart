@@ -43,9 +43,23 @@ abstract class FlutterZebraRfid {
   @async
   void connectReader(int readerId);
 
+  /// Connects directly to a network reader by IP address or host name.
+  @async
+  void connectReaderByIp(String host, int? port);
+
   /// Configures reader with `config`.
   @async
   void configureReader(ReaderConfig config, bool shouldPersist);
+
+  /// Configures Wi-Fi on the connected reader.
+  ///
+  /// The reader must be connected over USB before applying Wi-Fi settings.
+  @async
+  void configureWifi(WifiConfig config);
+
+  /// Returns Wi-Fi status for the connected reader.
+  @async
+  WifiStatus wifiStatus();
 
   /// Disconnects a current reader.
   @async
@@ -110,6 +124,7 @@ abstract class FlutterZebraRfidCallbacks {
 enum ReaderConnectionType {
   bluetooth,
   usb,
+  ip,
   all,
 }
 
@@ -209,6 +224,43 @@ class ReaderConfig {
   // Additional RF parameters (read-only for now on Android; setting may be added later)
   final int? rfModeTableIndex;
   final int? receiveSensitivityIndex;
+}
+
+enum WifiSecurity {
+  open,
+  wpaPersonal,
+}
+
+class WifiConfig {
+  WifiConfig({
+    required this.ssid,
+    this.password,
+    this.security = WifiSecurity.wpaPersonal,
+    this.connectAfterSave = true,
+    this.persist = true,
+  });
+
+  final String ssid;
+  final String? password;
+  final WifiSecurity security;
+  final bool connectAfterSave;
+  final bool persist;
+}
+
+class WifiStatus {
+  WifiStatus({
+    this.status,
+    this.ssid,
+    this.ipAddress,
+    this.macAddress,
+    required this.properties,
+  });
+
+  final String? status;
+  final String? ssid;
+  final String? ipAddress;
+  final String? macAddress;
+  final Map<String?, String?> properties;
 }
 
 class ReaderInfo {

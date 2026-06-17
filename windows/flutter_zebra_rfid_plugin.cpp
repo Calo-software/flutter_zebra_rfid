@@ -15,7 +15,7 @@ void FlutterZebraRfidPlugin::RegisterWithRegistrar(
 FlutterZebraRfidPlugin::FlutterZebraRfidPlugin(
     flutter::PluginRegistrarWindows* registrar) {
   auto* messenger = registrar->messenger();
-  rfid_api_ = std::make_unique<FlutterZebraRfidWindows>(messenger);
+  rfid_api_ = std::make_unique<FlutterZebraRfidWindows>(registrar);
   barcode_api_ = std::make_unique<FlutterZebraBarcodeWindows>();
   FlutterZebraRfid::SetUp(messenger, rfid_api_.get());
   SetupFlutterZebraBarcodeWindows(messenger, barcode_api_.get());

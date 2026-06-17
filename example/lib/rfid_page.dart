@@ -206,8 +206,7 @@ class _RfidPageState extends State<RfidPage>
     });
 
     // Auto-discover readers on load (matches barcode page behaviour).
-    _flutterZebraRfidApi.updateAvailableReaders(
-        connectionType: _connectionType);
+    unawaited(_refreshReadersOnLoad());
   }
 
   @override
@@ -456,6 +455,21 @@ class _RfidPageState extends State<RfidPage>
           'D/$_logTag: device map size after bonded load=${_bluetoothDevicesByAddress.length}');
     });
     _notifyBluetoothDialog();
+  }
+
+  Future<void> _refreshReadersOnLoad() async {
+    try {
+      await _flutterZebraRfidApi.updateAvailableReaders(
+        connectionType: _connectionType,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showMessage('Unable to refresh RFID readers: $error');
+        }
+      });
+    }
   }
 
   void _cancelBluetoothScanTimer() {

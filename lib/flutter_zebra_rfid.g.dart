@@ -28,6 +28,7 @@ List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty
 enum ReaderConnectionType {
   bluetooth,
   usb,
+  ip,
   all,
 }
 
@@ -68,6 +69,11 @@ enum ReaderBeeperVolume {
   low,
   medium,
   high,
+}
+
+enum WifiSecurity {
+  open,
+  wpaPersonal,
 }
 
 class ReaderError {
@@ -220,6 +226,88 @@ class ReaderConfig {
       scanBatchMode: result[6] as ReaderConfigBatchMode?,
       rfModeTableIndex: result[7] as int?,
       receiveSensitivityIndex: result[8] as int?,
+    );
+  }
+}
+
+class WifiConfig {
+  WifiConfig({
+    required this.ssid,
+    this.password,
+    this.security = WifiSecurity.wpaPersonal,
+    this.connectAfterSave = true,
+    this.persist = true,
+  });
+
+  String ssid;
+
+  String? password;
+
+  WifiSecurity security;
+
+  bool connectAfterSave;
+
+  bool persist;
+
+  Object encode() {
+    return <Object?>[
+      ssid,
+      password,
+      security,
+      connectAfterSave,
+      persist,
+    ];
+  }
+
+  static WifiConfig decode(Object result) {
+    result as List<Object?>;
+    return WifiConfig(
+      ssid: result[0]! as String,
+      password: result[1] as String?,
+      security: result[2]! as WifiSecurity,
+      connectAfterSave: result[3]! as bool,
+      persist: result[4]! as bool,
+    );
+  }
+}
+
+class WifiStatus {
+  WifiStatus({
+    this.status,
+    this.ssid,
+    this.ipAddress,
+    this.macAddress,
+    required this.properties,
+  });
+
+  String? status;
+
+  String? ssid;
+
+  String? ipAddress;
+
+  String? macAddress;
+
+  Map<String?, String?> properties;
+
+  Object encode() {
+    return <Object?>[
+      status,
+      ssid,
+      ipAddress,
+      macAddress,
+      properties,
+    ];
+  }
+
+  static WifiStatus decode(Object result) {
+    result as List<Object?>;
+    return WifiStatus(
+      status: result[0] as String?,
+      ssid: result[1] as String?,
+      ipAddress: result[2] as String?,
+      macAddress: result[3] as String?,
+      properties: (result[4] as Map<Object?, Object?>?)!.cast<String?, String?>(),
     );
   }
 }
@@ -472,32 +560,41 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is ReaderBeeperVolume) {
       buffer.putUint8(134);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderError) {
+    } else     if (value is WifiSecurity) {
       buffer.putUint8(135);
-      writeValue(buffer, value.encode());
-    } else     if (value is Reader) {
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderError) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
-    } else     if (value is BluetoothDevice) {
+    } else     if (value is Reader) {
       buffer.putUint8(137);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderConfig) {
+    } else     if (value is BluetoothDevice) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderInfo) {
+    } else     if (value is ReaderConfig) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderRegion) {
+    } else     if (value is WifiConfig) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else     if (value is RfidTag) {
+    } else     if (value is WifiStatus) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else     if (value is BatteryData) {
+    } else     if (value is ReaderInfo) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else     if (value is Diagnostics) {
+    } else     if (value is ReaderRegion) {
       buffer.putUint8(143);
+      writeValue(buffer, value.encode());
+    } else     if (value is RfidTag) {
+      buffer.putUint8(144);
+      writeValue(buffer, value.encode());
+    } else     if (value is BatteryData) {
+      buffer.putUint8(145);
+      writeValue(buffer, value.encode());
+    } else     if (value is Diagnostics) {
+      buffer.putUint8(146);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -526,22 +623,29 @@ class _PigeonCodec extends StandardMessageCodec {
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderBeeperVolume.values[value];
       case 135: 
-        return ReaderError.decode(readValue(buffer)!);
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : WifiSecurity.values[value];
       case 136: 
-        return Reader.decode(readValue(buffer)!);
+        return ReaderError.decode(readValue(buffer)!);
       case 137: 
-        return BluetoothDevice.decode(readValue(buffer)!);
+        return Reader.decode(readValue(buffer)!);
       case 138: 
-        return ReaderConfig.decode(readValue(buffer)!);
+        return BluetoothDevice.decode(readValue(buffer)!);
       case 139: 
-        return ReaderInfo.decode(readValue(buffer)!);
+        return ReaderConfig.decode(readValue(buffer)!);
       case 140: 
-        return ReaderRegion.decode(readValue(buffer)!);
+        return WifiConfig.decode(readValue(buffer)!);
       case 141: 
-        return RfidTag.decode(readValue(buffer)!);
+        return WifiStatus.decode(readValue(buffer)!);
       case 142: 
-        return BatteryData.decode(readValue(buffer)!);
+        return ReaderInfo.decode(readValue(buffer)!);
       case 143: 
+        return ReaderRegion.decode(readValue(buffer)!);
+      case 144: 
+        return RfidTag.decode(readValue(buffer)!);
+      case 145: 
+        return BatteryData.decode(readValue(buffer)!);
+      case 146: 
         return Diagnostics.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -705,6 +809,29 @@ class FlutterZebraRfid {
     }
   }
 
+  /// Connects directly to a network reader by IP address or host name.
+  Future<void> connectReaderByIp(String host, int? port) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReaderByIp$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[host, port]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
   /// Configures reader with `config`.
   Future<void> configureReader(ReaderConfig config, bool shouldPersist) async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader$pigeonVar_messageChannelSuffix';
@@ -725,6 +852,59 @@ class FlutterZebraRfid {
       );
     } else {
       return;
+    }
+  }
+
+  /// Configures Wi-Fi on the connected reader.
+  ///
+  /// The reader must be connected over USB before applying Wi-Fi settings.
+  Future<void> configureWifi(WifiConfig config) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureWifi$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[config]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Returns Wi-Fi status for the connected reader.
+  Future<WifiStatus> wifiStatus() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.wifiStatus$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as WifiStatus?)!;
     }
   }
 

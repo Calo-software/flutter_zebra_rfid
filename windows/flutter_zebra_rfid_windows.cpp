@@ -22,6 +22,8 @@ std::string ConnectionTypeName(const ReaderConnectionType& type) {
       return "usb";
     case ReaderConnectionType::kBluetooth:
       return "bluetooth";
+    case ReaderConnectionType::kIp:
+      return "ip";
     case ReaderConnectionType::kAll:
       return "all";
   }
@@ -123,6 +125,41 @@ flutter_zebra_rfid::ReaderConfig ParseReaderConfig(const std::string& json) {
   return config;
 }
 
+flutter::EncodableMap ParseStringMap(const std::string& json) {
+  flutter::EncodableMap map;
+  const std::regex pair_regex("\"((?:[^\"\\\\]|\\\\.)+)\"\\s*:\\s*(null|\"(?:[^\"\\\\]|\\\\.)*\")");
+  for (auto it = std::sregex_iterator(json.begin(), json.end(), pair_regex);
+       it != std::sregex_iterator(); ++it) {
+    const std::string key = (*it)[1].str();
+    const std::string raw_value = (*it)[2].str();
+    if (raw_value == "null") {
+      map.emplace(flutter::EncodableValue(key), flutter::EncodableValue());
+    } else {
+      map.emplace(flutter::EncodableValue(key),
+                  flutter::EncodableValue(raw_value.substr(1, raw_value.size() - 2)));
+    }
+  }
+  return map;
+}
+
+flutter_zebra_rfid::WifiStatus ParseWifiStatus(const std::string& json) {
+  const std::string properties_json = JsonObject(json, "properties");
+  flutter_zebra_rfid::WifiStatus status(ParseStringMap(properties_json));
+  if (const auto value = JsonString(json, "status")) {
+    status.set_status(*value);
+  }
+  if (const auto value = JsonString(json, "ssid")) {
+    status.set_ssid(*value);
+  }
+  if (const auto value = JsonString(json, "ipAddress")) {
+    status.set_ip_address(*value);
+  }
+  if (const auto value = JsonString(json, "macAddress")) {
+    status.set_mac_address(*value);
+  }
+  return status;
+}
+
 flutter_zebra_rfid::Diagnostics ParseDiagnostics(const std::string& json) {
   flutter_zebra_rfid::Diagnostics diagnostics(
       StatusFromString(JsonString(json, "connectionState").value_or("disconnected")),
@@ -170,6 +207,39 @@ flutter_zebra_rfid::Diagnostics ParseDiagnostics(const std::string& json) {
   return diagnostics;
 }
 
+std::string EscapeJsonString(const std::string& value) {
+  std::ostringstream escaped;
+  for (const char c : value) {
+    switch (c) {
+      case '\\':
+        escaped << "\\\\";
+        break;
+      case '"':
+        escaped << "\\\"";
+        break;
+      case '\b':
+        escaped << "\\b";
+        break;
+      case '\f':
+        escaped << "\\f";
+        break;
+      case '\n':
+        escaped << "\\n";
+        break;
+      case '\r':
+        escaped << "\\r";
+        break;
+      case '\t':
+        escaped << "\\t";
+        break;
+      default:
+        escaped << c;
+        break;
+    }
+  }
+  return escaped.str();
+}
+
 std::string ConfigJson(const flutter_zebra_rfid::ReaderConfig& config) {
   std::ostringstream json;
   json << "{";
@@ -201,19 +271,58 @@ std::string ConfigJson(const flutter_zebra_rfid::ReaderConfig& config) {
   return json.str();
 }
 
+std::string WifiConfigJson(const WifiConfig& config) {
+  std::ostringstream json;
+  json << "{";
+  json << "\"ssid\":\"" << EscapeJsonString(config.ssid()) << "\"";
+  json << ",\"password\":";
+  if (config.password()) {
+    json << "\"" << EscapeJsonString(*config.password()) << "\"";
+  } else {
+    json << "null";
+  }
+  json << ",\"security\":\""
+       << (config.security() == WifiSecurity::kOpen ? "open" : "wpaPersonal") << "\"";
+  json << ",\"connectAfterSave\":" << (config.connect_after_save() ? "true" : "false");
+  json << ",\"persist\":" << (config.persist() ? "true" : "false");
+  json << "}";
+  return json.str();
+}
+
 void IgnoreCallbackSuccess() {}
 
 void IgnoreCallbackError(const FlutterError& error) {}
 
 }  // namespace
 
-FlutterZebraRfidWindows::FlutterZebraRfidWindows(flutter::BinaryMessenger* messenger) {
+FlutterZebraRfidWindows::FlutterZebraRfidWindows(
+    flutter::PluginRegistrarWindows* registrar)
+    : registrar_(registrar),
+      helper_event_message_(
+          RegisterWindowMessageW(L"flutter_zebra_rfid_helper_event")) {
+  auto* messenger = registrar->messenger();
   callbacks_ = std::make_unique<FlutterZebraRfidCallbacks>(messenger);
+  window_proc_id_ = registrar->RegisterTopLevelWindowProcDelegate(
+      [this](HWND hwnd, UINT message, WPARAM, LPARAM) -> std::optional<LRESULT> {
+        if (!hwnd_) {
+          hwnd_ = hwnd;
+        }
+        if (message == helper_event_message_) {
+          DrainQueuedHelperEvents();
+          return 0;
+        }
+        return std::nullopt;
+      });
   helper_ = std::make_unique<ZebraRfidHelperBridge>(
-      [this](const std::string& json) { HandleHelperEvent(json); });
+      [this](const std::string& json) { QueueHelperEvent(json); });
 }
 
-FlutterZebraRfidWindows::~FlutterZebraRfidWindows() = default;
+FlutterZebraRfidWindows::~FlutterZebraRfidWindows() {
+  helper_.reset();
+  if (registrar_ && window_proc_id_ != 0) {
+    registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
+  }
+}
 
 void FlutterZebraRfidWindows::UpdateAvailableReaders(
     const ReaderConnectionType& connection_type,
@@ -261,6 +370,23 @@ void FlutterZebraRfidWindows::ConnectReader(
                           : std::optional<FlutterError>(ToFlutterError(helper_result)));
 }
 
+void FlutterZebraRfidWindows::ConnectReaderByIp(
+    const std::string& host,
+    const int64_t* port,
+    std::function<void(std::optional<FlutterError> reply)> result) {
+  std::ostringstream json;
+  json << "{\"host\":\"" << EscapeJsonString(host) << "\",\"port\":";
+  if (port) {
+    json << *port;
+  } else {
+    json << "null";
+  }
+  json << "}";
+  const HelperResult helper_result = helper_->Send("connectReaderByIp", json.str());
+  result(helper_result.ok ? std::optional<FlutterError>()
+                          : std::optional<FlutterError>(ToFlutterError(helper_result)));
+}
+
 void FlutterZebraRfidWindows::ConfigureReader(
     const flutter_zebra_rfid::ReaderConfig& config,
     bool should_persist,
@@ -271,6 +397,26 @@ void FlutterZebraRfidWindows::ConfigureReader(
           (should_persist ? "true" : "false") + "}");
   result(helper_result.ok ? std::optional<FlutterError>()
                           : std::optional<FlutterError>(ToFlutterError(helper_result)));
+}
+
+void FlutterZebraRfidWindows::ConfigureWifi(
+    const WifiConfig& config,
+    std::function<void(std::optional<FlutterError> reply)> result) {
+  const HelperResult helper_result = helper_->Send(
+      "configureWifi", "{\"config\":" + WifiConfigJson(config) + "}");
+  result(helper_result.ok ? std::optional<FlutterError>()
+                          : std::optional<FlutterError>(ToFlutterError(helper_result)));
+}
+
+void FlutterZebraRfidWindows::WifiStatus(
+    std::function<void(ErrorOr<flutter_zebra_rfid::WifiStatus> reply)> result) {
+  const HelperResult helper_result = helper_->Send("wifiStatus", "{}");
+  if (!helper_result.ok) {
+    result(ToFlutterError(helper_result));
+    return;
+  }
+  const std::string data = JsonObject(helper_result.json, "data");
+  result(ParseWifiStatus(JsonObject(data, "status")));
 }
 
 void FlutterZebraRfidWindows::DisconnectReader(
@@ -359,6 +505,27 @@ void FlutterZebraRfidWindows::SetScanningEnabled(
                           : std::optional<FlutterError>(ToFlutterError(helper_result)));
 }
 
+void FlutterZebraRfidWindows::QueueHelperEvent(const std::string& json) {
+  {
+    std::lock_guard<std::mutex> lock(pending_events_mutex_);
+    pending_events_.push_back(json);
+  }
+  if (hwnd_) {
+    PostMessage(hwnd_, helper_event_message_, 0, 0);
+  }
+}
+
+void FlutterZebraRfidWindows::DrainQueuedHelperEvents() {
+  std::vector<std::string> events;
+  {
+    std::lock_guard<std::mutex> lock(pending_events_mutex_);
+    events.swap(pending_events_);
+  }
+  for (const auto& event : events) {
+    HandleHelperEvent(event);
+  }
+}
+
 void FlutterZebraRfidWindows::HandleHelperEvent(const std::string& json) {
   const std::string event = JsonString(json, "event").value_or("");
   const std::string data = JsonObject(json, "data");
@@ -380,7 +547,7 @@ void FlutterZebraRfidWindows::HandleHelperEvent(const std::string& json) {
                                       IgnoreCallbackError);
   } else if (event == "error") {
     const std::string message = JsonString(data, "message").value_or("RFID helper failed.");
-    const std::string details = JsonString(data, "details").value_or("");
+    const std::string details;
     ReaderError error(ErrorCodeFromString(JsonString(data, "code").value_or("unknown")),
                       message, &details);
     callbacks_->OnReaderConnectionError(error, IgnoreCallbackSuccess,

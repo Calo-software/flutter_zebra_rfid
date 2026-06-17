@@ -11,8 +11,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <utility>
-#include <variant>
 
 namespace flutter_zebra_rfid {
 
@@ -62,7 +60,8 @@ template<class T> class ErrorOr {
 enum class ReaderConnectionType {
   kBluetooth = 0,
   kUsb = 1,
-  kAll = 2
+  kIp = 2,
+  kAll = 3
 };
 
 enum class ReaderConnectionStatus {
@@ -104,6 +103,11 @@ enum class ReaderBeeperVolume {
   kHigh = 3
 };
 
+enum class WifiSecurity {
+  kOpen = 0,
+  kWpaPersonal = 1
+};
+
 
 // Generated class from Pigeon that represents data sent in messages.
 class ReaderError {
@@ -142,6 +146,9 @@ class ReaderError {
 
 };
 
+
+// Generated class from Pigeon that represents data sent in messages.
+class ReaderInfo;
 
 // Generated class from Pigeon that represents data sent in messages.
 class Reader {
@@ -293,6 +300,105 @@ class ReaderConfig {
   std::optional<ReaderConfigBatchMode> scan_batch_mode_;
   std::optional<int64_t> rf_mode_table_index_;
   std::optional<int64_t> receive_sensitivity_index_;
+
+};
+
+
+// Generated class from Pigeon that represents data sent in messages.
+class WifiConfig {
+ public:
+  // Constructs an object setting all non-nullable fields.
+  explicit WifiConfig(
+    const std::string& ssid,
+    const WifiSecurity& security,
+    bool connect_after_save,
+    bool persist);
+
+  // Constructs an object setting all fields.
+  explicit WifiConfig(
+    const std::string& ssid,
+    const std::string* password,
+    const WifiSecurity& security,
+    bool connect_after_save,
+    bool persist);
+
+  const std::string& ssid() const;
+  void set_ssid(std::string_view value_arg);
+
+  const std::string* password() const;
+  void set_password(const std::string_view* value_arg);
+  void set_password(std::string_view value_arg);
+
+  const WifiSecurity& security() const;
+  void set_security(const WifiSecurity& value_arg);
+
+  bool connect_after_save() const;
+  void set_connect_after_save(bool value_arg);
+
+  bool persist() const;
+  void set_persist(bool value_arg);
+
+
+ private:
+  static WifiConfig FromEncodableList(const flutter::EncodableList& list);
+  flutter::EncodableList ToEncodableList() const;
+  friend class FlutterZebraRfid;
+  friend class FlutterZebraRfidCallbacks;
+  friend class PigeonInternalCodecSerializer;
+  std::string ssid_;
+  std::optional<std::string> password_;
+  WifiSecurity security_;
+  bool connect_after_save_;
+  bool persist_;
+
+};
+
+
+// Generated class from Pigeon that represents data sent in messages.
+class WifiStatus {
+ public:
+  // Constructs an object setting all non-nullable fields.
+  explicit WifiStatus(const flutter::EncodableMap& properties);
+
+  // Constructs an object setting all fields.
+  explicit WifiStatus(
+    const std::string* status,
+    const std::string* ssid,
+    const std::string* ip_address,
+    const std::string* mac_address,
+    const flutter::EncodableMap& properties);
+
+  const std::string* status() const;
+  void set_status(const std::string_view* value_arg);
+  void set_status(std::string_view value_arg);
+
+  const std::string* ssid() const;
+  void set_ssid(const std::string_view* value_arg);
+  void set_ssid(std::string_view value_arg);
+
+  const std::string* ip_address() const;
+  void set_ip_address(const std::string_view* value_arg);
+  void set_ip_address(std::string_view value_arg);
+
+  const std::string* mac_address() const;
+  void set_mac_address(const std::string_view* value_arg);
+  void set_mac_address(std::string_view value_arg);
+
+  const flutter::EncodableMap& properties() const;
+  void set_properties(const flutter::EncodableMap& value_arg);
+
+
+ private:
+  static WifiStatus FromEncodableList(const flutter::EncodableList& list);
+  flutter::EncodableList ToEncodableList() const;
+  friend class FlutterZebraRfid;
+  friend class FlutterZebraRfidCallbacks;
+  friend class PigeonInternalCodecSerializer;
+  std::optional<std::string> status_;
+  std::optional<std::string> ssid_;
+  std::optional<std::string> ip_address_;
+  std::optional<std::string> mac_address_;
+  flutter::EncodableMap properties_;
 
 };
 
@@ -607,11 +713,24 @@ class FlutterZebraRfid {
   virtual void ConnectReader(
     int64_t reader_id,
     std::function<void(std::optional<FlutterError> reply)> result) = 0;
+  // Connects directly to a network reader by IP address or host name.
+  virtual void ConnectReaderByIp(
+    const std::string& host,
+    const int64_t* port,
+    std::function<void(std::optional<FlutterError> reply)> result) = 0;
   // Configures reader with `config`.
   virtual void ConfigureReader(
-    const ReaderConfig& config,
+    const flutter_zebra_rfid::ReaderConfig& config,
     bool should_persist,
     std::function<void(std::optional<FlutterError> reply)> result) = 0;
+  // Configures Wi-Fi on the connected reader.
+  //
+  // The reader must be connected over USB before applying Wi-Fi settings.
+  virtual void ConfigureWifi(
+    const WifiConfig& config,
+    std::function<void(std::optional<FlutterError> reply)> result) = 0;
+  // Returns Wi-Fi status for the connected reader.
+  virtual void WifiStatus(std::function<void(ErrorOr<flutter_zebra_rfid::WifiStatus> reply)> result) = 0;
   // Disconnects a current reader.
   virtual void DisconnectReader(std::function<void(std::optional<FlutterError> reply)> result) = 0;
   // Trigger device status
@@ -629,7 +748,7 @@ class FlutterZebraRfid {
   // Reader currently in use
   virtual ErrorOr<std::optional<Reader>> CurrentReader() = 0;
   // Reader config
-  virtual void ReaderConfig(std::function<void(ErrorOr<ReaderConfig> reply)> result) = 0;
+  virtual void ReaderConfig(std::function<void(ErrorOr<flutter_zebra_rfid::ReaderConfig> reply)> result) = 0;
   // Supported regulatory regions for the current or last-selected reader.
   virtual void SupportedReaderRegions(std::function<void(ErrorOr<flutter::EncodableList> reply)> result) = 0;
   // Applies a regulatory region to the current reader.
@@ -637,7 +756,7 @@ class FlutterZebraRfid {
     const std::string& region_code,
     std::function<void(std::optional<FlutterError> reply)> result) = 0;
   // Runtime diagnostics snapshot (counters / last error / state)
-  virtual void Diagnostics(std::function<void(ErrorOr<Diagnostics> reply)> result) = 0;
+  virtual void Diagnostics(std::function<void(ErrorOr<flutter_zebra_rfid::Diagnostics> reply)> result) = 0;
   // Enable or disable hardware-trigger initiated scanning/inventory.
   // When disabled, trigger pulls are ignored and any active inventory is stopped.
   virtual void SetScanningEnabled(

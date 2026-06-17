@@ -442,6 +442,214 @@ ReaderConfig ReaderConfig::FromEncodableList(const EncodableList& list) {
   return decoded;
 }
 
+// WifiConfig
+
+WifiConfig::WifiConfig(
+  const std::string& ssid,
+  const WifiSecurity& security,
+  bool connect_after_save,
+  bool persist)
+ : ssid_(ssid),
+    security_(security),
+    connect_after_save_(connect_after_save),
+    persist_(persist) {}
+
+WifiConfig::WifiConfig(
+  const std::string& ssid,
+  const std::string* password,
+  const WifiSecurity& security,
+  bool connect_after_save,
+  bool persist)
+ : ssid_(ssid),
+    password_(password ? std::optional<std::string>(*password) : std::nullopt),
+    security_(security),
+    connect_after_save_(connect_after_save),
+    persist_(persist) {}
+
+const std::string& WifiConfig::ssid() const {
+  return ssid_;
+}
+
+void WifiConfig::set_ssid(std::string_view value_arg) {
+  ssid_ = value_arg;
+}
+
+
+const std::string* WifiConfig::password() const {
+  return password_ ? &(*password_) : nullptr;
+}
+
+void WifiConfig::set_password(const std::string_view* value_arg) {
+  password_ = value_arg ? std::optional<std::string>(*value_arg) : std::nullopt;
+}
+
+void WifiConfig::set_password(std::string_view value_arg) {
+  password_ = value_arg;
+}
+
+
+const WifiSecurity& WifiConfig::security() const {
+  return security_;
+}
+
+void WifiConfig::set_security(const WifiSecurity& value_arg) {
+  security_ = value_arg;
+}
+
+
+bool WifiConfig::connect_after_save() const {
+  return connect_after_save_;
+}
+
+void WifiConfig::set_connect_after_save(bool value_arg) {
+  connect_after_save_ = value_arg;
+}
+
+
+bool WifiConfig::persist() const {
+  return persist_;
+}
+
+void WifiConfig::set_persist(bool value_arg) {
+  persist_ = value_arg;
+}
+
+
+EncodableList WifiConfig::ToEncodableList() const {
+  EncodableList list;
+  list.reserve(5);
+  list.push_back(EncodableValue(ssid_));
+  list.push_back(password_ ? EncodableValue(*password_) : EncodableValue());
+  list.push_back(CustomEncodableValue(security_));
+  list.push_back(EncodableValue(connect_after_save_));
+  list.push_back(EncodableValue(persist_));
+  return list;
+}
+
+WifiConfig WifiConfig::FromEncodableList(const EncodableList& list) {
+  WifiConfig decoded(
+    std::get<std::string>(list[0]),
+    std::any_cast<const WifiSecurity&>(std::get<CustomEncodableValue>(list[2])),
+    std::get<bool>(list[3]),
+    std::get<bool>(list[4]));
+  auto& encodable_password = list[1];
+  if (!encodable_password.IsNull()) {
+    decoded.set_password(std::get<std::string>(encodable_password));
+  }
+  return decoded;
+}
+
+// WifiStatus
+
+WifiStatus::WifiStatus(const EncodableMap& properties)
+ : properties_(properties) {}
+
+WifiStatus::WifiStatus(
+  const std::string* status,
+  const std::string* ssid,
+  const std::string* ip_address,
+  const std::string* mac_address,
+  const EncodableMap& properties)
+ : status_(status ? std::optional<std::string>(*status) : std::nullopt),
+    ssid_(ssid ? std::optional<std::string>(*ssid) : std::nullopt),
+    ip_address_(ip_address ? std::optional<std::string>(*ip_address) : std::nullopt),
+    mac_address_(mac_address ? std::optional<std::string>(*mac_address) : std::nullopt),
+    properties_(properties) {}
+
+const std::string* WifiStatus::status() const {
+  return status_ ? &(*status_) : nullptr;
+}
+
+void WifiStatus::set_status(const std::string_view* value_arg) {
+  status_ = value_arg ? std::optional<std::string>(*value_arg) : std::nullopt;
+}
+
+void WifiStatus::set_status(std::string_view value_arg) {
+  status_ = value_arg;
+}
+
+
+const std::string* WifiStatus::ssid() const {
+  return ssid_ ? &(*ssid_) : nullptr;
+}
+
+void WifiStatus::set_ssid(const std::string_view* value_arg) {
+  ssid_ = value_arg ? std::optional<std::string>(*value_arg) : std::nullopt;
+}
+
+void WifiStatus::set_ssid(std::string_view value_arg) {
+  ssid_ = value_arg;
+}
+
+
+const std::string* WifiStatus::ip_address() const {
+  return ip_address_ ? &(*ip_address_) : nullptr;
+}
+
+void WifiStatus::set_ip_address(const std::string_view* value_arg) {
+  ip_address_ = value_arg ? std::optional<std::string>(*value_arg) : std::nullopt;
+}
+
+void WifiStatus::set_ip_address(std::string_view value_arg) {
+  ip_address_ = value_arg;
+}
+
+
+const std::string* WifiStatus::mac_address() const {
+  return mac_address_ ? &(*mac_address_) : nullptr;
+}
+
+void WifiStatus::set_mac_address(const std::string_view* value_arg) {
+  mac_address_ = value_arg ? std::optional<std::string>(*value_arg) : std::nullopt;
+}
+
+void WifiStatus::set_mac_address(std::string_view value_arg) {
+  mac_address_ = value_arg;
+}
+
+
+const EncodableMap& WifiStatus::properties() const {
+  return properties_;
+}
+
+void WifiStatus::set_properties(const EncodableMap& value_arg) {
+  properties_ = value_arg;
+}
+
+
+EncodableList WifiStatus::ToEncodableList() const {
+  EncodableList list;
+  list.reserve(5);
+  list.push_back(status_ ? EncodableValue(*status_) : EncodableValue());
+  list.push_back(ssid_ ? EncodableValue(*ssid_) : EncodableValue());
+  list.push_back(ip_address_ ? EncodableValue(*ip_address_) : EncodableValue());
+  list.push_back(mac_address_ ? EncodableValue(*mac_address_) : EncodableValue());
+  list.push_back(EncodableValue(properties_));
+  return list;
+}
+
+WifiStatus WifiStatus::FromEncodableList(const EncodableList& list) {
+  WifiStatus decoded(
+    std::get<EncodableMap>(list[4]));
+  auto& encodable_status = list[0];
+  if (!encodable_status.IsNull()) {
+    decoded.set_status(std::get<std::string>(encodable_status));
+  }
+  auto& encodable_ssid = list[1];
+  if (!encodable_ssid.IsNull()) {
+    decoded.set_ssid(std::get<std::string>(encodable_ssid));
+  }
+  auto& encodable_ip_address = list[2];
+  if (!encodable_ip_address.IsNull()) {
+    decoded.set_ip_address(std::get<std::string>(encodable_ip_address));
+  }
+  auto& encodable_mac_address = list[3];
+  if (!encodable_mac_address.IsNull()) {
+    decoded.set_mac_address(std::get<std::string>(encodable_mac_address));
+  }
+  return decoded;
+}
+
 // ReaderInfo
 
 ReaderInfo::ReaderInfo(const EncodableList& transmit_power_levels)
@@ -1085,30 +1293,41 @@ EncodableValue PigeonInternalCodecSerializer::ReadValueOfType(
         return encodable_enum_arg.IsNull() ? EncodableValue() : CustomEncodableValue(static_cast<ReaderBeeperVolume>(enum_arg_value));
       }
     case 135: {
-        return CustomEncodableValue(ReaderError::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        const auto& encodable_enum_arg = ReadValue(stream);
+        const int64_t enum_arg_value = encodable_enum_arg.IsNull() ? 0 : encodable_enum_arg.LongValue();
+        return encodable_enum_arg.IsNull() ? EncodableValue() : CustomEncodableValue(static_cast<WifiSecurity>(enum_arg_value));
       }
     case 136: {
-        return CustomEncodableValue(Reader::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(ReaderError::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 137: {
-        return CustomEncodableValue(BluetoothDevice::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(Reader::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 138: {
-        return CustomEncodableValue(ReaderConfig::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(BluetoothDevice::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 139: {
-        return CustomEncodableValue(ReaderInfo::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(ReaderConfig::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 140: {
-        return CustomEncodableValue(ReaderRegion::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(WifiConfig::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 141: {
-        return CustomEncodableValue(RfidTag::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(WifiStatus::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 142: {
-        return CustomEncodableValue(BatteryData::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+        return CustomEncodableValue(ReaderInfo::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     case 143: {
+        return CustomEncodableValue(ReaderRegion::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+      }
+    case 144: {
+        return CustomEncodableValue(RfidTag::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+      }
+    case 145: {
+        return CustomEncodableValue(BatteryData::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
+      }
+    case 146: {
         return CustomEncodableValue(Diagnostics::FromEncodableList(std::get<EncodableList>(ReadValue(stream))));
       }
     default:
@@ -1150,48 +1369,63 @@ void PigeonInternalCodecSerializer::WriteValue(
       WriteValue(EncodableValue(static_cast<int>(std::any_cast<ReaderBeeperVolume>(*custom_value))), stream);
       return;
     }
-    if (custom_value->type() == typeid(ReaderError)) {
+    if (custom_value->type() == typeid(WifiSecurity)) {
       stream->WriteByte(135);
+      WriteValue(EncodableValue(static_cast<int>(std::any_cast<WifiSecurity>(*custom_value))), stream);
+      return;
+    }
+    if (custom_value->type() == typeid(ReaderError)) {
+      stream->WriteByte(136);
       WriteValue(EncodableValue(std::any_cast<ReaderError>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(Reader)) {
-      stream->WriteByte(136);
+      stream->WriteByte(137);
       WriteValue(EncodableValue(std::any_cast<Reader>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(BluetoothDevice)) {
-      stream->WriteByte(137);
+      stream->WriteByte(138);
       WriteValue(EncodableValue(std::any_cast<BluetoothDevice>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(ReaderConfig)) {
-      stream->WriteByte(138);
+      stream->WriteByte(139);
       WriteValue(EncodableValue(std::any_cast<ReaderConfig>(*custom_value).ToEncodableList()), stream);
       return;
     }
+    if (custom_value->type() == typeid(WifiConfig)) {
+      stream->WriteByte(140);
+      WriteValue(EncodableValue(std::any_cast<WifiConfig>(*custom_value).ToEncodableList()), stream);
+      return;
+    }
+    if (custom_value->type() == typeid(WifiStatus)) {
+      stream->WriteByte(141);
+      WriteValue(EncodableValue(std::any_cast<WifiStatus>(*custom_value).ToEncodableList()), stream);
+      return;
+    }
     if (custom_value->type() == typeid(ReaderInfo)) {
-      stream->WriteByte(139);
+      stream->WriteByte(142);
       WriteValue(EncodableValue(std::any_cast<ReaderInfo>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(ReaderRegion)) {
-      stream->WriteByte(140);
+      stream->WriteByte(143);
       WriteValue(EncodableValue(std::any_cast<ReaderRegion>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(RfidTag)) {
-      stream->WriteByte(141);
+      stream->WriteByte(144);
       WriteValue(EncodableValue(std::any_cast<RfidTag>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(BatteryData)) {
-      stream->WriteByte(142);
+      stream->WriteByte(145);
       WriteValue(EncodableValue(std::any_cast<BatteryData>(*custom_value).ToEncodableList()), stream);
       return;
     }
     if (custom_value->type() == typeid(Diagnostics)) {
-      stream->WriteByte(143);
+      stream->WriteByte(146);
       WriteValue(EncodableValue(std::any_cast<Diagnostics>(*custom_value).ToEncodableList()), stream);
       return;
     }
@@ -1370,6 +1604,38 @@ void FlutterZebraRfid::SetUp(
     }
   }
   {
+    BasicMessageChannel<> channel(binary_messenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReaderByIp" + prepended_suffix, &GetCodec());
+    if (api != nullptr) {
+      channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
+        try {
+          const auto& args = std::get<EncodableList>(message);
+          const auto& encodable_host_arg = args.at(0);
+          if (encodable_host_arg.IsNull()) {
+            reply(WrapError("host_arg unexpectedly null."));
+            return;
+          }
+          const auto& host_arg = std::get<std::string>(encodable_host_arg);
+          const auto& encodable_port_arg = args.at(1);
+          const int64_t port_arg_value = encodable_port_arg.IsNull() ? 0 : encodable_port_arg.LongValue();
+          const auto* port_arg = encodable_port_arg.IsNull() ? nullptr : &port_arg_value;
+          api->ConnectReaderByIp(host_arg, port_arg, [reply](std::optional<FlutterError>&& output) {
+            if (output.has_value()) {
+              reply(WrapError(output.value()));
+              return;
+            }
+            EncodableList wrapped;
+            wrapped.push_back(EncodableValue());
+            reply(EncodableValue(std::move(wrapped)));
+          });
+        } catch (const std::exception& exception) {
+          reply(WrapError(exception.what()));
+        }
+      });
+    } else {
+      channel.SetMessageHandler(nullptr);
+    }
+  }
+  {
     BasicMessageChannel<> channel(binary_messenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader" + prepended_suffix, &GetCodec());
     if (api != nullptr) {
       channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
@@ -1380,7 +1646,7 @@ void FlutterZebraRfid::SetUp(
             reply(WrapError("config_arg unexpectedly null."));
             return;
           }
-          const auto& config_arg = std::any_cast<const ReaderConfig&>(std::get<CustomEncodableValue>(encodable_config_arg));
+          const auto& config_arg = std::any_cast<const flutter_zebra_rfid::ReaderConfig&>(std::get<CustomEncodableValue>(encodable_config_arg));
           const auto& encodable_should_persist_arg = args.at(1);
           if (encodable_should_persist_arg.IsNull()) {
             reply(WrapError("should_persist_arg unexpectedly null."));
@@ -1394,6 +1660,57 @@ void FlutterZebraRfid::SetUp(
             }
             EncodableList wrapped;
             wrapped.push_back(EncodableValue());
+            reply(EncodableValue(std::move(wrapped)));
+          });
+        } catch (const std::exception& exception) {
+          reply(WrapError(exception.what()));
+        }
+      });
+    } else {
+      channel.SetMessageHandler(nullptr);
+    }
+  }
+  {
+    BasicMessageChannel<> channel(binary_messenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureWifi" + prepended_suffix, &GetCodec());
+    if (api != nullptr) {
+      channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
+        try {
+          const auto& args = std::get<EncodableList>(message);
+          const auto& encodable_config_arg = args.at(0);
+          if (encodable_config_arg.IsNull()) {
+            reply(WrapError("config_arg unexpectedly null."));
+            return;
+          }
+          const auto& config_arg = std::any_cast<const flutter_zebra_rfid::WifiConfig&>(std::get<CustomEncodableValue>(encodable_config_arg));
+          api->ConfigureWifi(config_arg, [reply](std::optional<FlutterError>&& output) {
+            if (output.has_value()) {
+              reply(WrapError(output.value()));
+              return;
+            }
+            EncodableList wrapped;
+            wrapped.push_back(EncodableValue());
+            reply(EncodableValue(std::move(wrapped)));
+          });
+        } catch (const std::exception& exception) {
+          reply(WrapError(exception.what()));
+        }
+      });
+    } else {
+      channel.SetMessageHandler(nullptr);
+    }
+  }
+  {
+    BasicMessageChannel<> channel(binary_messenger, "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.wifiStatus" + prepended_suffix, &GetCodec());
+    if (api != nullptr) {
+      channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
+        try {
+          api->WifiStatus([reply](ErrorOr<flutter_zebra_rfid::WifiStatus>&& output) {
+            if (output.has_error()) {
+              reply(WrapError(output.error()));
+              return;
+            }
+            EncodableList wrapped;
+            wrapped.push_back(CustomEncodableValue(std::move(output).TakeValue()));
             reply(EncodableValue(std::move(wrapped)));
           });
         } catch (const std::exception& exception) {
@@ -1554,7 +1871,7 @@ void FlutterZebraRfid::SetUp(
     if (api != nullptr) {
       channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
         try {
-          api->ReaderConfig([reply](ErrorOr<ReaderConfig>&& output) {
+          api->ReaderConfig([reply](ErrorOr<flutter_zebra_rfid::ReaderConfig>&& output) {
             if (output.has_error()) {
               reply(WrapError(output.error()));
               return;
@@ -1627,7 +1944,7 @@ void FlutterZebraRfid::SetUp(
     if (api != nullptr) {
       channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
         try {
-          api->Diagnostics([reply](ErrorOr<Diagnostics>&& output) {
+          api->Diagnostics([reply](ErrorOr<flutter_zebra_rfid::Diagnostics>&& output) {
             if (output.has_error()) {
               reply(WrapError(output.error()));
               return;
@@ -1727,8 +2044,7 @@ void FlutterZebraRfidCallbacks::OnAvailableReadersChanged(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1753,8 +2069,7 @@ void FlutterZebraRfidCallbacks::OnReaderConnectionStatusChanged(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1779,8 +2094,7 @@ void FlutterZebraRfidCallbacks::OnTagsRead(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1805,8 +2119,7 @@ void FlutterZebraRfidCallbacks::OnBatteryDataReceived(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1831,8 +2144,7 @@ void FlutterZebraRfidCallbacks::OnTagsLocated(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1857,8 +2169,7 @@ void FlutterZebraRfidCallbacks::OnBluetoothDeviceDiscovered(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1883,8 +2194,7 @@ void FlutterZebraRfidCallbacks::OnBluetoothScanStatusChanged(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1911,8 +2221,7 @@ void FlutterZebraRfidCallbacks::OnBluetoothPairingResult(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 
@@ -1937,8 +2246,7 @@ void FlutterZebraRfidCallbacks::OnReaderConnectionError(
       }
     } else {
       on_error(CreateConnectionError(channel_name));
-    }
-
+    } 
   });
 }
 

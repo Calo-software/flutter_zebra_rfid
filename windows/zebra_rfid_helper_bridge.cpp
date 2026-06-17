@@ -275,7 +275,7 @@ void ZebraRfidHelperBridge::HandleLine(const std::string& line) {
     const std::string error = JsonObject(line, "error");
     result.error_code = JsonString(error, "code").value_or("unknown");
     result.error_message = JsonString(error, "message").value_or("RFID helper failed.");
-    result.error_details = JsonString(error, "details").value_or("");
+    result.error_details = "";
   }
 
   {

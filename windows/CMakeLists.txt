@@ -68,7 +68,7 @@ if(CMAKE_VS_MSBUILD_COMMAND)
     COMMAND "${CMAKE_VS_MSBUILD_COMMAND}" "${ZEBRA_RFID_HELPER_PROJECT}"
       /p:Configuration=$<CONFIG>
       /p:Platform=AnyCPU
-      /p:OutDir="$<TARGET_FILE_DIR:${PLUGIN_NAME}>\\"
+      /p:OutDir=$<TARGET_FILE_DIR:${PLUGIN_NAME}>/
     VERBATIM)
 endif()
 

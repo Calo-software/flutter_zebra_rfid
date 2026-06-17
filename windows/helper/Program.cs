@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.IO.Ports;
 using System.Reflection;
 using System.Threading;
 using System.Web.Script.Serialization;
@@ -31,6 +32,7 @@ namespace FlutterZebraRfid.WindowsHelper
         private static int Main()
         {
             AppDomain.CurrentDomain.AssemblyResolve += ResolveSdkAssembly;
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
             LoadSdkAssemblies();
 
             var program = new Program();
@@ -70,9 +72,27 @@ namespace FlutterZebraRfid.WindowsHelper
                         ConnectReader(Convert.ToInt32(Value<object>(args, "readerId")));
                         ReplyOk(id, new Dictionary<string, object> { { "reader", CurrentReaderSnapshot() } });
                         break;
+                    case "connectReaderByIp":
+                        ConnectReaderByIp(Value<string>(args, "host"), OptionalInt(args, "port"));
+                        ReplyOk(id, new Dictionary<string, object> { { "reader", CurrentReaderSnapshot() } });
+                        break;
                     case "configureReader":
                         ConfigureReader(args);
                         ReplyOk(id, new Dictionary<string, object>());
+                        break;
+                    case "configureWifi":
+                        ConfigureWifi(args);
+                        ReplyOk(id, new Dictionary<string, object>());
+                        break;
+                    case "wifiStatus":
+                        ReplyOk(id, new Dictionary<string, object> { { "status", WifiStatusSnapshot() } });
+                        break;
+                    case "networkConfig":
+                        ReplyOk(id, new Dictionary<string, object> { { "config", NetworkConfigSnapshot() } });
+                        break;
+                    case "configureNetwork":
+                        ConfigureNetwork(args);
+                        ReplyOk(id, new Dictionary<string, object> { { "config", NetworkConfigSnapshot() } });
                         break;
                     case "disconnectReader":
                         SafeDisconnect();
@@ -114,25 +134,302 @@ namespace FlutterZebraRfid.WindowsHelper
                 throw new NotSupportedException("Bluetooth discovery is not supported by the Windows RFID helper yet.");
             }
 
+            var discovered = new List<object>();
+            var errors = new List<Exception>();
+            var includeUsb = connectionType == "usb" || connectionType == "all" || string.IsNullOrWhiteSpace(connectionType);
+            var includeIp = connectionType == "ip" || connectionType == "all" || string.IsNullOrWhiteSpace(connectionType);
+
+            if (includeUsb)
+            {
+                TryAddManagedReaders(discovered, errors, "USB");
+                TryAddUsbDeviceReaders(discovered, errors);
+                TryAddSerialPortReaders(discovered, errors);
+            }
+
+            if (includeIp)
+            {
+                TryAddManagedReaders(discovered, errors, "IP");
+                TryAddIpDeviceReaders(discovered, errors);
+            }
+
+            _readerInfos.Clear();
+            _readerInfos.AddRange(DeduplicateReaders(discovered));
+
+            if (_readerInfos.Count == 0 && errors.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "No Zebra RFID readers were discovered. Last SDK error: " + errors[errors.Count - 1].GetBaseException().Message,
+                    errors[errors.Count - 1]);
+            }
+
+            SendEvent("readers", new Dictionary<string, object> { { "readers", ReaderSnapshots() } });
+        }
+
+        private void TryAddManagedReaders(List<object> readers, List<Exception> errors, string modeName)
+        {
+            try
+            {
+                foreach (var reader in GetManagedReaders(modeName))
+                {
+                    readers.Add(reader);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsExpectedManagedIpDiscoveryFailure(modeName, ex))
+                {
+                    errors.Add(ex);
+                }
+                try
+                {
+                    foreach (var reader in GetDirectManagedReaders(modeName))
+                    {
+                        readers.Add(reader);
+                    }
+                }
+                catch (Exception fallbackEx)
+                {
+                    errors.Add(fallbackEx);
+                }
+            }
+        }
+
+        private static bool IsExpectedManagedIpDiscoveryFailure(string modeName, Exception ex)
+        {
+            return string.Equals(modeName, "IP", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(ex.GetBaseException().Message, "Value does not fall within the expected range.", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private IEnumerable<object> GetManagedReaders(string modeName)
+        {
             var sdkType = RequiredType("Symbol.RFID.SDK.RfidSdk, Symbol.RFID.SDK");
             var managementFactory = GetProperty(sdkType, null, "ReaderManagementServicesFactory");
             var modeType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderCommunicationMode, Symbol.RFID.SDK.Domain.Reader");
-            var usbMode = Enum.Parse(modeType, "USB");
-            var management = Invoke(managementFactory, "Create", usbMode);
+            var mode = Enum.Parse(modeType, modeName);
+            var management = Invoke(managementFactory, "Create", mode);
             var searchType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderSearchOptions, Symbol.RFID.SDK.Domain.Reader");
             var allReaders = Enum.Parse(searchType, "AllReaders");
             var readers = Invoke(management, "GetReaders", allReaders) as IEnumerable;
 
-            _readerInfos.Clear();
             if (readers != null)
             {
                 foreach (var reader in readers)
                 {
-                    _readerInfos.Add(reader);
+                    yield return reader;
                 }
             }
+        }
 
-            SendEvent("readers", new Dictionary<string, object> { { "readers", ReaderSnapshots() } });
+        private IEnumerable<object> GetDirectManagedReaders(string modeName)
+        {
+            var managementTypeName = modeName == "IP"
+                ? "Symbol.RFID.SDK.Domain.Reader.Infrastructure.Management.IPReaderManagement, Symbol.RFID.SDK.Domain.Reader.Infrastructure.Management"
+                : "Symbol.RFID.SDK.Domain.Reader.Infrastructure.Management.UsbReaderManagement, Symbol.RFID.SDK.Domain.Reader.Infrastructure.Management";
+            var management = Activator.CreateInstance(RequiredType(managementTypeName));
+            var searchType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderSearchOptions, Symbol.RFID.SDK.Domain.Reader");
+            var allReaders = Enum.Parse(searchType, "AllReaders");
+            var readers = Invoke(management, "GetReaders", allReaders) as IEnumerable;
+
+            if (readers != null)
+            {
+                foreach (var reader in readers)
+                {
+                    yield return reader;
+                }
+            }
+        }
+
+        private void TryAddUsbDeviceReaders(List<object> readers, List<Exception> errors)
+        {
+            try
+            {
+                var clientType = RequiredType("Symbol.RFID.SDK.USB.UsbDeviceClient, Symbol.RFID.SDK.USB");
+                var client = Activator.CreateInstance(clientType);
+                try
+                {
+                    var devices = Invoke(client, "DiscoverDevices") as IEnumerable;
+                    if (devices == null)
+                    {
+                        return;
+                    }
+
+                    foreach (var device in devices)
+                    {
+                        var name = Convert.ToString(GetProperty(device, "DeviceName"));
+                        var id = Convert.ToString(GetProperty(device, "DeviceIdentifier"));
+                        var comPort = Convert.ToString(GetProperty(device, "COMPort"));
+                        if (string.IsNullOrWhiteSpace(comPort))
+                        {
+                            continue;
+                        }
+                        readers.Add(CreateReaderInfo(
+                            string.IsNullOrWhiteSpace(id) ? comPort : id,
+                            string.IsNullOrWhiteSpace(name) ? comPort : name,
+                            comPort,
+                            "USB",
+                            "RFD",
+                            115200));
+                    }
+                }
+                finally
+                {
+                    SafeInvoke(client, "Close");
+                    SafeInvoke(client, "Dispose");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(ex);
+            }
+        }
+
+        private void TryAddSerialPortReaders(List<object> readers, List<Exception> errors)
+        {
+            try
+            {
+                foreach (var comPort in SerialPort.GetPortNames()
+                    .OrderByDescending(ComPortNumber)
+                    .ThenByDescending(port => port, StringComparer.OrdinalIgnoreCase))
+                {
+                    readers.Add(CreateReaderInfo(
+                        comPort,
+                        "USB Serial Device (" + comPort + ")",
+                        comPort,
+                        "USB",
+                        "RFD",
+                        115200));
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(ex);
+            }
+        }
+
+        private void TryAddIpDeviceReaders(List<object> readers, List<Exception> errors)
+        {
+            try
+            {
+                var clientType = RequiredType("Symbol.RFID.SDK.IP.IPDeviceClient, Symbol.RFID.SDK.IP");
+                var client = Activator.CreateInstance(clientType);
+                try
+                {
+                    var devices = Invoke(client, "DiscoverDevices") as IEnumerable;
+                    if (devices == null)
+                    {
+                        return;
+                    }
+
+                    foreach (var device in devices)
+                    {
+                        var name = Convert.ToString(GetProperty(device, "DeviceName"));
+                        var id = Convert.ToString(GetProperty(device, "DeviceIdentifier"));
+                        var port = Convert.ToString(GetProperty(device, "Port"));
+                        readers.Add(CreateReaderInfo(
+                            string.IsNullOrWhiteSpace(id) ? port : id,
+                            string.IsNullOrWhiteSpace(name) ? id : name,
+                            port,
+                            "IP",
+                            "FXP",
+                            0));
+                    }
+                }
+                finally
+                {
+                    SafeInvoke(client, "Close");
+                    SafeInvoke(client, "Dispose");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(ex);
+            }
+        }
+
+        private object CreateReaderInfo(string id, string friendlyName, string port, string communicationMode, string readerType, int baudRate)
+        {
+            var readerInfoType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderInfo, Symbol.RFID.SDK.Domain.Reader");
+            var statusType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderStatus, Symbol.RFID.SDK.Domain.Reader");
+            var modeType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderCommunicationMode, Symbol.RFID.SDK.Domain.Reader");
+            var typeType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ReaderType, Symbol.RFID.SDK.Domain.Reader");
+            return Activator.CreateInstance(
+                readerInfoType,
+                friendlyName ?? id ?? port ?? "Zebra RFID Reader",
+                id ?? string.Empty,
+                port ?? string.Empty,
+                Enum.Parse(statusType, "NotConnected"),
+                Enum.Parse(modeType, communicationMode),
+                Enum.Parse(typeType, readerType),
+                baudRate);
+        }
+
+        private object CreateIpReaderInfo(string host, int? port)
+        {
+            var portValue = port.HasValue && port.Value > 0 ? port.Value : 5084;
+            return CreateReaderInfo(
+                host,
+                "IP Reader (" + host + ")",
+                Convert.ToString(portValue),
+                "IP",
+                "RFD",
+                0);
+        }
+
+        private IEnumerable<object> DeduplicateReaders(IEnumerable<object> readers)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var reader in readers)
+            {
+                var key = Convert.ToString(SafeGetProperty(reader, "ComPortNumber"));
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    key = Convert.ToString(SafeGetProperty(reader, "PortNumber"));
+                }
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    key = Convert.ToString(SafeGetProperty(reader, "ID"));
+                }
+                if (string.IsNullOrWhiteSpace(key) || keys.Add(key))
+                {
+                    yield return reader;
+                }
+            }
+        }
+
+        private static string ExtractComPort(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var marker = "(COM";
+            var start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+            {
+                return null;
+            }
+
+            start++;
+            var end = value.IndexOf(')', start);
+            if (end <= start)
+            {
+                return null;
+            }
+
+            return value.Substring(start, end - start);
+        }
+
+        private static int ComPortNumber(string port)
+        {
+            if (string.IsNullOrWhiteSpace(port) ||
+                !port.StartsWith("COM", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            int value;
+            return int.TryParse(port.Substring(3), out value) ? value : 0;
         }
 
         private void ConnectReader(int readerId)
@@ -149,9 +446,7 @@ namespace FlutterZebraRfid.WindowsHelper
             SafeDisconnect(sendStatus: false);
             _currentReaderInfo = _readerInfos[readerId];
 
-            var sdkType = RequiredType("Symbol.RFID.SDK.RfidSdk, Symbol.RFID.SDK");
-            var readerFactory = GetProperty(sdkType, null, "RfidReaderFactory");
-            _currentReader = Invoke(readerFactory, "Create", _currentReaderInfo);
+            _currentReader = CreateReader(_currentReaderInfo);
 
             SubscribeEvent(_currentReader, "BatteryStatusNotification", nameof(OnBatteryStatus));
             var inventory = GetProperty(_currentReader, "Inventory");
@@ -165,6 +460,68 @@ namespace FlutterZebraRfid.WindowsHelper
             if (_scanningEnabled)
             {
                 StartInventory();
+            }
+        }
+
+        private void ConnectReaderByIp(string host, int? port)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                throw new ArgumentException("Reader IP address or host name is required.");
+            }
+
+            _connectAttempts++;
+            _lastConnectStartMs = NowMs();
+            SendStatus("connecting");
+
+            SafeDisconnect(sendStatus: false);
+            _currentReaderInfo = CreateIpReaderInfo(host.Trim(), port);
+            _currentReader = CreateReader(_currentReaderInfo);
+
+            SubscribeEvent(_currentReader, "BatteryStatusNotification", nameof(OnBatteryStatus));
+            var inventory = GetProperty(_currentReader, "Inventory");
+            SubscribeEvent(inventory, "TagDataReceived", nameof(OnTagDataReceived));
+
+            Invoke(_currentReader, "Connect");
+            _lastConnectDurationMs = NowMs() - _lastConnectStartMs;
+            SendStatus("connected");
+
+            if (_readerInfos.IndexOf(_currentReaderInfo) < 0)
+            {
+                _readerInfos.Add(_currentReaderInfo);
+            }
+            SendEvent("readers", new Dictionary<string, object> { { "readers", ReaderSnapshots() } });
+
+            if (_scanningEnabled)
+            {
+                StartInventory();
+            }
+        }
+
+        private object CreateReader(object readerInfo)
+        {
+            if (IsIpReaderInfo(readerInfo))
+            {
+                return CreateDirectIpReader(readerInfo);
+            }
+
+            var sdkType = RequiredType("Symbol.RFID.SDK.RfidSdk, Symbol.RFID.SDK");
+            var readerFactory = GetProperty(sdkType, null, "RfidReaderFactory");
+            try
+            {
+                return Invoke(readerFactory, "Create", readerInfo);
+            }
+            catch
+            {
+                if (IsUsbReaderInfo(readerInfo))
+                {
+                    return CreateDirectUsbReader(readerInfo);
+                }
+                if (IsIpReaderInfo(readerInfo))
+                {
+                    return CreateDirectIpReader(readerInfo);
+                }
+                throw;
             }
         }
 
@@ -194,6 +551,176 @@ namespace FlutterZebraRfid.WindowsHelper
                 // Reader models differ in how much configuration they expose.
                 // Keep v1 Windows configuration best-effort so connection/read flows remain usable.
             }
+        }
+
+        private void ConfigureWifi(Dictionary<string, object> args)
+        {
+            if (_currentReader == null)
+            {
+                throw new InvalidOperationException("Connect a reader over USB before configuring Wi-Fi.");
+            }
+
+            var config = args != null && args.ContainsKey("config") ? args["config"] as Dictionary<string, object> : null;
+            if (config == null)
+            {
+                throw new ArgumentException("Wi-Fi config is required.");
+            }
+
+            var ssid = Value<string>(config, "ssid");
+            if (string.IsNullOrWhiteSpace(ssid))
+            {
+                throw new ArgumentException("Wi-Fi SSID is required.");
+            }
+
+            var security = Value<string>(config, "security") ?? "wpaPersonal";
+            var password = Value<string>(config, "password");
+            var persist = !config.ContainsKey("persist") || Convert.ToBoolean(config["persist"]);
+            var connectAfterSave = !config.ContainsKey("connectAfterSave") || Convert.ToBoolean(config["connectAfterSave"]);
+
+            if (string.Equals(security, "wpaPersonal", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrEmpty(password))
+            {
+                throw new ArgumentException("Wi-Fi password is required for WPA/WPA2 personal networks.");
+            }
+
+            StopInventory("wifi configuration");
+
+            var configurations = GetProperty(_currentReader, "Configurations");
+            var wpa = GetProperty(configurations, "WPAConfiguration");
+            Invoke(wpa, "Enable");
+
+            if (string.Equals(security, "open", StringComparison.OrdinalIgnoreCase))
+            {
+                Invoke(wpa, "Add", ssid, persist);
+            }
+            else
+            {
+                Invoke(wpa, "Add", ssid, password, persist);
+            }
+
+            Invoke(wpa, "SetPreferredSsid", ssid);
+
+            if (persist)
+            {
+                SafeInvoke(wpa, "Save");
+            }
+
+            if (connectAfterSave)
+            {
+                Invoke(wpa, "Connect", ssid);
+            }
+        }
+
+        private void ConfigureNetworkDhcp(object configurations)
+        {
+            var networkConfig = GetProperty(configurations, "NetworkConfiguration");
+            SetProperty(networkConfig, "IpAddress", "0.0.0.0");
+            SetProperty(networkConfig, "NetMask", "0.0.0.0");
+            SetProperty(networkConfig, "DNS", "0.0.0.0");
+            SetProperty(networkConfig, "Gateway", "0.0.0.0");
+            SetProperty(networkConfig, "DHCP", "enable");
+            SafeInvoke(networkConfig, "SetNetworkConfiguration");
+            SetProperty(configurations, "NetworkConfiguration", networkConfig);
+        }
+
+        private void ConfigureNetwork(Dictionary<string, object> args)
+        {
+            if (_currentReader == null)
+            {
+                throw new InvalidOperationException("Connect a reader before configuring network settings.");
+            }
+
+            StopInventory("network configuration");
+
+            var configurations = GetProperty(_currentReader, "Configurations");
+            var networkConfig = GetProperty(configurations, "NetworkConfiguration");
+            var dhcp = !args.ContainsKey("dhcp") || Convert.ToBoolean(args["dhcp"]);
+            SetProperty(networkConfig, "IpAddress", dhcp ? "0.0.0.0" : Value<string>(args, "ipAddress"));
+            SetProperty(networkConfig, "NetMask", dhcp ? "0.0.0.0" : Value<string>(args, "netMask"));
+            SetProperty(networkConfig, "DNS", dhcp ? "0.0.0.0" : Value<string>(args, "dns"));
+            SetProperty(networkConfig, "Gateway", dhcp ? "0.0.0.0" : Value<string>(args, "gateway"));
+            SetProperty(networkConfig, "DHCP", dhcp ? "enable" : "disable");
+            Invoke(networkConfig, "SetNetworkConfiguration");
+            SetProperty(configurations, "NetworkConfiguration", networkConfig);
+
+            if (!args.ContainsKey("reconnectWifi") || Convert.ToBoolean(args["reconnectWifi"]))
+            {
+                var wpa = GetProperty(configurations, "WPAConfiguration");
+                SafeInvoke(wpa, "Disconnect");
+                Thread.Sleep(1000);
+                var ssid = Value<string>(args, "ssid");
+                if (string.IsNullOrWhiteSpace(ssid))
+                {
+                    ssid = Convert.ToString(FirstProperty(WifiStatusProperties(wpa), "PREFERREDSSID", "SSID"));
+                }
+                if (string.IsNullOrWhiteSpace(ssid))
+                {
+                    Invoke(wpa, "Connect");
+                }
+                else
+                {
+                    Invoke(wpa, "Connect", ssid);
+                }
+            }
+        }
+
+        private Dictionary<string, object> WifiStatusSnapshot()
+        {
+            var snapshot = new Dictionary<string, object>
+            {
+                { "status", null },
+                { "ssid", null },
+                { "ipAddress", null },
+                { "macAddress", null },
+                { "properties", new Dictionary<string, object>() },
+            };
+
+            if (_currentReader == null)
+            {
+                return snapshot;
+            }
+
+            var configurations = GetProperty(_currentReader, "Configurations");
+            var wpa = GetProperty(configurations, "WPAConfiguration");
+            var status = SafeInvokeWithResult(wpa, "GetWiFiStatus") ?? SafeGetProperty(wpa, "WiFiStatus");
+            if (status == null)
+            {
+                return snapshot;
+            }
+
+            snapshot["status"] = Convert.ToString(SafeGetProperty(status, "Status"));
+
+            var propertySnapshot = WifiStatusProperties(status);
+            snapshot["properties"] = propertySnapshot;
+            snapshot["ssid"] = FirstProperty(propertySnapshot, "ESSID", "SSID", "WLAN");
+            snapshot["ipAddress"] = FirstProperty(propertySnapshot, "ADDRESS", "IP", "IPADDR", "IP_ADDRESS");
+            snapshot["macAddress"] = FirstProperty(propertySnapshot, "MAC", "MAC_ADDRESS", "BSSID");
+            return snapshot;
+        }
+
+        private Dictionary<string, object> WifiStatusProperties(object statusOrWpa)
+        {
+            var status = statusOrWpa;
+            if (statusOrWpa != null && statusOrWpa.GetType().Name == "WPAConfiguration")
+            {
+                status = SafeInvokeWithResult(statusOrWpa, "GetWiFiStatus") ?? SafeGetProperty(statusOrWpa, "WiFiStatus");
+            }
+
+            var propertySnapshot = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            var properties = SafeGetField(status, "Properties") as IEnumerable;
+            if (properties != null)
+            {
+                foreach (var item in properties)
+                {
+                    var key = Convert.ToString(SafeGetProperty(item, "Key"));
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        continue;
+                    }
+                    propertySnapshot[key] = Convert.ToString(SafeGetProperty(item, "Value"));
+                }
+            }
+            return propertySnapshot;
         }
 
         private void TriggerDeviceStatus()
@@ -403,6 +930,32 @@ namespace FlutterZebraRfid.WindowsHelper
             return config;
         }
 
+        private Dictionary<string, object> NetworkConfigSnapshot()
+        {
+            var config = new Dictionary<string, object>
+            {
+                { "dhcp", null },
+                { "ipAddress", null },
+                { "netMask", null },
+                { "dns", null },
+                { "gateway", null },
+            };
+
+            if (_currentReader == null)
+            {
+                return config;
+            }
+
+            var configurations = GetProperty(_currentReader, "Configurations");
+            var networkConfig = GetProperty(configurations, "NetworkConfiguration");
+            config["dhcp"] = Convert.ToString(SafeGetProperty(networkConfig, "DHCP"));
+            config["ipAddress"] = Convert.ToString(SafeGetProperty(networkConfig, "IpAddress"));
+            config["netMask"] = Convert.ToString(SafeGetProperty(networkConfig, "NetMask"));
+            config["dns"] = Convert.ToString(SafeGetProperty(networkConfig, "DNS"));
+            config["gateway"] = Convert.ToString(SafeGetProperty(networkConfig, "Gateway"));
+            return config;
+        }
+
         private Dictionary<string, object> DiagnosticsSnapshot()
         {
             return new Dictionary<string, object>
@@ -472,6 +1025,28 @@ namespace FlutterZebraRfid.WindowsHelper
             }
         }
 
+        private static void SetProperty(object target, string name, object value)
+        {
+            target.GetType().GetProperty(name)?.SetValue(target, value);
+        }
+
+        private static object SafeGetField(object target, string name)
+        {
+            if (target == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return target.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static object Invoke(object target, string method, params object[] args)
         {
             var methods = target.GetType().GetMethods().Where(m => m.Name == method && m.GetParameters().Length == args.Length);
@@ -492,6 +1067,91 @@ namespace FlutterZebraRfid.WindowsHelper
             }
 
             throw new MissingMethodException(target.GetType().FullName, method);
+        }
+
+        private static void SafeInvoke(object target, string method)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Invoke(target, method);
+            }
+            catch
+            {
+                // Cleanup best-effort only.
+            }
+        }
+
+        private static object SafeInvokeWithResult(object target, string method)
+        {
+            if (target == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Invoke(target, method);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object FirstProperty(Dictionary<string, object> values, params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                object value;
+                if (values.TryGetValue(key, out value) && value != null && !string.IsNullOrWhiteSpace(Convert.ToString(value)))
+                {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        private object CreateDirectUsbReader(object readerInfo)
+        {
+            var connectionType = RequiredType(
+                "Symbol.RFID.SDK.Connectivity.Windows.UsbSerialPortDeviceConnection, Symbol.RFID.SDK.Connectivity.Windows");
+            var adapterType = RequiredType(
+                "Symbol.RFID.SDK.Domain.Reader.Infrastructure.ZetiRfidReaderAdapter, Symbol.RFID.SDK.Domain.Reader.Infrastructure");
+            var readerType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ZetiRfidReader, Symbol.RFID.SDK.Domain.Reader");
+            var connection = Activator.CreateInstance(connectionType, readerInfo);
+            var adapter = Activator.CreateInstance(adapterType, connection);
+            return Activator.CreateInstance(readerType, readerInfo, adapter);
+        }
+
+        private object CreateDirectIpReader(object readerInfo)
+        {
+            var connectionType = RequiredType(
+                "Symbol.RFID.SDK.Connectivity.Windows.IPSocketDeviceConnection, Symbol.RFID.SDK.Connectivity.Windows");
+            var adapterType = RequiredType(
+                "Symbol.RFID.SDK.Domain.Reader.Infrastructure.ZetiRfidReaderAdapter, Symbol.RFID.SDK.Domain.Reader.Infrastructure");
+            var readerType = RequiredType("Symbol.RFID.SDK.Domain.Reader.ZetiRfidReader, Symbol.RFID.SDK.Domain.Reader");
+            var connection = Activator.CreateInstance(connectionType, readerInfo);
+            var adapter = Activator.CreateInstance(adapterType, connection);
+            return Activator.CreateInstance(readerType, readerInfo, adapter);
+        }
+
+        private bool IsUsbReaderInfo(object readerInfo)
+        {
+            var communicationMode = Convert.ToString(SafeGetProperty(readerInfo, "CommunicationMode"));
+            var comPort = Convert.ToString(SafeGetProperty(readerInfo, "ComPortNumber"));
+            return string.Equals(communicationMode, "USB", StringComparison.OrdinalIgnoreCase) ||
+                   !string.IsNullOrWhiteSpace(comPort);
+        }
+
+        private bool IsIpReaderInfo(object readerInfo)
+        {
+            var communicationMode = Convert.ToString(SafeGetProperty(readerInfo, "CommunicationMode"));
+            return string.Equals(communicationMode, "IP", StringComparison.OrdinalIgnoreCase);
         }
 
         private static Type RequiredType(string typeName)
@@ -590,6 +1250,15 @@ namespace FlutterZebraRfid.WindowsHelper
                 return default(T);
             }
             return (T)Convert.ChangeType(map[key], typeof(T));
+        }
+
+        private static int? OptionalInt(Dictionary<string, object> map, string key)
+        {
+            if (map == null || !map.ContainsKey(key) || map[key] == null)
+            {
+                return null;
+            }
+            return Convert.ToInt32(map[key]);
         }
 
         private static long NowMs()

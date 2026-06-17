@@ -402,6 +402,30 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         
         completion(.success(()))
     }
+
+    func configureWifi(config: WifiConfig, completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Wi-Fi configuration is currently implemented on Windows only.",
+            details: nil
+        )))
+    }
+
+    func connectReaderByIp(host: String, port: Int64?, completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Direct IP connection is currently implemented on Windows only.",
+            details: nil
+        )))
+    }
+
+    func wifiStatus(completion: @escaping (Result<WifiStatus, Error>) -> Void) {
+        completion(.failure(FlutterRfidError(
+            code: "unsupported",
+            message: "Wi-Fi status is currently implemented on Windows only.",
+            details: nil
+        )))
+    }
     
     func triggerDeviceStatus(completion: @escaping (Result<Void, Error>) -> Void) {
         let exception = FlutterRfidError(

@@ -71,7 +71,8 @@ private func nilOrValue<T>(_ value: Any?) -> T? {
 enum ReaderConnectionType: Int {
   case bluetooth = 0
   case usb = 1
-  case all = 2
+  case ip = 2
+  case all = 3
 }
 
 enum ReaderConnectionStatus: Int {
@@ -111,6 +112,11 @@ enum ReaderBeeperVolume: Int {
   case low = 1
   case medium = 2
   case high = 3
+}
+
+enum WifiSecurity: Int {
+  case open = 0
+  case wpaPersonal = 1
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
@@ -249,6 +255,80 @@ struct ReaderConfig {
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+    ]
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct WifiConfig {
+  var ssid: String
+  var password: String? = nil
+  var security: WifiSecurity
+  var connectAfterSave: Bool
+  var persist: Bool
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> WifiConfig? {
+    let ssid = pigeonVar_list[0] as! String
+    let password: String? = nilOrValue(pigeonVar_list[1])
+    let security = pigeonVar_list[2] as! WifiSecurity
+    let connectAfterSave = pigeonVar_list[3] as! Bool
+    let persist = pigeonVar_list[4] as! Bool
+
+    return WifiConfig(
+      ssid: ssid,
+      password: password,
+      security: security,
+      connectAfterSave: connectAfterSave,
+      persist: persist
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      ssid,
+      password,
+      security,
+      connectAfterSave,
+      persist,
+    ]
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct WifiStatus {
+  var status: String? = nil
+  var ssid: String? = nil
+  var ipAddress: String? = nil
+  var macAddress: String? = nil
+  var properties: [String?: String?]
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> WifiStatus? {
+    let status: String? = nilOrValue(pigeonVar_list[0])
+    let ssid: String? = nilOrValue(pigeonVar_list[1])
+    let ipAddress: String? = nilOrValue(pigeonVar_list[2])
+    let macAddress: String? = nilOrValue(pigeonVar_list[3])
+    let properties = pigeonVar_list[4] as! [String?: String?]
+
+    return WifiStatus(
+      status: status,
+      ssid: ssid,
+      ipAddress: ipAddress,
+      macAddress: macAddress,
+      properties: properties
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      status,
+      ssid,
+      ipAddress,
+      macAddress,
+      properties,
     ]
   }
 }
@@ -494,22 +574,32 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 135:
-      return ReaderError.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return WifiSecurity(rawValue: enumResultAsInt)
+      }
+      return nil
     case 136:
-      return Reader.fromList(self.readValue() as! [Any?])
+      return ReaderError.fromList(self.readValue() as! [Any?])
     case 137:
-      return BluetoothDevice.fromList(self.readValue() as! [Any?])
+      return Reader.fromList(self.readValue() as! [Any?])
     case 138:
-      return ReaderConfig.fromList(self.readValue() as! [Any?])
+      return BluetoothDevice.fromList(self.readValue() as! [Any?])
     case 139:
-      return ReaderInfo.fromList(self.readValue() as! [Any?])
+      return ReaderConfig.fromList(self.readValue() as! [Any?])
     case 140:
-      return ReaderRegion.fromList(self.readValue() as! [Any?])
+      return WifiConfig.fromList(self.readValue() as! [Any?])
     case 141:
-      return RfidTag.fromList(self.readValue() as! [Any?])
+      return WifiStatus.fromList(self.readValue() as! [Any?])
     case 142:
-      return BatteryData.fromList(self.readValue() as! [Any?])
+      return ReaderInfo.fromList(self.readValue() as! [Any?])
     case 143:
+      return ReaderRegion.fromList(self.readValue() as! [Any?])
+    case 144:
+      return RfidTag.fromList(self.readValue() as! [Any?])
+    case 145:
+      return BatteryData.fromList(self.readValue() as! [Any?])
+    case 146:
       return Diagnostics.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -537,32 +627,41 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ReaderBeeperVolume {
       super.writeByte(134)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ReaderError {
+    } else if let value = value as? WifiSecurity {
       super.writeByte(135)
-      super.writeValue(value.toList())
-    } else if let value = value as? Reader {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? ReaderError {
       super.writeByte(136)
       super.writeValue(value.toList())
-    } else if let value = value as? BluetoothDevice {
+    } else if let value = value as? Reader {
       super.writeByte(137)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderConfig {
+    } else if let value = value as? BluetoothDevice {
       super.writeByte(138)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderInfo {
+    } else if let value = value as? ReaderConfig {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderRegion {
+    } else if let value = value as? WifiConfig {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? RfidTag {
+    } else if let value = value as? WifiStatus {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? BatteryData {
+    } else if let value = value as? ReaderInfo {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? Diagnostics {
+    } else if let value = value as? ReaderRegion {
       super.writeByte(143)
+      super.writeValue(value.toList())
+    } else if let value = value as? RfidTag {
+      super.writeByte(144)
+      super.writeValue(value.toList())
+    } else if let value = value as? BatteryData {
+      super.writeByte(145)
+      super.writeValue(value.toList())
+    } else if let value = value as? Diagnostics {
+      super.writeByte(146)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -599,8 +698,16 @@ protocol FlutterZebraRfid {
   func pairBluetoothDevice(address: String, completion: @escaping (Result<Void, Error>) -> Void)
   /// Connects to a reader with `readerId` ID.
   func connectReader(readerId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Connects directly to a network reader by IP address or host name.
+  func connectReaderByIp(host: String, port: Int64?, completion: @escaping (Result<Void, Error>) -> Void)
   /// Configures reader with `config`.
   func configureReader(config: ReaderConfig, shouldPersist: Bool, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Configures Wi-Fi on the connected reader.
+  ///
+  /// The reader must be connected over USB before applying Wi-Fi settings.
+  func configureWifi(config: WifiConfig, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Returns Wi-Fi status for the connected reader.
+  func wifiStatus(completion: @escaping (Result<WifiStatus, Error>) -> Void)
   /// Disconnects a current reader.
   func disconnectReader(completion: @escaping (Result<Void, Error>) -> Void)
   /// Trigger device status
@@ -735,6 +842,25 @@ class FlutterZebraRfidSetup {
     } else {
       connectReaderChannel.setMessageHandler(nil)
     }
+    /// Connects directly to a network reader by IP address or host name.
+    let connectReaderByIpChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.connectReaderByIp\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      connectReaderByIpChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let hostArg = args[0] as! String
+        let portArg: Int64? = isNullish(args[1]) ? nil : (args[1] is Int64? ? args[1] as! Int64? : Int64(args[1] as! Int32))
+        api.connectReaderByIp(host: hostArg, port: portArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      connectReaderByIpChannel.setMessageHandler(nil)
+    }
     /// Configures reader with `config`.
     let configureReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
@@ -753,6 +879,42 @@ class FlutterZebraRfidSetup {
       }
     } else {
       configureReaderChannel.setMessageHandler(nil)
+    }
+    /// Configures Wi-Fi on the connected reader.
+    ///
+    /// The reader must be connected over USB before applying Wi-Fi settings.
+    let configureWifiChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.configureWifi\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      configureWifiChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let configArg = args[0] as! WifiConfig
+        api.configureWifi(config: configArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      configureWifiChannel.setMessageHandler(nil)
+    }
+    /// Returns Wi-Fi status for the connected reader.
+    let wifiStatusChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.wifiStatus\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      wifiStatusChannel.setMessageHandler { _, reply in
+        api.wifiStatus { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      wifiStatusChannel.setMessageHandler(nil)
     }
     /// Disconnects a current reader.
     let disconnectReaderChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_rfid.FlutterZebraRfid.disconnectReader\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
