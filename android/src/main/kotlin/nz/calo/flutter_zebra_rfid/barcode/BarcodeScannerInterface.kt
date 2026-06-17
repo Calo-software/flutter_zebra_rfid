@@ -498,47 +498,20 @@ class BarcodeScannerInterface(
 
     private fun createDataWedgeProfile(endpoint: BarcodeScannerEndpoint?) {
         val context = applicationContext ?: return
-        val profileName = "${context.packageName}.barcode"
+        val profileName = dataWedgeProfileName(context.packageName)
 
-        val profileConfig = Bundle().apply {
-            putString("PROFILE_NAME", profileName)
-            putString("PROFILE_ENABLED", "true")
-            putString("CONFIG_MODE", "CREATE_IF_NOT_EXIST")
-            putParcelableArray("APP_LIST", arrayOf(Bundle().apply {
-                putString("PACKAGE_NAME", context.packageName)
-                putStringArray("ACTIVITY_LIST", arrayOf("*"))
-            }))
-            putBundle("PLUGIN_CONFIG", Bundle().apply {
-                putString("PLUGIN_NAME", "BARCODE")
-                putString("RESET_CONFIG", "false")
-                putBundle("PARAM_LIST", Bundle().apply {
-                    putString("scanner_input_enabled", "true")
-                    endpoint?.zebraScannerIdentifier?.let {
-                        putString("scanner_selection_by_identifier", it)
-                    }
-                    endpoint?.scannerIndex?.let {
-                        putString("scanner_selection", it.toString())
-                    }
-                })
-            })
-        }
-        sendDataWedgeIntent(EXTRA_SET_CONFIG, profileConfig)
-
-        val intentConfig = Bundle().apply {
-            putString("PROFILE_NAME", profileName)
-            putString("PROFILE_ENABLED", "true")
-            putString("CONFIG_MODE", "UPDATE")
-            putBundle("PLUGIN_CONFIG", Bundle().apply {
-                putString("PLUGIN_NAME", "INTENT")
-                putString("RESET_CONFIG", "true")
-                putBundle("PARAM_LIST", Bundle().apply {
-                    putString("intent_output_enabled", "true")
-                    putString("intent_action", ACTION_BARCODE)
-                    putString("intent_delivery", "2")
-                })
-            })
-        }
-        sendDataWedgeIntent(EXTRA_SET_CONFIG, intentConfig)
+        sendDataWedgeIntent(
+            EXTRA_SET_CONFIG,
+            buildDataWedgeBarcodeProfileConfig(profileName, context.packageName, endpoint),
+        )
+        sendDataWedgeIntent(
+            EXTRA_SET_CONFIG,
+            buildDataWedgeDisableRfidProfileConfig(profileName),
+        )
+        sendDataWedgeIntent(
+            EXTRA_SET_CONFIG,
+            buildDataWedgeIntentProfileConfig(profileName, ACTION_BARCODE),
+        )
     }
 
     private fun isDataWedgeRfidIntent(intent: Intent): Boolean {
@@ -654,4 +627,65 @@ class BarcodeScannerInterface(
         private const val DATAWEDGE_LEGACY_SOURCE = "com.motorolasolutions.emdk.datawedge.source"
         private const val DATAWEDGE_LEGACY_LABEL_TYPE = "com.motorolasolutions.emdk.datawedge.label_type"
     }
+}
+
+internal fun dataWedgeProfileName(packageName: String): String = "$packageName.barcode"
+
+internal fun buildDataWedgeBarcodeProfileConfig(
+    profileName: String,
+    packageName: String,
+    endpoint: BarcodeScannerEndpoint?,
+): Bundle = Bundle().apply {
+    putString("PROFILE_NAME", profileName)
+    putString("PROFILE_ENABLED", "true")
+    putString("CONFIG_MODE", "CREATE_IF_NOT_EXIST")
+    putParcelableArray("APP_LIST", arrayOf(Bundle().apply {
+        putString("PACKAGE_NAME", packageName)
+        putStringArray("ACTIVITY_LIST", arrayOf("*"))
+    }))
+    putBundle("PLUGIN_CONFIG", Bundle().apply {
+        putString("PLUGIN_NAME", "BARCODE")
+        putString("RESET_CONFIG", "false")
+        putBundle("PARAM_LIST", Bundle().apply {
+            putString("scanner_input_enabled", "true")
+            endpoint?.zebraScannerIdentifier?.let {
+                putString("scanner_selection_by_identifier", it)
+            }
+            endpoint?.scannerIndex?.let {
+                putString("scanner_selection", it.toString())
+            }
+        })
+    })
+}
+
+internal fun buildDataWedgeDisableRfidProfileConfig(profileName: String): Bundle =
+    Bundle().apply {
+        putString("PROFILE_NAME", profileName)
+        putString("PROFILE_ENABLED", "true")
+        putString("CONFIG_MODE", "UPDATE")
+        putBundle("PLUGIN_CONFIG", Bundle().apply {
+            putString("PLUGIN_NAME", "RFID")
+            putString("RESET_CONFIG", "false")
+            putBundle("PARAM_LIST", Bundle().apply {
+                putString("rfid_input_enabled", "false")
+            })
+        })
+    }
+
+internal fun buildDataWedgeIntentProfileConfig(
+    profileName: String,
+    actionBarcode: String,
+): Bundle = Bundle().apply {
+    putString("PROFILE_NAME", profileName)
+    putString("PROFILE_ENABLED", "true")
+    putString("CONFIG_MODE", "UPDATE")
+    putBundle("PLUGIN_CONFIG", Bundle().apply {
+        putString("PLUGIN_NAME", "INTENT")
+        putString("RESET_CONFIG", "true")
+        putBundle("PARAM_LIST", Bundle().apply {
+            putString("intent_output_enabled", "true")
+            putString("intent_action", actionBarcode)
+            putString("intent_delivery", "2")
+        })
+    })
 }

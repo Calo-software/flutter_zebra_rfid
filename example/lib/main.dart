@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 
 import 'package:flutter_zebra_rfid_example/barcode.dart';
 import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
@@ -20,59 +17,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  static const _maxScanLogEntries = 300;
-
-  final _captureApi = FlutterZebraDataCaptureApi();
-  final _subscriptions = <StreamSubscription<dynamic>>[];
-  final _scanLogEntries = <ScanLogEntry>[];
   int _currentPage = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _subscriptions
-      ..add(_captureApi.rfid.onTagsRead.listen(_logRfidTags))
-      ..add(_captureApi.barcode.onBarcodeRead.listen(_logBarcode));
-  }
-
-  @override
-  void dispose() {
-    for (final subscription in _subscriptions) {
-      subscription.cancel();
-    }
-    super.dispose();
-  }
-
-  void _logRfidTags(List<RfidTag> tags) {
-    if (!mounted || tags.isEmpty) return;
-    setState(() {
-      _scanLogEntries.insertAll(
-        0,
-        tags.map(ScanLogEntry.rfid),
-      );
-      _trimScanLog();
-    });
-  }
-
-  void _logBarcode(Barcode barcode) {
-    if (!mounted) return;
-    setState(() {
-      _scanLogEntries.insert(0, ScanLogEntry.barcode(barcode));
-      _trimScanLog();
-    });
-  }
-
-  void _trimScanLog() {
-    if (_scanLogEntries.length <= _maxScanLogEntries) return;
-    _scanLogEntries.removeRange(
-      _maxScanLogEntries,
-      _scanLogEntries.length,
-    );
-  }
-
-  void _clearScanLog() {
-    setState(_scanLogEntries.clear);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,10 +54,7 @@ class _MyAppState extends State<MyApp> {
                   0 => const CaptureDashboard(),
                   1 => const RfidPage(),
                   2 => const BarcodePage(),
-                  _ => ScanLogPage(
-                      entries: _scanLogEntries,
-                      onClear: _clearScanLog,
-                    ),
+                  _ => const ScanLogPage(),
                 },
               ),
             ),

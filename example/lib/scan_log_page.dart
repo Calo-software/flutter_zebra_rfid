@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 import 'package:flutter_zebra_rfid_example/example_ui.dart';
@@ -44,19 +46,72 @@ class ScanLogEntry {
   final String? signal;
 }
 
-class ScanLogPage extends StatelessWidget {
-  const ScanLogPage({
-    super.key,
-    required this.entries,
-    required this.onClear,
-  });
+class ScanLogPage extends StatefulWidget {
+  const ScanLogPage({super.key});
 
-  final List<ScanLogEntry> entries;
-  final VoidCallback onClear;
+  @override
+  State<ScanLogPage> createState() => _ScanLogPageState();
+}
+
+class _ScanLogPageState extends State<ScanLogPage>
+    with AutomaticKeepAliveClientMixin<ScanLogPage> {
+  static const _maxEntries = 300;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  final _api = FlutterZebraDataCaptureApi();
+  final _entries = <ScanLogEntry>[];
+  final _subscriptions = <StreamSubscription<dynamic>>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _subscriptions
+      ..add(_api.rfid.onTagsRead.listen(_appendRfidTags))
+      ..add(_api.barcode.onBarcodeRead.listen(_appendBarcode));
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ScanLogView(entries: entries, onClear: onClear);
+    super.build(context);
+    return ScanLogView(
+      entries: _entries,
+      onClear: _clear,
+    );
+  }
+
+  void _appendRfidTags(List<RfidTag> tags) {
+    if (!mounted || tags.isEmpty) return;
+    setState(() {
+      _entries.insertAll(0, tags.map(ScanLogEntry.rfid));
+      _trim();
+    });
+  }
+
+  void _appendBarcode(Barcode barcode) {
+    if (!mounted) return;
+    setState(() {
+      _entries.insert(0, ScanLogEntry.barcode(barcode));
+      _trim();
+    });
+  }
+
+  void _clear() {
+    setState(_entries.clear);
+  }
+
+  void _trim() {
+    if (_entries.length <= _maxEntries) return;
+    _entries.removeRange(_maxEntries, _entries.length);
   }
 }
 
