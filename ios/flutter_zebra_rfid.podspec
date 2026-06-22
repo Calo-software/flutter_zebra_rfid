@@ -13,18 +13,14 @@ A new Flutter plugin project.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = '**/*.{h,m,swift}'
+  s.source_files = 'Classes/**/*.{h,m,swift}'
   s.dependency 'Flutter'
   s.platform = :ios, '12.0'
-  s.vendored_libraries = [
-    'symbolrfid-sdk/libintegratedsdk.a',
-    'symbolrfid-sdk/libsymbolbt-sdk.a',
-    'symbolrfid-sdk/libsymbolrfid-sdk.a',
+  s.vendored_frameworks = [
+    'zebra-sdk/ZebraRfidSdkFramework.xcframework',
+    'zebra-sdk/ZebraScannerFramework.xcframework',
   ]
-  s.public_header_files = ['symbolrfid-sdk/include/*.h', 'Classes/**/*.h' ]
-  s.xcconfig = {
-    'HEADER_SEARCH_PATHS' => '${PODS_TARGET_SRCROOT}/symbolrfid-sdk/include/',
-  }
+  s.public_header_files = ['Classes/**/*.h' ]
   s.ios.frameworks = 'CoreBluetooth', 'ExternalAccessory'
   s.library = 'z'
 

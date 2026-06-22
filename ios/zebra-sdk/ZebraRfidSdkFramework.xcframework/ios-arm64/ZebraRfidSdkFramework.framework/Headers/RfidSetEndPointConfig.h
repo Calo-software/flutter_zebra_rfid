@@ -1,0 +1,234 @@
+//
+//  RfidSetEndPointConfig.h
+//  SymbolRfidSdk
+//
+//  Created by Madesan Venkatraman on 11/09/24.
+//  Copyright © 2024 Motorola Solutions. All rights reserved.
+//
+
+#import <Foundation/Foundation.h>
+NS_ASSUME_NONNULL_BEGIN
+
+@interface RfidSetEndPointConfig : NSObject
+{
+    NSString *operation;
+    NSString *epname;
+    NSString *type;
+    NSString *protocol;
+    NSString *url;
+    NSString *port;
+    NSString *keepalive;
+    NSString *tenantid;
+    Boolean encleanss;
+    Boolean dscleanss;
+    NSString *rcdelaymin;
+    NSString *rcdelaymax;
+    NSString *username;
+    NSString *password;
+    NSString *hostvfy;
+    // MDM Support
+    NSString *subname;
+    NSString *pub1name;
+    NSString *pub2name;
+    NSString *cacertname;
+    NSString *certname;
+    NSString *keyname;
+    
+    /*NSMutableString *clientid;
+    Boolean dscleanss;
+    SRFID_ENUM_EP_QOS qossub;
+    Boolean enretsub;
+    Boolean dsretsub;
+    SRFID_ENUM_EP_QOS qospub1;
+    Boolean enretpub1;
+    Boolean dsretpub1;
+    SRFID_ENUM_EP_QOS qospub2;
+    Boolean enretpub2;
+    Boolean dsretpub2;
+    SRFID_ENUM_EP_QOS qoslw;
+    Boolean enretlw;
+    Boolean dsretlw;
+    NSMutableString *lwname;
+    Boolean entermstevt;
+    Boolean dstermstevt;
+    Boolean enfwupevt;
+    Boolean dsfwupevt;
+    Boolean enntwevt;
+    Boolean dsntwevt;
+    Boolean enexceptevt;
+    Boolean dsexceptevt;
+    Boolean enntpevt;
+    Boolean dsntpevt;
+    Boolean enpwrevt;
+    Boolean dspwrevt;
+    Boolean enbatstevt;
+    Boolean dsbatstevt;
+    Boolean entmpevt;
+    Boolean dstmpevt;
+    Boolean enfiledlevt;
+    Boolean dsfiledlevt;
+    Boolean enhrtbtevt;
+    Boolean dshrtbtevt;
+    int hbinterval;
+    Boolean enhbbtstatevt;
+    Boolean dshbbtstatevt;
+    NSMutableString *keyalg;
+    Boolean noexec;*/
+}
+
+- (NSString*)getOperation;
+- (void)setOperation:(NSString*)val;
+- (NSString*)getepname;
+- (void)setepname:(NSString*)val;
+- (NSString*)getType;
+- (void)setType:(NSString*)val;
+- (NSString*)getProtocol;
+- (void)setProtocol:(NSString*)val;
+- (NSString*)getURL;
+- (void)setURL:(NSString*)val;
+- (NSString*)getPort;
+- (void)setPort:(NSString*)val;
+- (NSString*)getKeepalive;
+- (void)setKeepalive:(NSString*)val;
+- (NSString*)getTenantid;
+- (void)setTenantid:(NSString*)val;
+- (Boolean)getEncleanss;
+- (void)setEncleanss:(Boolean)val;
+- (Boolean)getDscleanss;
+- (void)setDscleanss:(Boolean)val;
+- (NSString*)getRcdelaymin;
+- (void)setRcdelaymin:(NSString*)val;
+- (NSString*)getRcdelaymax;
+- (void)setRcdelaymax:(NSString*)val;
+- (NSString*)getHostvfy;
+- (void)setHostvfy:(NSString*)val;
+- (NSString*)getUserName;
+- (void)setUserName:(NSString*)val;
+- (NSString*)getPassword;
+- (void)setPassword:(NSString*)val;
+// MDM Support
+- (NSString*)getSubname;
+- (void)setSubname:(NSString*)val;
+- (NSString*)getPub1name;
+- (void)setPub1name:(NSString*)val;
+- (NSString*)getPub2name;
+- (void)setPub2name:(NSString*)val;
+- (NSString*)getCacertname;
+- (void)setCacertname:(NSString*)val;
+- (NSString*)getCertname;
+- (void)setCertname:(NSString*)val;
+- (NSString*)getKeyname;
+- (void)setKeyname:(NSString*)val;
+
+
+/*
+- (NSString*)getOperation;
+- (void)setOperation:(NSString*)val;
+- (NSString*)getepname;
+- (void)setepname:(NSString*)val;
+- (SRFID_ENUM_EP_TYPE)getType;
+- (void)setType:(SRFID_ENUM_EP_TYPE)val;
+- (SRFID_ENUM_EP_PROTOCOLS)getProtocol;
+- (void)setProtocol:(SRFID_ENUM_EP_PROTOCOLS)val;
+- (NSString*)getURL;
+- (void)setURL:(NSString*)val;
+- (int)getPort;
+- (void)setPort:(int)val;
+- (int)getKeepalive;
+- (void)setKeepalive:(int)val;
+- (NSString*)getClientid;
+- (void)setClientid:(NSString*)val;
+- (NSString*)getTenantid;
+- (void)setTenantid:(NSString*)val;
+- (Boolean)getEncleanss;
+- (void)setEncleanss:(Boolean)val;
+- (Boolean)getDscleanss;
+- (void)setDscleanss:(Boolean)val;
+- (int)getRcdelaymin;
+- (void)setRcdelaymin:(int)val;
+- (int)getRcdelaymax;
+- (void)setRcdelaymax:(int)val;
+- (SRFID_ENUM_HOST_VERIFY)getHostvfy;
+- (NSString*)getUserName;
+- (void)setUserName:(NSString*)val;
+- (NSString*)getPassword;
+- (void)setPassword:(NSString*)val;
+- (void)setHostvfy:(SRFID_ENUM_HOST_VERIFY)val;
+- (SRFID_ENUM_EP_QOS)getQossub;
+- (void)setQossub:(SRFID_ENUM_EP_QOS)val;
+- (Boolean)getEnretsub;
+- (void)setEnretsub:(Boolean)val;
+- (Boolean)getDsretsub;
+- (void)setDsretsub:(Boolean)val;
+- (SRFID_ENUM_EP_QOS)getQospub1;
+- (void)setQospub1:(SRFID_ENUM_EP_QOS)val;
+- (Boolean)getEnretpub1;
+- (void)setEnretpub1:(Boolean)val;
+- (Boolean)getDsretpub1;
+- (void)setDsretpub1:(Boolean)val;
+- (SRFID_ENUM_EP_QOS)getQospub2;
+- (void)setQospub2:(SRFID_ENUM_EP_QOS)val;
+- (Boolean)getEnretpub2;
+- (void)setEnretpub2:(Boolean)val;
+- (Boolean)getDsretpub2;
+- (void)setDsretpub2:(Boolean)val;
+- (SRFID_ENUM_EP_QOS)getQoslw;
+- (void)setQoslw:(SRFID_ENUM_EP_QOS)val;
+- (Boolean)getEnretlw;
+- (void)setEnret1w:(Boolean)val;
+- (Boolean)getDsret1w;
+- (void)setDsret1w:(Boolean)val;
+- (NSString*)getlwname;
+- (void)setlwname:(NSString*)val;
+- (Boolean)getEntermstevt;
+- (void)setEntermstevt:(Boolean)val;
+- (Boolean)getDstermstevt;
+- (void)setDstermstevt:(Boolean)val;
+- (Boolean)getEnfwupevt;
+- (void)setEnfwupevt:(Boolean)val;
+- (Boolean)getDsfwupevt;
+- (void)setDsfwupevt:(Boolean)val;
+- (Boolean)getEnntwevt;
+- (void)setEnntwevt:(Boolean)val;
+- (Boolean)getDsntwevt;
+- (void)setDsntwevt:(Boolean)val;
+- (Boolean)getEnexceptevt;
+- (void)setEnexceptevt:(Boolean)val;
+- (Boolean)getDsexceptevt;
+- (void)setDsexceptevt:(Boolean)val;
+- (Boolean)getEnntpevt;
+- (void)setEnntpevt:(Boolean)val;
+- (Boolean)getDsntpevt;
+- (void)setDsntpevt:(Boolean)val;
+- (Boolean)getEnpwrevt;
+- (void)setEnpwrevt:(Boolean)val;
+- (Boolean)getDspwrevt;
+- (void)setDspwrevt:(Boolean)val;
+- (Boolean)getEnbatstevt;
+- (void)setEnbatstevt:(Boolean)val;
+- (Boolean)getDsbatstevt;
+- (void)setDsbatstevt:(Boolean)val;
+- (Boolean)getEntmpevt;
+- (void)setEntmpevt:(Boolean)val;
+- (Boolean)getDstmpevt;
+- (void)setDstmpevt:(Boolean)val;
+- (Boolean)getEnfiledlevt;
+- (void)setEnfiledlevt:(Boolean)val;
+- (Boolean)getDsfiledlevt;
+- (void)setDsfiledlevt:(Boolean)val;
+- (Boolean)getEnhrtbtevt;
+- (void)setEnhrtbtevt:(Boolean)val;
+- (Boolean)getDshrtbtevt;
+- (void)setDshrtbtevt:(Boolean)val;
+- (int)getHbinterval;
+- (void)setHbinterval:(int)val;
+- (Boolean)getEnhbbtstatevt;
+- (void)setEnhbbtstatevt:(Boolean)val;
+- (Boolean)getDshbbtstatevt;
+- (void)setDshbbtstatevt:(Boolean)val;
+- (NSString*)getKeyalg;
+- (void)setKeyalg:(NSString*)val;
+*/
+@end
+
+NS_ASSUME_NONNULL_END

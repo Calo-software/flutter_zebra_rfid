@@ -38,9 +38,9 @@ android {
         applicationId = "nz.calo.flutter_zebra_rfid_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-    // Zebra API3 FINDIT AAR requires minSdkVersion 28 (manifest); align example app.
-    // If targeting lower API levels, remove the FINDIT AAR or downgrade SDK.
-    minSdk = 28
+        // Zebra API3 2.0.5.275 sample apps declare minSdkVersion 30.
+        // If targeting lower API levels, use an earlier SDK bundle.
+        minSdk = 30
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName

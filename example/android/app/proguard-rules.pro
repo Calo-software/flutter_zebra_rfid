@@ -21,14 +21,6 @@
 -keep class com.zebra.barcode.sdk.** { *; }
 -dontwarn com.zebra.barcode.sdk.**
 
-# Keep RFID host library
--keep class com.symbol.rfidhostlib.** { *; }
--dontwarn com.symbol.rfidhostlib.**
-
-# Keep RFID serial library
--keep class com.symbol.rfidseriallib.** { *; }
--dontwarn com.symbol.rfidseriallib.**
-
 # Prevent stripping of native methods
 -keepclasseswithmembernames class * {
     native <methods>;

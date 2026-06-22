@@ -10,7 +10,10 @@ import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeIntentProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.dataWedgeProfileName
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 internal class DataWedgeProfileConfigTest {
   @Test
   fun dataWedgeProfileName_scopesBarcodeProfileToPackage() {

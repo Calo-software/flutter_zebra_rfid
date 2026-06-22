@@ -41,13 +41,13 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - Hardware-aware barcode scanner endpoints for built-in terminal scanners, RFD sled scanners, and external Zebra scanners
 - Capture Device orchestration for phone + Bluetooth combo reader and TC22 + RFID sled topologies
 - Combined example-app Scan Log that color-codes RFID versus barcode scans
-- Zebra Android SDK bundle refreshed to API3 `2.0.5.238`
+- Zebra Android SDK bundle refreshed to API3 `2.0.5.275`
 
 ## 2. Getting Started
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-  flutter_zebra_rfid: ^0.4.1
+  flutter_zebra_rfid: ^0.4.3
 ```
 Then run `flutter pub get`.
 
@@ -76,7 +76,7 @@ Without RFID enabled in device settings, you'll only see external Bluetooth read
 ---
 
 ### General Android Requirements
-- Minimum SDK: 28 (required by Zebra API3 FINDIT AAR)
+- Minimum SDK: 30 (required by the bundled Zebra API3 2.0.5.275 SDK)
 - USB permissions are automatically included via the plugin's manifest
 - The bundled barcode library may overwrite `android:label`; ensure manifest patch:
 ```xml
@@ -93,8 +93,9 @@ Without RFID enabled in device settings, you'll only see external Bluetooth read
 ```
 
 ### Bundled Zebra SDK AARs
-- All Zebra `.aar` binaries live in `android/RFIDAPI3Library` and are published to a local Maven repository (`android/localMaven`) during the first Android build.
-- The current Android bundle is based on Zebra API3 `2.0.5.238`.
+- Zebra `.aar` binaries live in `android/RFIDAPI3Library` and are published to a local Maven repository (`android/localMaven`) during the first Android build.
+- The current Android bundle is based on Zebra API3 `2.0.5.275`.
+- Android now uses Zebra's consolidated `rfidapi3lib-2.0.5.275.aar`; it includes the scanner-control classes used by the barcode endpoint implementation, so the older separate `BarcodeScannerLibrary.aar` is no longer bundled.
 - No manual action is required when consuming the plugin via pub or as a path dependency; Gradle prints `[zebra] Published ...` logs on the first run.
 - If the artifacts are ever deleted, rerun:
     ```bash

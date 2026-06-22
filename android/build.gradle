@@ -6,6 +6,8 @@ plugins {
 group = "nz.calo.flutter_zebra_rfid"
 version = "1.0-SNAPSHOT"
 
+def pluginAndroidDir = buildscript.sourceFile.parentFile
+
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))
@@ -17,9 +19,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        // Zebra API3 FINDIT AAR declares minSdkVersion 28; raising from 26 to satisfy manifest merger.
-        // If consumers need API <28 they must remove FINDIT AAR or use an earlier SDK bundle.
-        minSdk = 28
+        // Zebra API3 2.0.5.275 sample apps declare minSdkVersion 30.
+        // If consumers need API <30 they must use an earlier SDK bundle.
+        minSdk = 30
         // (No targetSdk needed for library; rely on consumer constraints)
         
         // Consumer ProGuard rules - automatically applied to apps using this plugin
@@ -59,15 +61,27 @@ android {
 repositories {
     google()
     mavenCentral()
-    // Local Zebra SDK AARs (source directory for publication)
-    flatDir { dirs("RFIDAPI3Library") }
     // Local Maven repo populated below
-    maven { url = uri("$rootDir/localMaven") }
+    maven { url = uri(new File(pluginAndroidDir, "localMaven")) }
 }
 
 def zebraGroupId = 'com.zebra.rfid.local'
-def zebraAarDir = file('RFIDAPI3Library')
-def zebraLocalMaven = file("$rootDir/localMaven")
+def zebraAarDir = new File(pluginAndroidDir, 'RFIDAPI3Library')
+def zebraLocalMaven = new File(pluginAndroidDir, 'localMaven')
+
+rootProject.allprojects { candidate ->
+    candidate.repositories {
+        maven { url = uri(zebraLocalMaven) }
+    }
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def flutterSdk = localProperties.getProperty('flutter.sdk')
+def flutterEmbeddingJar = flutterSdk == null ? null : file("${flutterSdk}/bin/cache/artifacts/engine/android-arm/flutter.jar")
 
 def deriveZebraSpec = { File aar ->
     def base = aar.name[0..-5] // strip .aar
@@ -134,6 +148,12 @@ tasks.register('publishZebraAarsToLocalMaven') {
 
 dependencies {
     zebraCoordinateList.each { coord -> implementation(coord) }
+
+    implementation("androidx.core:core-ktx:1.13.1")
+    if (flutterEmbeddingJar?.exists()) {
+        compileOnly(files(flutterEmbeddingJar))
+        testImplementation(files(flutterEmbeddingJar))
+    }
 
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("junit:junit:4.13.2")

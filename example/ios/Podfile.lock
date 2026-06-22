@@ -20,7 +20,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_zebra_rfid: 24cee8717abd0b355eaa98eda5e3db5d70b3aeb3
+  flutter_zebra_rfid: 7bab7826304fafcaccc8e63c56e94ada21f1843f
   integration_test: 252f60fa39af5e17c3aa9899d35d908a0721b573
 
 PODFILE CHECKSUM: a57f30d18f102dd3ce366b1d62a55ecbef2158e5

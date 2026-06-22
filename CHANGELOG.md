@@ -1,5 +1,18 @@
 ## Unreleased
 
+## 0.4.3 - 2026-06-23
+
+### Changed
+- Refreshed the bundled Android Zebra RFID SDK to API3 `2.0.5.275`.
+- Consolidated Android RFID and scanner-control classes onto Zebra's `rfidapi3lib-2.0.5.275.aar` to avoid duplicate classes from the ZIOTC and legacy barcode AARs.
+- Replaced the iOS static Zebra SDK libraries with Zebra RFID and Scanner XCFrameworks from iOS SDK `1.1.94`.
+- Raised Android `minSdk` from 28 to 30 to match Zebra's API3 `2.0.5.275` sample applications.
+
+### Migration Notes
+- No public Dart API migration is required.
+- Android consumers must perform a clean rebuild and reinstall after upgrading because the native Zebra SDK binaries changed.
+- Apps requiring Android API 28 or 29 must remain on an earlier plugin release with the older Zebra SDK bundle.
+
 ## 0.4.1 - 2026-06-17
 
 ### Fixed

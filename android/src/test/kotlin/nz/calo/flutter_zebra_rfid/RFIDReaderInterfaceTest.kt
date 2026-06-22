@@ -1,12 +1,19 @@
 package nz.calo.flutter_zebra_rfid
 
 import android.content.Context
+import FlutterZebraRfidCallbacks
 import androidx.test.core.app.ApplicationProvider
+import com.zebra.rfid.api3.Actions
 import com.zebra.rfid.api3.Antennas
+import com.zebra.rfid.api3.Config
 import com.zebra.rfid.api3.ENUM_TRANSPORT
 import com.zebra.rfid.api3.ENUM_TRIGGER_MODE
+import com.zebra.rfid.api3.Events
+import com.zebra.rfid.api3.Inventory
+import com.zebra.rfid.api3.PreFilters
 import com.zebra.rfid.api3.RegionInfo
 import com.zebra.rfid.api3.RFIDReader
+import com.zebra.rfid.api3.ReaderCapabilities
 import com.zebra.rfid.api3.ReaderDevice
 import io.flutter.plugin.common.BinaryMessenger
 import nz.calo.flutter_zebra_rfid.rfid.buildRegulatoryConfigForSingleSupportedRegion
@@ -31,17 +38,14 @@ internal class RFIDReaderInterfaceTest {
   @Test
   fun connectReader_alreadyConnectedRearmsReaderSetup() {
     val subject = createSubject()
-    val reader = Mockito.mock(RFIDReader::class.java, Mockito.RETURNS_DEEP_STUBS)
+    val reader = mockReader()
     val readerDevice = Mockito.mock(ReaderDevice::class.java)
     val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
-    val singulationControl = Mockito.mock(Antennas.SingulationControl::class.java, Mockito.RETURNS_DEEP_STUBS)
+    val singulationControl = Antennas.SingulationControl().apply {
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
 
     Mockito.`when`(reader.isConnected).thenReturn(true)
-    Mockito.`when`(reader.ReaderCapabilities.transmitPowerLevelValues).thenReturn(intArrayOf(1, 2))
-    Mockito.`when`(reader.ReaderCapabilities.firwareVersion).thenReturn("fw")
-    Mockito.`when`(reader.ReaderCapabilities.modelName).thenReturn("model")
-    Mockito.`when`(reader.ReaderCapabilities.scannerName).thenReturn("scanner")
-    Mockito.`when`(reader.ReaderCapabilities.serialNumber).thenReturn("serial")
     Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1)).thenReturn(antennaConfig)
     Mockito.`when`(reader.Config.Antennas.getSingulationControl(1)).thenReturn(singulationControl)
     Mockito.`when`(readerDevice.name).thenReturn("RFD40")
@@ -53,6 +57,7 @@ internal class RFIDReaderInterfaceTest {
     val info = subject.connectReader(0)
 
     assertSame(info, getField(subject, "readerInfo"))
+    waitUntil { subject.diagnostics().connectionState == ReaderConnectionStatus.CONNECTED }
     assertEquals(ReaderConnectionStatus.CONNECTED, subject.diagnostics().connectionState)
     Mockito.verify(reader.Events).addEventsListener(subject)
     Mockito.verify(reader.Config).setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
@@ -137,7 +142,7 @@ internal class RFIDReaderInterfaceTest {
   @Test
   fun stopInventory_stopFailureStillClearsRecoveryState() {
     val subject = createSubject()
-    val reader = Mockito.mock(RFIDReader::class.java, Mockito.RETURNS_DEEP_STUBS)
+    val reader = mockReader()
     Mockito.`when`(reader.isConnected).thenReturn(true)
     Mockito.doThrow(RuntimeException("boom")).`when`(reader.Actions.Inventory).stop()
 
@@ -181,6 +186,28 @@ internal class RFIDReaderInterfaceTest {
     return RFIDReaderInterface(callbacks, context)
   }
 
+  private fun mockReader(): RFIDReader {
+    val reader = Mockito.mock(RFIDReader::class.java)
+    val config = Mockito.mock(Config::class.java)
+    val actions = Mockito.mock(Actions::class.java)
+
+    config.Antennas = Mockito.mock(Antennas::class.java)
+    actions.Inventory = Mockito.mock(Inventory::class.java)
+    actions.PreFilters = Mockito.mock(PreFilters::class.java)
+
+    reader.Config = config
+    reader.Actions = actions
+    reader.Events = Mockito.mock(Events::class.java)
+    reader.ReaderCapabilities = Mockito.mock(ReaderCapabilities::class.java)
+    Mockito.`when`(reader.ReaderCapabilities.transmitPowerLevelValues).thenReturn(intArrayOf(1, 2))
+    Mockito.`when`(reader.ReaderCapabilities.firwareVersion).thenReturn("fw")
+    Mockito.`when`(reader.ReaderCapabilities.modelName).thenReturn("model")
+    Mockito.`when`(reader.ReaderCapabilities.scannerName).thenReturn("scanner")
+    Mockito.`when`(reader.ReaderCapabilities.serialNumber).thenReturn("serial")
+
+    return reader
+  }
+
   private fun mockRegionInfo(
     regionCode: String,
     standardName: String? = null,
@@ -219,5 +246,15 @@ internal class RFIDReaderInterfaceTest {
     field.isAccessible = true
     @Suppress("UNCHECKED_CAST")
     return field.get(target) as T?
+  }
+
+  private fun waitUntil(predicate: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + 2_000
+    while (System.currentTimeMillis() < deadline) {
+      if (predicate()) {
+        return
+      }
+      Thread.sleep(20)
+    }
   }
 }

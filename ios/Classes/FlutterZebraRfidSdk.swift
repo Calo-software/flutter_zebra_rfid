@@ -1,4 +1,5 @@
 import os
+import ZebraRfidSdkFramework
 
 @available(iOS 14.0, *)
 class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
@@ -28,7 +29,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     func srfidEventCommunicationSessionEstablished(_ activeReader: srfidReaderInfo!) {
         _srfidCurrentReader = activeReader
         _currentReader = _availableReaders.first(where: { $0.id == activeReader.getReaderID()})
-        let asciiResult = _rfidApi.srfidEstablishAsciiConnection(activeReader.getReaderID(), aPassword: nil)
+        let asciiResult = _rfidApi.srfidEstablishAsciiConnection(activeReader.getReaderID())
 
         _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.connected) {_ in}
     }
@@ -99,6 +100,14 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     
     func srfidEventWifiScan(_ readerID: Int32, wlanSCanObject wlanScanObject: srfidWlanScanList!) {
         _logger.debug("Wifi scan event (reader \(readerID)): \(wlanScanObject)")
+    }
+
+    func srfidEventIOTSatusNotity(_ readerID: Int32, aIOTStatusEvent iotStatusEvent: srfidIOTStatusEvent!) {
+        _logger.debug("IoT status event (reader \(readerID)): \(iotStatusEvent)")
+    }
+
+    func srfidEventConnectedInterfaceNotity(_ readerID: Int32, aConnectedInterfaceEvent connectedInterfaceEvent: sfidConnectedInterfaceEvent!) {
+        _logger.debug("Connected interface event (reader \(readerID)): \(connectedInterfaceEvent)")
     }
     
     // MARK: FlutterZebraRfid protocol

@@ -20,7 +20,7 @@ Demonstrates usage of the `flutter_zebra_rfid` plugin, including:
 | iOS | (Parity in progress – core features tested on Android) |
 | Permissions | Bluetooth scan / connect granted (Android 12+) |
 
-Ensure the Zebra RFID SDK JARs are present (already bundled in the plugin's `android/RFIDAPI3Library`).
+Ensure the Zebra RFID SDK AAR is present (already bundled in the plugin's `android/RFIDAPI3Library`).
 
 ---
 ## 2. Running the Example

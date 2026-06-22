@@ -1,4 +1,5 @@
 import os
+import ZebraScannerFramework
 
 @available(iOS 14.0, *)
 class FlutterZebraBarcodeSdk: NSObject, FlutterZebraBarcode, ISbtSdkApiDelegate {
