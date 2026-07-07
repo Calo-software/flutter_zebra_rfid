@@ -9,14 +9,20 @@ import com.zebra.rfid.api3.Config
 import com.zebra.rfid.api3.ENUM_TRANSPORT
 import com.zebra.rfid.api3.ENUM_TRIGGER_MODE
 import com.zebra.rfid.api3.Events
+import com.zebra.rfid.api3.HANDHELD_TRIGGER_EVENT_TYPE
 import com.zebra.rfid.api3.Inventory
 import com.zebra.rfid.api3.PreFilters
 import com.zebra.rfid.api3.RegionInfo
 import com.zebra.rfid.api3.RFIDReader
+import com.zebra.rfid.api3.RFIDResults
 import com.zebra.rfid.api3.ReaderCapabilities
 import com.zebra.rfid.api3.ReaderDevice
+import com.zebra.rfid.api3.OperationFailureException
+import com.zebra.rfid.api3.START_TRIGGER_TYPE
+import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import io.flutter.plugin.common.BinaryMessenger
 import nz.calo.flutter_zebra_rfid.rfid.buildRegulatoryConfigForSingleSupportedRegion
+import nz.calo.flutter_zebra_rfid.rfid.buildInventoryTriggerInfo
 import nz.calo.flutter_zebra_rfid.rfid.describeSupportedRegions
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 import nz.calo.flutter_zebra_rfid.rfid.readerConnectionTypeToDiscoveryTransports
@@ -61,6 +67,89 @@ internal class RFIDReaderInterfaceTest {
     assertEquals(ReaderConnectionStatus.CONNECTED, subject.diagnostics().connectionState)
     Mockito.verify(reader.Events).addEventsListener(subject)
     Mockito.verify(reader.Config).setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
+  }
+
+  @Test
+  fun buildInventoryTriggerInfo_stopsOnHandheldRelease() {
+    val triggerInfo = buildInventoryTriggerInfo()
+
+    assertEquals(
+      START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE,
+      triggerInfo.StartTrigger.triggerType,
+    )
+    assertEquals(
+      STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_HANDHELD_WITH_TIMEOUT,
+      triggerInfo.StopTrigger.triggerType,
+    )
+    assertEquals(
+      HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED,
+      triggerInfo.StopTrigger.Handheld.handheldTriggerEvent,
+    )
+    assertEquals(30_000, triggerInfo.StopTrigger.Handheld.handheldTriggerTimeout)
+  }
+
+  @Test
+  fun connectReader_commOpenErrorSettlesDisconnected() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val readerDevice = Mockito.mock(ReaderDevice::class.java)
+
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    val failure = Mockito.mock(OperationFailureException::class.java)
+    Mockito.`when`(failure.results).thenReturn(RFIDResults.RFID_COMM_OPEN_ERROR)
+    Mockito.`when`(failure.statusDescription).thenReturn("RFID_COMM_OPEN_ERROR")
+    Mockito.doThrow(failure).`when`(reader).connect()
+    Mockito.`when`(readerDevice.name).thenReturn("RFD40")
+    Mockito.`when`(readerDevice.rfidReader).thenReturn(reader)
+
+    setField(subject, "availableRFIDReaderList", arrayListOf(readerDevice))
+
+    subject.connectReader(0)
+
+    waitUntil {
+      val diagnostics = subject.diagnostics()
+      diagnostics.connectAttempts == 1L &&
+        diagnostics.connectionState == ReaderConnectionStatus.DISCONNECTED
+    }
+    val diagnostics = subject.diagnostics()
+    assertEquals(ReaderConnectionStatus.DISCONNECTED, diagnostics.connectionState)
+    assertNull(diagnostics.lastErrorCode)
+  }
+
+  @Test
+  fun fastTriggerReleaseStopsInventoryImmediately() {
+    val subject = createSubject()
+    val reader = mockReader()
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+
+    subject.handleHandheldTriggerEvent(HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED)
+    subject.handleHandheldTriggerEvent(HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED)
+
+    val diagnostics = subject.diagnostics()
+    assertEquals(false, diagnostics.inventoryActive)
+    assertEquals("trigger released", diagnostics.lastInventoryStopReason)
+    assertNotNull(diagnostics.lastInventoryStopMs)
+    Mockito.verify(reader.Actions.Inventory, Mockito.timeout(1_000)).perform()
+    Mockito.verify(reader.Actions.Inventory, Mockito.timeout(1_000)).stop()
+  }
+
+  @Test
+  fun disabledScanningIgnoresTriggerPress() {
+    val subject = createSubject()
+    val reader = mockReader()
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+    subject.setScanningEnabled(false)
+
+    subject.handleHandheldTriggerEvent(HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED)
+
+    assertEquals(false, subject.diagnostics().inventoryActive)
+    Mockito.verify(reader.Actions.Inventory, Mockito.never()).perform()
   }
 
   @Test

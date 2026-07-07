@@ -150,6 +150,22 @@ internal fun toReaderRegions(regionInfos: List<RegionInfo>): List<ReaderRegion> 
     }
 }
 
+internal fun buildInventoryTriggerInfo(): TriggerInfo {
+    return TriggerInfo().apply {
+        StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
+        StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_HANDHELD_WITH_TIMEOUT
+        StopTrigger.Handheld.handheldTriggerEvent = HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED
+        StopTrigger.Handheld.handheldTriggerTimeout = 30_000
+    }
+}
+
+private fun isReaderUnavailableDuringConnect(error: OperationFailureException): Boolean {
+    return error.results == RFIDResults.RFID_COMM_OPEN_ERROR ||
+        error.results == RFIDResults.RFID_COMM_NO_CONNECTION ||
+        error.results == RFIDResults.RFID_INVALID_SOCKET ||
+        error.results == RFIDResults.RFID_RECONNECT_FAILED
+}
+
 class RFIDReaderInterface(
     private var callbacks: FlutterZebraRfidCallbacks,
     private var applicationContext: Context
@@ -180,13 +196,11 @@ class RFIDReaderInterface(
 
     // --- Inventory / trigger guarding ---
     @Volatile private var inventoryActive: Boolean = false
-    private var lastTriggerPressTimestamp: Long = 0L
     private var lastInventoryStartTimestamp: Long = 0L
     private var lastInventoryStopTimestamp: Long = 0L
     private var lastInventoryStartReason: String? = null
     private var lastInventoryStopReason: String? = null
     private var pendingPurgeRunnable: Runnable? = null
-    private val INVENTORY_RELEASE_DEBOUNCE_MS = 120L
     private val PURGE_TAGS_DELAY_MS = 300L
     // Watchdog configuration
     private val INVENTORY_MAX_SESSION_MS = 30_000L // hard ceiling
@@ -675,12 +689,25 @@ class RFIDReaderInterface(
             } catch (e: OperationFailureException) {
                 synchronized(this) {
                     clearConnectTimeout()
-                    Log.e(TAG, "OperationFailureException during connect: ${e.message}", e)
-                    Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
-                    Log.e(TAG, "  Status description: ${e.statusDescription}")
-                    Log.e(TAG, "  Results: ${e.results}")
+                    val readerUnavailable = isReaderUnavailableDuringConnect(e)
+                    if (readerUnavailable) {
+                        Log.i(TAG, "Reader unavailable during connect: ${e.results} (${e.statusDescription})")
+                    } else {
+                        Log.e(TAG, "OperationFailureException during connect: ${e.message}", e)
+                        Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
+                        Log.e(TAG, "  Status description: ${e.statusDescription}")
+                        Log.e(TAG, "  Results: ${e.results}")
+                    }
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
+                        return@submit
+                    }
+                    if (readerUnavailable) {
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Reader unavailable while connecting",
+                        )
                         return@submit
                     }
                     if (fromAutoReconnect) {
@@ -1295,9 +1322,7 @@ class RFIDReaderInterface(
         }
         if (reader!!.isConnected) {
             Log.d(TAG, "Configuring reader...")
-            val triggerInfo = TriggerInfo()
-            triggerInfo.StartTrigger.triggerType = START_TRIGGER_TYPE.START_TRIGGER_TYPE_IMMEDIATE
-            triggerInfo.StopTrigger.triggerType = STOP_TRIGGER_TYPE.STOP_TRIGGER_TYPE_IMMEDIATE
+            val triggerInfo = buildInventoryTriggerInfo()
             try {
                 // receive events from reader
                 Log.d(TAG, "Setting up event listeners...")
@@ -1488,60 +1513,7 @@ class RFIDReaderInterface(
 
             STATUS_EVENT_TYPE.HANDHELD_TRIGGER_EVENT -> {
                 Log.d(TAG, "Handheld trigger event detected")
-                try {
-                    if (!scanningEnabled) {
-                        Log.d(TAG, "Trigger event ignored (scanning disabled)")
-                        return
-                    }
-                    if (rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
-                        Log.d(TAG, "Handheld trigger pressed")
-                        lastTriggerPressTimestamp = System.currentTimeMillis()
-                        
-                        // Check if we're in locate mode and ready to start
-                        if (locateSessionActive && !locatePendingStart) {
-                            // Start locate operation on trigger press
-                            Log.d(TAG, "Trigger pressed: Starting locate operation")
-                            performLocate()
-                        } else if (locateSessionActive && locatePendingStart) {
-                            Log.d(TAG, "Trigger pressed: Locate session active but waiting for purge completion")
-                        } else {
-                            // Normal inventory mode
-                            safeStartInventory("trigger pressed")
-                            // Read all memory banks
-                            val memoryBanksToRead = arrayOf(
-                                MEMORY_BANK.MEMORY_BANK_EPC,
-                                MEMORY_BANK.MEMORY_BANK_TID,
-                                MEMORY_BANK.MEMORY_BANK_USER
-                            )
-                            for (bank in memoryBanksToRead) {
-                                val ta = TagAccess()
-                                val sequence = ta.Sequence(ta)
-                                Log.d(TAG, "Reading memory bank: $bank")
-                            }
-                        }
-                    } else {
-                        Log.d(TAG, "Handheld trigger released")
-                        val elapsed = System.currentTimeMillis() - lastTriggerPressTimestamp
-                        
-                        // Check if we're in locate mode
-                        if (locateSessionActive && isLocating) {
-                            Log.d(TAG, "Trigger released: Stopping locate operation")
-                            // Stop locate but keep session active for next trigger
-                            try {
-                                internalStopLocateOperation()
-                                Log.d(TAG, "Locate operation stopped (session still active)")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error stopping locate on trigger release: ${e.message}")
-                            }
-                        } else if (elapsed < INVENTORY_RELEASE_DEBOUNCE_MS) {
-                            Log.d(TAG, "Trigger release within ${INVENTORY_RELEASE_DEBOUNCE_MS}ms debounce window ($elapsed ms) -> ignoring stop")
-                        } else {
-                            safeStopInventory("trigger released")
-                        }
-                    }
-                } catch (e: Throwable) {
-                    Log.d(TAG, "Error handling handheld trigger event: $e")
-                }
+                handleHandheldTriggerEvent(rfidStatusEvents.StatusEventData.HandheldTriggerEventData.handheldEvent)
             }
 
             else -> {
@@ -1552,6 +1524,59 @@ class RFIDReaderInterface(
                 // As a fallback, attempt derivation on any event if conditions match and we can see voltage via reflection
                 handlePowerEventFallback(rfidStatusEvents, fromExplicitPowerEvent = false)
             }
+        }
+    }
+
+    internal fun handleHandheldTriggerEvent(handheldEvent: HANDHELD_TRIGGER_EVENT_TYPE) {
+        try {
+            if (!scanningEnabled) {
+                Log.d(TAG, "Trigger event ignored (scanning disabled)")
+                return
+            }
+            if (handheldEvent === HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED) {
+                Log.d(TAG, "Handheld trigger pressed")
+
+                // Check if we're in locate mode and ready to start
+                if (locateSessionActive && !locatePendingStart) {
+                    // Start locate operation on trigger press
+                    Log.d(TAG, "Trigger pressed: Starting locate operation")
+                    performLocate()
+                } else if (locateSessionActive && locatePendingStart) {
+                    Log.d(TAG, "Trigger pressed: Locate session active but waiting for purge completion")
+                } else {
+                    // Normal inventory mode
+                    safeStartInventory("trigger pressed")
+                    // Read all memory banks
+                    val memoryBanksToRead = arrayOf(
+                        MEMORY_BANK.MEMORY_BANK_EPC,
+                        MEMORY_BANK.MEMORY_BANK_TID,
+                        MEMORY_BANK.MEMORY_BANK_USER
+                    )
+                    for (bank in memoryBanksToRead) {
+                        val ta = TagAccess()
+                        val sequence = ta.Sequence(ta)
+                        Log.d(TAG, "Reading memory bank: $bank")
+                    }
+                }
+            } else {
+                Log.d(TAG, "Handheld trigger released")
+
+                // Check if we're in locate mode
+                if (locateSessionActive && isLocating) {
+                    Log.d(TAG, "Trigger released: Stopping locate operation")
+                    // Stop locate but keep session active for next trigger
+                    try {
+                        internalStopLocateOperation()
+                        Log.d(TAG, "Locate operation stopped (session still active)")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error stopping locate on trigger release: ${e.message}")
+                    }
+                } else {
+                    safeStopInventory("trigger released")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.d(TAG, "Error handling handheld trigger event: $e")
         }
     }
 

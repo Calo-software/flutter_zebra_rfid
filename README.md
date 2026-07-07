@@ -47,7 +47,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-  flutter_zebra_rfid: ^0.4.3
+  flutter_zebra_rfid: ^0.4.4
 ```
 Then run `flutter pub get`.
 

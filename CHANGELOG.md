@@ -1,5 +1,12 @@
 ## Unreleased
 
+## 0.4.4 - 2026-07-07
+
+### Fixed
+- Stop Android RFID inventory on every normal trigger release, including very fast trigger taps that were previously ignored by the release debounce and could leave inventory active until watchdog recovery.
+- Configure the Android Zebra stop trigger as a handheld release trigger with timeout so native reader state matches the press-to-scan, release-to-stop workflow.
+- Treat Android powered-off or unreachable reader connect failures as `DISCONNECTED` instead of terminal `ERROR`.
+
 ## 0.4.3 - 2026-06-23
 
 ### Changed
