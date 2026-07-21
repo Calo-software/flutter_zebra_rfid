@@ -4,10 +4,13 @@ import BarcodeScannerEndpoint
 import BarcodeScannerMode
 import BarcodeScannerSource
 import ScannerConnectionStatus
+import android.os.Bundle
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeBarcodeProfileConfig
+import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeCaptureProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeDisableRfidProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeIntentProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.dataWedgeProfileName
+import nz.calo.flutter_zebra_rfid.barcode.inferDataWedgeSource
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,6 +18,14 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 internal class DataWedgeProfileConfigTest {
+  @Test
+  fun inferDataWedgeSource_internalCameraIsBuiltInTerminalEndpoint() {
+    assertEquals(
+      BarcodeScannerSource.BUILT_IN_TERMINAL,
+      inferDataWedgeSource("INTERNAL_CAMERA", "Camera Scanner"),
+    )
+  }
+
   @Test
   fun dataWedgeProfileName_scopesBarcodeProfileToPackage() {
     assertEquals(
@@ -26,7 +37,7 @@ internal class DataWedgeProfileConfigTest {
   @Test
   fun buildDataWedgeBarcodeProfileConfig_enablesSelectedBarcodeEndpointOnly() {
     val endpoint = dataWedgeEndpoint(
-      zebraScannerIdentifier = "INTERNAL_IMAGER",
+      zebraScannerIdentifier = "INTERNAL_CAMERA",
       scannerIndex = 2,
     )
 
@@ -44,8 +55,30 @@ internal class DataWedgeProfileConfigTest {
     assertEquals("BARCODE", plugin.getString("PLUGIN_NAME"))
     val params = plugin.getBundle("PARAM_LIST")!!
     assertEquals("true", params.getString("scanner_input_enabled"))
-    assertEquals("INTERNAL_IMAGER", params.getString("scanner_selection_by_identifier"))
+    assertEquals("INTERNAL_CAMERA", params.getString("scanner_selection_by_identifier"))
     assertEquals("2", params.getString("scanner_selection"))
+  }
+
+  @Test
+  fun buildDataWedgeCaptureProfileConfig_idleDisablesBarcodeAndRfidAtomically() {
+    val config = buildDataWedgeCaptureProfileConfig(
+      "test.barcode",
+      "test",
+      null,
+      "test.BARCODE",
+    )
+
+    assertEquals("true", config.getString("PROFILE_ENABLED"))
+    val plugins = config.getParcelableArrayList<Bundle>("PLUGIN_CONFIG")!!
+    assertEquals(listOf("BARCODE", "RFID", "INTENT"), plugins.map { it.getString("PLUGIN_NAME") })
+    assertEquals(
+      "false",
+      plugins.first().getBundle("PARAM_LIST")!!.getString("scanner_input_enabled"),
+    )
+    assertEquals(
+      "false",
+      plugins[1].getBundle("PARAM_LIST")!!.getString("rfid_input_enabled"),
+    )
   }
 
   @Test

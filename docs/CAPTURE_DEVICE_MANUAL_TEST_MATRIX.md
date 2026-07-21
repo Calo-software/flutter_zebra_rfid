@@ -2,6 +2,17 @@
 
 Use the example app's **Capture** tab to verify that one Capture Device manages both RFID and barcode capability setup.
 
+## Android EM45 RFID integrated mobile computer
+
+- Confirm the label or **Settings → About phone** identifies the RFID-capable EM45 variant, and record the Android build.
+- Connect over ADB and confirm Zebra 123RFID Mobile can inventory a tag before installing the example app.
+- In **Settings → Key Programmer**, map **RIGHT_TRIGGER_2** to **SYMBOL_TRIGGER_6**.
+- Open **Capture**, tap **Refresh Capture Devices**, and confirm one **Integrated mobile computer** groups the EM45 RFID Reader with `datawedge:INTERNAL_CAMERA`.
+- Tap **Connect**, verify RFID and barcode capabilities both become connected, and capture logs showing the EM45 host model, local RFID transport, and camera endpoint.
+- Perform at least 20 trigger press/release cycles. Every press must start RFID inventory and every release must stop it without watchdog recovery.
+- Scan a barcode through the internal camera, alternate RFID and barcode operations, and confirm neither stream receives duplicate or cross-routed reads.
+- Exercise locate, regulatory-region handling, app relaunch, disconnect, and reconnect before declaring the hardware gate passed.
+
 ## Android phone + Bluetooth combo reader
 
 - Pair the Zebra Bluetooth reader in Android Bluetooth settings or the example app pairing flow.

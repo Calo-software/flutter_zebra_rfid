@@ -26,6 +26,7 @@ import com.zebra.scannercontrol.IDcsSdkApiDelegate
 import com.zebra.scannercontrol.SDKHandler
 import java.nio.charset.Charset
 import java.util.Collections
+import nz.calo.flutter_zebra_rfid.hardware.currentZebraHostIdentity
 
 /**
  * Coordinates barcode scanners exposed through Zebra Scanner Control SDK and
@@ -36,6 +37,7 @@ class BarcodeScannerInterface(
     private val callbacks: FlutterZebraBarcodeCallbacks
 ) : IDcsSdkApiDelegate {
     private val tag = "FlutterZebraBarcode"
+    private val hostIdentity = currentZebraHostIdentity()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val availableScannerList: MutableList<DCSScannerInfo> =
         Collections.synchronizedList(ArrayList())
@@ -48,8 +50,50 @@ class BarcodeScannerInterface(
     private var dataWedgeEndpoints: List<DataWedgeScanner> = emptyList()
     private var activeEndpointId: String? = null
     private var preferredEndpointId: String? = null
+    private var dataWedgeBarcodeRuntimeEnabled = false
     var endpointsChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ScannerConnectionStatus) -> Unit)? = null
+
+    /**
+     * Install an app-associated DataWedge profile before any RFID work starts.
+     * Leaving this app on Profile0 allows DataWedge to open INTERNAL_CAMERA as
+     * soon as the activity is foregrounded, which prevents EM45 API3 from
+     * opening its integrated RFID transport.
+     */
+    fun prepareDataWedgeControl(context: Context) {
+        if (applicationContext == null) {
+            applicationContext = context.applicationContext
+            preferredEndpointId = applicationContext
+                ?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ?.getString(PREF_ACTIVE_ENDPOINT, null)
+        }
+        registerDataWedgeReceiver(context.applicationContext)
+        if (hostIdentity.isEm45) {
+            configureDataWedgeIdle()
+        }
+    }
+
+    fun configureDataWedgeIdle() {
+        dataWedgeBarcodeRuntimeEnabled = false
+        activeEndpointId = null
+        createDataWedgeProfile(null)
+        mainHandler.postDelayed(
+            { setDataWedgeBarcodeRuntimeEnabled(false) },
+            DATAWEDGE_PROFILE_SETTLE_MS,
+        )
+        emitEndpoints()
+    }
+
+    fun prepareForIntegratedRfid(onReady: () -> Unit) {
+        configureDataWedgeIdle()
+        mainHandler.postDelayed(
+            {
+                setDataWedgeBarcodeRuntimeEnabled(false)
+                mainHandler.postDelayed(onReady, DATAWEDGE_RELEASE_SETTLE_MS)
+            },
+            DATAWEDGE_PROFILE_SETTLE_MS,
+        )
+    }
 
     fun updateAvailableScanners(context: Context) {
         refreshBarcodeScanners(context)
@@ -106,8 +150,20 @@ class BarcodeScannerInterface(
         activeEndpointId = endpointId
         preferredEndpointId = endpointId
         savePreferredEndpoint(endpointId)
+        if (hostIdentity.isEm45) {
+            Log.i(
+                tag,
+                "EM45 selected Barcode Endpoint id=${endpoint.endpointId} " +
+                    "identifier=${endpoint.zebraScannerIdentifier} source=${endpoint.source} mode=${endpoint.mode}",
+            )
+        }
         if (endpoint.mode == BarcodeScannerMode.DATA_WEDGE) {
+            dataWedgeBarcodeRuntimeEnabled = true
             configureDataWedgeProfile(endpoint)
+            mainHandler.postDelayed(
+                { setDataWedgeBarcodeRuntimeEnabled(true) },
+                DATAWEDGE_PROFILE_SETTLE_MS,
+            )
         }
         emitEndpoints()
     }
@@ -404,8 +460,9 @@ class BarcodeScannerInterface(
             context.registerReceiver(dataWedgeReceiver, filter)
         }
         dataWedgeReceiverRegistered = true
-        registerForDataWedgeStatus()
-        createDataWedgeProfile(null)
+        // Configure capture ownership first. DataWedge commands are asynchronous
+        // and not queued, so defer the non-critical notification registration.
+        mainHandler.postDelayed({ registerForDataWedgeStatus() }, DATAWEDGE_COMMAND_GAP_MS)
     }
 
     private val dataWedgeReceiver = object : BroadcastReceiver() {
@@ -466,7 +523,7 @@ class BarcodeScannerInterface(
             is ArrayList<*> -> raw.filterIsInstance<Bundle>()
             else -> emptyList()
         }
-        return bundles.mapIndexed { fallbackIndex, bundle ->
+        val scanners = bundles.mapIndexed { fallbackIndex, bundle ->
             val identifier = bundle.getString("SCANNER_IDENTIFIER")
                 ?: bundle.getString("SCANNER_NAME")
                 ?: "SCANNER_$fallbackIndex"
@@ -490,6 +547,16 @@ class BarcodeScannerInterface(
                 },
             )
         }
+        if (hostIdentity.isEm45) {
+            scanners.forEach { scanner ->
+                Log.i(
+                    tag,
+                    "EM45 DataWedge endpoint identifier=${scanner.identifier} index=${scanner.index} " +
+                        "name=${scanner.name} source=${scanner.source} status=${scanner.status}",
+                )
+            }
+        }
+        return scanners
     }
 
     private fun configureDataWedgeProfile(endpoint: BarcodeScannerEndpoint) {
@@ -502,15 +569,12 @@ class BarcodeScannerInterface(
 
         sendDataWedgeIntent(
             EXTRA_SET_CONFIG,
-            buildDataWedgeBarcodeProfileConfig(profileName, context.packageName, endpoint),
-        )
-        sendDataWedgeIntent(
-            EXTRA_SET_CONFIG,
-            buildDataWedgeDisableRfidProfileConfig(profileName),
-        )
-        sendDataWedgeIntent(
-            EXTRA_SET_CONFIG,
-            buildDataWedgeIntentProfileConfig(profileName, ACTION_BARCODE),
+            buildDataWedgeCaptureProfileConfig(
+                profileName,
+                context.packageName,
+                endpoint,
+                ACTION_BARCODE,
+            ),
         )
     }
 
@@ -563,21 +627,23 @@ class BarcodeScannerInterface(
         })
     }
 
+    private fun setDataWedgeBarcodeRuntimeEnabled(enabled: Boolean) {
+        if (dataWedgeBarcodeRuntimeEnabled != enabled) return
+        val context = applicationContext ?: return
+        val command = if (enabled) "ENABLE_PLUGIN" else "DISABLE_PLUGIN"
+        Log.i(tag, "DataWedge Barcode Endpoint runtime command=$command host=${hostIdentity.model}")
+        context.sendBroadcast(Intent().apply {
+            action = ACTION_DATAWEDGE
+            putExtra(EXTRA_SCANNER_INPUT_PLUGIN, command)
+            putExtra(EXTRA_SEND_RESULT, "true")
+            putExtra(EXTRA_COMMAND_IDENTIFIER, "flutter-zebra-$command")
+        })
+    }
+
     private fun scannerSdkEndpointId(scannerId: Int): String = "scanner-sdk:$scannerId"
 
     private fun dataWedgeEndpointId(identifier: String?, index: Int?): String =
         "datawedge:${identifier ?: "index-${index ?: "unknown"}"}"
-
-    private fun inferDataWedgeSource(identifier: String?, name: String?): BarcodeScannerSource {
-        val text = "${identifier.orEmpty()} ${name.orEmpty()}".uppercase()
-        return when {
-            text.contains("INTERNAL") -> BarcodeScannerSource.BUILT_IN_TERMINAL
-            text.contains("RFD") -> BarcodeScannerSource.RFID_SLED
-            text.contains("BLUETOOTH") || text.contains("BT") -> BarcodeScannerSource.EXTERNAL_BLUETOOTH
-            text.contains("USB") -> BarcodeScannerSource.EXTERNAL_USB
-            else -> BarcodeScannerSource.UNKNOWN
-        }
-    }
 
     private fun inferSdkSource(scanner: DCSScannerInfo?): BarcodeScannerSource {
         val text = "${scanner?.scannerName.orEmpty()} ${scanner?.scannerModel.orEmpty()}".uppercase()
@@ -611,6 +677,12 @@ class BarcodeScannerInterface(
         private const val EXTRA_RESULT_SCANNER_STATUS =
             "com.symbol.datawedge.api.RESULT_SCANNER_STATUS"
         private const val EXTRA_SET_CONFIG = "com.symbol.datawedge.api.SET_CONFIG"
+        private const val DATAWEDGE_COMMAND_GAP_MS = 250L
+        private const val DATAWEDGE_PROFILE_SETTLE_MS = 1_000L
+        private const val DATAWEDGE_RELEASE_SETTLE_MS = 750L
+        private const val EXTRA_SCANNER_INPUT_PLUGIN =
+            "com.symbol.datawedge.api.SCANNER_INPUT_PLUGIN"
+        private const val EXTRA_COMMAND_IDENTIFIER = "COMMAND_IDENTIFIER"
         private const val EXTRA_REGISTER_NOTIFICATION =
             "com.symbol.datawedge.api.REGISTER_FOR_NOTIFICATION"
         private const val EXTRA_RESULT_NOTIFICATION = "com.symbol.datawedge.api.NOTIFICATION"
@@ -626,6 +698,17 @@ class BarcodeScannerInterface(
         private const val DATAWEDGE_DECODED_MODE = "com.symbol.datawedge.decoded_mode"
         private const val DATAWEDGE_LEGACY_SOURCE = "com.motorolasolutions.emdk.datawedge.source"
         private const val DATAWEDGE_LEGACY_LABEL_TYPE = "com.motorolasolutions.emdk.datawedge.label_type"
+    }
+}
+
+internal fun inferDataWedgeSource(identifier: String?, name: String?): BarcodeScannerSource {
+    val text = "${identifier.orEmpty()} ${name.orEmpty()}".uppercase()
+    return when {
+        text.contains("INTERNAL") -> BarcodeScannerSource.BUILT_IN_TERMINAL
+        text.contains("RFD") -> BarcodeScannerSource.RFID_SLED
+        text.contains("BLUETOOTH") || text.contains("BT") -> BarcodeScannerSource.EXTERNAL_BLUETOOTH
+        text.contains("USB") -> BarcodeScannerSource.EXTERNAL_USB
+        else -> BarcodeScannerSource.UNKNOWN
     }
 }
 
@@ -647,7 +730,7 @@ internal fun buildDataWedgeBarcodeProfileConfig(
         putString("PLUGIN_NAME", "BARCODE")
         putString("RESET_CONFIG", "false")
         putBundle("PARAM_LIST", Bundle().apply {
-            putString("scanner_input_enabled", "true")
+            putString("scanner_input_enabled", (endpoint != null).toString())
             endpoint?.zebraScannerIdentifier?.let {
                 putString("scanner_selection_by_identifier", it)
             }
@@ -656,6 +739,31 @@ internal fun buildDataWedgeBarcodeProfileConfig(
             }
         })
     })
+}
+
+internal fun buildDataWedgeCaptureProfileConfig(
+    profileName: String,
+    packageName: String,
+    endpoint: BarcodeScannerEndpoint?,
+    actionBarcode: String,
+): Bundle {
+    val barcode = buildDataWedgeBarcodeProfileConfig(profileName, packageName, endpoint)
+    val rfid = buildDataWedgeDisableRfidProfileConfig(profileName)
+    val intent = buildDataWedgeIntentProfileConfig(profileName, actionBarcode)
+    return Bundle().apply {
+        putString("PROFILE_NAME", profileName)
+        putString("PROFILE_ENABLED", "true")
+        putString("CONFIG_MODE", "CREATE_IF_NOT_EXIST")
+        putParcelableArray("APP_LIST", barcode.getParcelableArray("APP_LIST"))
+        putParcelableArrayList(
+            "PLUGIN_CONFIG",
+            arrayListOf(
+                barcode.getBundle("PLUGIN_CONFIG")!!,
+                rfid.getBundle("PLUGIN_CONFIG")!!,
+                intent.getBundle("PLUGIN_CONFIG")!!,
+            ),
+        )
+    }
 }
 
 internal fun buildDataWedgeDisableRfidProfileConfig(profileName: String): Bundle =

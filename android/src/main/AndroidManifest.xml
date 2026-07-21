@@ -15,4 +15,9 @@
   <!-- USB PERMISSION for USB-connected Zebra RFID readers -->
     <uses-permission android:name="android.permission.USB_PERMISSION" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Optional Qualcomm RFID service used by Zebra's QC_SERIAL fallback. -->
+    <application>
+      <uses-library android:name="com.qti.qrs.qc_sdk" android:required="false" />
+    </application>
 </manifest>

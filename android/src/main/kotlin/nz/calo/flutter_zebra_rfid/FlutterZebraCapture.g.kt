@@ -92,7 +92,8 @@ enum class CaptureDeviceTopology(val raw: Int) {
   EXTERNAL_RFID_WITH_TERMINAL_BARCODE(2),
   RFID_ONLY(3),
   BARCODE_ONLY(4),
-  UNKNOWN(5);
+  UNKNOWN(5),
+  INTEGRATED_MOBILE_COMPUTER(6);
 
   companion object {
     fun ofRaw(raw: Int): CaptureDeviceTopology? {

@@ -40,6 +40,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 - Reader regulatory region discovery and apply APIs on Android
 - Hardware-aware barcode scanner endpoints for built-in terminal scanners, RFD sled scanners, and external Zebra scanners
 - Capture Device orchestration for phone + Bluetooth combo reader and TC22 + RFID sled topologies
+- Integrated Capture Device support for EM45 RFID plus its DataWedge `INTERNAL_CAMERA` Barcode Endpoint
 - Combined example-app Scan Log that color-codes RFID versus barcode scans
 - Zebra Android SDK bundle refreshed to API3 `2.0.5.275`
 
@@ -47,7 +48,7 @@ Reliable Flutter plugin for Zebra RFID readers (Android + iOS). Focus areas: con
 Add dependency in your `pubspec.yaml` (version placeholder below):
 ```yaml
 dependencies:
-  flutter_zebra_rfid: ^0.4.4
+  flutter_zebra_rfid: ^0.5.0
 ```
 Then run `flutter pub get`.
 
@@ -57,6 +58,23 @@ import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 ```
 
 ## 3. Android Setup Notes
+
+### EM45 RFID
+
+EM45 integration is Android-only. The iOS implementation does not discover, match, or emit EM45 Capture Devices.
+
+On Android, the EM45 RFID is supported by the bundled Zebra API3 `2.0.5.275` SDK; no separate SDK download is required. The plugin discovers its built-in RFID Reader through Zebra's integrated local transports and groups it with the camera Barcode Endpoint reported by DataWedge as `INTERNAL_CAMERA`.
+
+Before testing the physical trigger:
+
+1. Open **Settings → Key Programmer** on the EM45.
+2. Select **RIGHT_TRIGGER_2**.
+3. Open **Trigger** and assign **SYMBOL_TRIGGER_6**.
+4. Confirm RFID works in Zebra **123RFID Mobile** before testing the plugin.
+
+Use the example app's **Capture** tab and expect one **Integrated mobile computer** Capture Device. The plugin keeps DataWedge in control of camera barcode capture while API3 owns RFID inventory. A standard EM45 without the RFID option cannot provide the RFID capability.
+
+Only one API3 application can own the integrated RFID Reader at a time. Disconnect and close **123RFID Mobile** before connecting from the plugin. If `RFID_COMM_OPEN_ERROR` also occurs in 123RFID Mobile after a reboot, resolve the device software or RFID service state before debugging the plugin. EM45 RFID devices on Zebra build `13-36-20.00-TG-U00` must install the `13-39-18.00-TG-U00` Android 13 LifeGuard release before proceeding to later OS updates, as specified in [Zebra's release notes](https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/release-notes/AT_FULL_UPDATE_13-39-18.00-TG-U00-STD-ATH-04.pdf).
 
 ### Important: TC22/TC27 Built-in RFID Configuration
 **If you're using a TC22 or TC27 with built-in RFID:** The internal RFID reader may be disabled in device settings, or your TC22 model may not include RFID hardware (not all TC22s have built-in RFID). The Zebra SDK accesses RFID directly via the RFID API - **DataWedge is for barcode scanning only, not RFID.**
@@ -335,6 +353,7 @@ if (devices.isNotEmpty) {
 The first supported topologies are:
 - Phone plus Bluetooth combo reader, where the external Zebra unit provides RFID and barcode capabilities.
 - TC22 docked into an RFID sled, where the sled provides RFID and the TC22 built-in imager provides barcode through DataWedge.
+- EM45 RFID, where the built-in RFID Reader and DataWedge `INTERNAL_CAMERA` Barcode Endpoint form one integrated mobile computer.
 
 Capture Device status can be `connected`, `degraded`, or `error`; per-capability status and errors identify whether RFID, barcode, or both need attention. If automatic barcode matching is uncertain, call `setCaptureDeviceBarcodeOverride(...)` with a discovered barcode endpoint.
 
@@ -387,6 +406,7 @@ Use `docs/CAPTURE_DEVICE_MANUAL_TEST_MATRIX.md` for hardware verification across
 - Android phone plus Bluetooth combo reader
 - iOS phone plus Bluetooth combo reader
 - TC22 docked into RFID sled with TC22 built-in barcode scanner
+- EM45 RFID with built-in RFID and camera barcode capture
 
 The example app has four tabs:
 - **Capture**: primary setup connection workflow.

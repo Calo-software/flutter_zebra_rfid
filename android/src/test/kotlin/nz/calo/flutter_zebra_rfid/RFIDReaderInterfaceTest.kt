@@ -17,6 +17,7 @@ import com.zebra.rfid.api3.RFIDReader
 import com.zebra.rfid.api3.RFIDResults
 import com.zebra.rfid.api3.ReaderCapabilities
 import com.zebra.rfid.api3.ReaderDevice
+import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.OperationFailureException
 import com.zebra.rfid.api3.START_TRIGGER_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
@@ -26,6 +27,12 @@ import nz.calo.flutter_zebra_rfid.rfid.buildInventoryTriggerInfo
 import nz.calo.flutter_zebra_rfid.rfid.describeSupportedRegions
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 import nz.calo.flutter_zebra_rfid.rfid.readerConnectionTypeToDiscoveryTransports
+import nz.calo.flutter_zebra_rfid.rfid.ReaderDiscoveryCandidate
+import nz.calo.flutter_zebra_rfid.rfid.isIntegratedEm45Reader
+import nz.calo.flutter_zebra_rfid.rfid.isIntegratedLocalTransport
+import nz.calo.flutter_zebra_rfid.rfid.sdkShouldManageScannerPlugin
+import nz.calo.flutter_zebra_rfid.rfid.selectUniqueReaderCandidates
+import nz.calo.flutter_zebra_rfid.hardware.ZebraHostIdentity
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,6 +121,58 @@ internal class RFIDReaderInterfaceTest {
     val diagnostics = subject.diagnostics()
     assertEquals(ReaderConnectionStatus.DISCONNECTED, diagnostics.connectionState)
     assertNull(diagnostics.lastErrorCode)
+  }
+
+  @Test
+  fun onDestroy_failedConnectionSkipsUnregisteredEventListener() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val owner = Mockito.mock(Readers::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    setField(subject, "reader", reader)
+    getField<MutableSet<Readers>>(subject, "retainedReaderInstances")!!.add(owner)
+
+    subject.onDestroy()
+
+    Mockito.verify(reader.Events, Mockito.never()).removeEventsListener(subject)
+    Mockito.verify(reader, Mockito.never()).disconnect()
+    Mockito.verify(reader, Mockito.never()).Dispose()
+    Mockito.verify(owner).Dispose()
+  }
+
+  @Test
+  fun onDestroy_listenerCleanupFailureStillDisposesReader() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val owner = Mockito.mock(Readers::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    Mockito.doThrow(NullPointerException("Zebra listener vector is unavailable"))
+      .`when`(reader.Events).removeEventsListener(subject)
+    setField(subject, "reader", reader)
+    setField(subject, "eventsListenerReader", reader)
+    getField<MutableSet<Readers>>(subject, "retainedReaderInstances")!!.add(owner)
+
+    subject.onDestroy()
+
+    Mockito.verify(reader.Events).removeEventsListener(subject)
+    Mockito.verify(reader, Mockito.never()).Dispose()
+    Mockito.verify(owner).Dispose()
+  }
+
+  @Test
+  fun onDestroy_establishedConnectionDisconnectsEvenWhenSdkFlagIsFalse() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val owner = Mockito.mock(Readers::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    setField(subject, "reader", reader)
+    setField(subject, "readerConnectionEstablished", true)
+    getField<MutableSet<Readers>>(subject, "retainedReaderInstances")!!.add(owner)
+
+    subject.onDestroy()
+
+    Mockito.verify(reader).disconnect()
+    Mockito.verify(owner).Dispose()
   }
 
   @Test
@@ -207,6 +266,59 @@ internal class RFIDReaderInterfaceTest {
       ),
       transports,
     )
+  }
+
+  @Test
+  fun readerConnectionTypeToDiscoveryTransports_em45PrefersIntegratedBeforeLegacyLocalAndBluetooth() {
+    val transports = readerConnectionTypeToDiscoveryTransports(
+      ReaderConnectionType.ALL,
+      preferIntegratedTransports = true,
+    )
+
+    assertEquals(
+      listOf(
+        ENUM_TRANSPORT.RE_SERIAL,
+        ENUM_TRANSPORT.QC_SERIAL,
+        ENUM_TRANSPORT.SERVICE_SERIAL,
+        ENUM_TRANSPORT.SERVICE_USB,
+        ENUM_TRANSPORT.BLUETOOTH,
+      ),
+      transports,
+    )
+  }
+
+  @Test
+  fun selectUniqueReaderCandidates_retainsFirstOwnerAndMarksDuplicateOnlyOwnerUnused() {
+    val firstDevice = Mockito.mock(ReaderDevice::class.java)
+    val duplicateDevice = Mockito.mock(ReaderDevice::class.java)
+    val uniqueDevice = Mockito.mock(ReaderDevice::class.java)
+    val selection = selectUniqueReaderCandidates(
+      candidates = listOf(
+        ReaderDiscoveryCandidate("EM45|local", firstDevice, "re", ENUM_TRANSPORT.RE_SERIAL),
+        ReaderDiscoveryCandidate("EM45|local", duplicateDevice, "qc", ENUM_TRANSPORT.QC_SERIAL),
+        ReaderDiscoveryCandidate("RFD40|bt", uniqueDevice, "bt", ENUM_TRANSPORT.BLUETOOTH),
+      ),
+      allOwners = linkedSetOf("re", "qc", "bt", "empty"),
+    )
+
+    assertEquals(listOf(firstDevice, uniqueDevice), selection.selected.map { it.device })
+    assertEquals(linkedSetOf("re", "bt"), selection.retainedOwners)
+    assertEquals(linkedSetOf("qc", "empty"), selection.unusedOwners)
+  }
+
+  @Test
+  fun em45IntegratedReader_keepsDataWedgeUnderPluginControl() {
+    val em45 = ZebraHostIdentity(
+      manufacturer = "Zebra Technologies",
+      model = "EM45 RFID",
+      product = "em45",
+      device = "em45",
+    )
+
+    assertTrue(isIntegratedEm45Reader(em45, ENUM_TRANSPORT.RE_SERIAL, "EM45"))
+    assertFalse(isIntegratedEm45Reader(em45, ENUM_TRANSPORT.BLUETOOTH, "RFD40"))
+    assertFalse(sdkShouldManageScannerPlugin(em45, ENUM_TRANSPORT.RE_SERIAL))
+    assertTrue(sdkShouldManageScannerPlugin(em45, ENUM_TRANSPORT.BLUETOOTH))
   }
 
   @Test

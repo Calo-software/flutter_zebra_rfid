@@ -55,6 +55,8 @@ import com.zebra.rfid.api3.STATUS_EVENT_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import com.zebra.rfid.api3.TagAccess
 import com.zebra.rfid.api3.TriggerInfo
+import nz.calo.flutter_zebra_rfid.hardware.ZebraHostIdentity
+import nz.calo.flutter_zebra_rfid.hardware.currentZebraHostIdentity
 
 
 fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT {
@@ -65,16 +67,77 @@ fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT 
     }
 }
 
-internal fun readerConnectionTypeToDiscoveryTransports(type: ReaderConnectionType): List<ENUM_TRANSPORT> {
+internal fun readerConnectionTypeToDiscoveryTransports(
+    type: ReaderConnectionType,
+    preferIntegratedTransports: Boolean = false,
+): List<ENUM_TRANSPORT> {
     return when (type) {
         ReaderConnectionType.BLUETOOTH -> listOf(ENUM_TRANSPORT.BLUETOOTH)
         ReaderConnectionType.USB -> listOf(ENUM_TRANSPORT.SERVICE_SERIAL, ENUM_TRANSPORT.SERVICE_USB)
-        ReaderConnectionType.ALL -> listOf(
-            ENUM_TRANSPORT.SERVICE_SERIAL,
-            ENUM_TRANSPORT.SERVICE_USB,
-            ENUM_TRANSPORT.BLUETOOTH,
-        )
+        ReaderConnectionType.ALL -> if (preferIntegratedTransports) {
+            listOf(
+                ENUM_TRANSPORT.RE_SERIAL,
+                ENUM_TRANSPORT.QC_SERIAL,
+                ENUM_TRANSPORT.SERVICE_SERIAL,
+                ENUM_TRANSPORT.SERVICE_USB,
+                ENUM_TRANSPORT.BLUETOOTH,
+            )
+        } else {
+            listOf(
+                ENUM_TRANSPORT.SERVICE_SERIAL,
+                ENUM_TRANSPORT.SERVICE_USB,
+                ENUM_TRANSPORT.BLUETOOTH,
+            )
+        }
     }
+}
+
+internal fun isIntegratedLocalTransport(transport: ENUM_TRANSPORT): Boolean =
+    transport == ENUM_TRANSPORT.RE_SERIAL ||
+        transport == ENUM_TRANSPORT.QC_SERIAL
+
+internal data class ReaderDiscoveryCandidate<T>(
+    val key: String,
+    val device: ReaderDevice,
+    val owner: T,
+    val transport: ENUM_TRANSPORT,
+)
+
+internal data class ReaderDiscoverySelection<T>(
+    val selected: List<ReaderDiscoveryCandidate<T>>,
+    val retainedOwners: Set<T>,
+    val unusedOwners: Set<T>,
+)
+
+internal fun <T> selectUniqueReaderCandidates(
+    candidates: List<ReaderDiscoveryCandidate<T>>,
+    allOwners: Set<T>,
+): ReaderDiscoverySelection<T> {
+    val seenKeys = linkedSetOf<String>()
+    val selected = candidates.filter { seenKeys.add(it.key) }
+    val retainedOwners = selected.mapTo(linkedSetOf()) { it.owner }
+    return ReaderDiscoverySelection(
+        selected = selected,
+        retainedOwners = retainedOwners,
+        unusedOwners = allOwners - retainedOwners,
+    )
+}
+
+internal fun sdkShouldManageScannerPlugin(
+    hostIdentity: ZebraHostIdentity,
+    transport: ENUM_TRANSPORT?,
+): Boolean = !(hostIdentity.isEm45 && transport != null && transport != ENUM_TRANSPORT.BLUETOOTH)
+
+internal fun isIntegratedEm45Reader(
+    hostIdentity: ZebraHostIdentity,
+    transport: ENUM_TRANSPORT?,
+    readerName: String?,
+): Boolean {
+    if (!hostIdentity.isEm45 || transport == null || transport == ENUM_TRANSPORT.BLUETOOTH) {
+        return false
+    }
+    val normalizedName = readerName.orEmpty().uppercase()
+    return !normalizedName.contains("RFD") && !normalizedName.contains("SLED")
 }
 
 private class ReaderRegionConfigurationException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -173,12 +236,20 @@ class RFIDReaderInterface(
 
     private val TAG: String = "FlutterZebraRfidPlugin"
     private val DEBUG = false // Enable verbose logging for troubleshooting
+    private val hostIdentity = currentZebraHostIdentity()
 
     private var readers: Readers? = null
+    private val retainedReaderInstances = linkedSetOf<Readers>()
     private var availableRFIDReaderList: ArrayList<ReaderDevice>? = null
+    private var availableRFIDReaderOwners: List<Readers> = emptyList()
+    private var availableRFIDReaderTransports: List<ENUM_TRANSPORT> = emptyList()
     private var readerDevice: ReaderDevice? = null
     private var reader: RFIDReader? = null
+    private var eventsListenerReader: RFIDReader? = null
+    @Volatile private var readerConnectionEstablished = false
     private var readerInfo: ReaderInfo? = null
+    private var activeReaderOwner: Readers? = null
+    private var currentReaderTransport: ENUM_TRANSPORT? = null
     private var currentConnectionType: ReaderConnectionType? = null
     private var isLocating: Boolean = false
     // Locate session management
@@ -380,8 +451,12 @@ class RFIDReaderInterface(
         if (preferLocalTransports) {
             Log.i(TAG, "Zebra terminal detected; preferring local RFID transports before Bluetooth fallback")
         }
+        Log.i(TAG, "Host identity: ${hostIdentity.summary} em45=${hostIdentity.isEm45}")
 
-        val transports = readerConnectionTypeToDiscoveryTransports(connectionType).filter { transport ->
+        val transports = readerConnectionTypeToDiscoveryTransports(
+            connectionType,
+            preferIntegratedTransports = preferLocalTransports,
+        ).filter { transport ->
             if (transport != ENUM_TRANSPORT.BLUETOOTH || hasBluetoothDiscoveryPermission()) {
                 true
             } else {
@@ -390,20 +465,17 @@ class RFIDReaderInterface(
             }
         }
         Log.i(TAG, "Using SDK transports: ${transports.joinToString()}")
-
         try {
-            val mergedDevices = arrayListOf<ReaderDevice>()
+            val candidates = mutableListOf<ReaderDiscoveryCandidate<Readers>>()
             val seenKeys = linkedSetOf<String>()
-            var primaryReaders: Readers? = null
+            val createdOwners = linkedSetOf<Readers>()
             val discoveryFailures = mutableListOf<String>()
 
             for (transport in transports) {
                 try {
                     Log.d(TAG, "Creating Readers instance with transport: $transport")
                     val transportReaders = Readers(applicationContext, transport)
-                    if (primaryReaders == null) {
-                        primaryReaders = transportReaders
-                    }
+                    createdOwners.add(transportReaders)
 
                     Log.d(TAG, "Calling GetAvailableRFIDReaderList() for transport=$transport")
                     val discoveredDevices = transportReaders.GetAvailableRFIDReaderList() ?: arrayListOf()
@@ -411,16 +483,22 @@ class RFIDReaderInterface(
 
                     discoveredDevices.forEach { device ->
                         val deviceKey = buildReaderDiscoveryKey(device)
-                        if (seenKeys.add(deviceKey)) {
-                            mergedDevices.add(device)
-                        } else {
+                        candidates.add(
+                            ReaderDiscoveryCandidate(
+                                key = deviceKey,
+                                device = device,
+                                owner = transportReaders,
+                                transport = transport,
+                            ),
+                        )
+                        if (!seenKeys.add(deviceKey)) {
                             Log.d(TAG, "Skipping duplicate reader from transport=$transport key=$deviceKey")
                         }
                     }
                     if (
                         preferLocalTransports &&
                         transport != ENUM_TRANSPORT.BLUETOOTH &&
-                        mergedDevices.isNotEmpty()
+                        seenKeys.isNotEmpty()
                     ) {
                         Log.i(TAG, "Local RFID reader found; suppressing Bluetooth fallback for this discovery pass")
                         break
@@ -432,9 +510,19 @@ class RFIDReaderInterface(
                 }
             }
 
-            readers = primaryReaders
+            val selection = selectUniqueReaderCandidates(candidates, createdOwners)
+            selection.unusedOwners.forEach { owner ->
+                runCatching { owner.Dispose() }
+                    .onFailure { Log.w(TAG, "Failed to dispose unused RFID discovery session", it) }
+            }
+            replaceRetainedReaderInstances(selection.retainedOwners)
+
+            val selectedCandidates = selection.selected
+            readers = selectedCandidates.firstOrNull()?.owner
             currentConnectionType = connectionType
-            availableRFIDReaderList = mergedDevices
+            availableRFIDReaderList = ArrayList(selectedCandidates.map { it.device })
+            availableRFIDReaderOwners = selectedCandidates.map { it.owner }
+            availableRFIDReaderTransports = selectedCandidates.map { it.transport }
             
             val readerCount = availableRFIDReaderList?.size ?: 0
             Log.i(TAG, "Discovery complete. Found $readerCount reader(s)")
@@ -444,8 +532,10 @@ class RFIDReaderInterface(
             
             // Log detailed info about each discovered reader
             availableRFIDReaderList?.forEachIndexed { index, device ->
+                val transport = availableRFIDReaderTransports.getOrNull(index)
                 Log.i(TAG, "--- Reader #$index ---")
                 Log.i(TAG, "  Name: ${device.name}")
+                Log.i(TAG, "  Transport: $transport integratedLocal=${transport?.let(::isIntegratedLocalTransport) == true}")
                 Log.i(TAG, "  RFIDReader: ${device.rfidReader}")
                 
                 if (DEBUG) {
@@ -502,6 +592,20 @@ class RFIDReaderInterface(
             .ifEmpty { device.toString() }
     }
 
+    private fun replaceRetainedReaderInstances(newOwners: Set<Readers>) {
+        val ownersToKeep = linkedSetOf<Readers>().apply {
+            addAll(newOwners)
+            activeReaderOwner?.let(::add)
+        }
+        val staleOwners = retainedReaderInstances - ownersToKeep
+        staleOwners.forEach { owner ->
+            runCatching { owner.Dispose() }
+                .onFailure { Log.w(TAG, "Failed to dispose stale RFID discovery session", it) }
+        }
+        retainedReaderInstances.clear()
+        retainedReaderInstances.addAll(ownersToKeep)
+    }
+
     private fun hasBluetoothDiscoveryPermission(): Boolean {
         if (Build.VERSION.SDK_INT >= 31) {
             return ContextCompat.checkSelfPermission(
@@ -517,15 +621,11 @@ class RFIDReaderInterface(
 
     private fun shouldPreferLocalTransports(connectionType: ReaderConnectionType): Boolean {
         if (connectionType != ReaderConnectionType.ALL) return false
-        val manufacturer = Build.MANUFACTURER.orEmpty().uppercase()
-        val model = Build.MODEL.orEmpty().uppercase()
-        val product = Build.PRODUCT.orEmpty().uppercase()
-        val device = Build.DEVICE.orEmpty().uppercase()
-        val isZebra = manufacturer.contains("ZEBRA") || manufacturer.contains("MOTOROLA")
-        val isTcSeries = listOf(model, product, device).any {
-            it.startsWith("TC") || it.contains("TC22") || it.contains("TC27")
-        }
-        return isZebra || isTcSeries
+        return hostIdentity.isZebraTerminal || listOf(
+            hostIdentity.model,
+            hostIdentity.product,
+            hostIdentity.device,
+        ).any { value -> value.uppercase().startsWith("TC") }
     }
 
     @Synchronized
@@ -568,7 +668,14 @@ class RFIDReaderInterface(
         }
 
         readerDevice = list[readerId.toInt()]
-        Log.i(TAG, "Selected reader device: ${readerDevice?.name}")
+        activeReaderOwner = availableRFIDReaderOwners.getOrNull(readerId.toInt())
+        readers = activeReaderOwner ?: readers
+        currentReaderTransport = availableRFIDReaderTransports.getOrNull(readerId.toInt())
+        Log.i(
+            TAG,
+            "Selected reader device: ${readerDevice?.name} transport=$currentReaderTransport " +
+                "integratedEm45=${isIntegratedEm45Reader(hostIdentity, currentReaderTransport, readerDevice?.name)}",
+        )
         
         val targetReader = readerDevice?.rfidReader
         if (targetReader == null) {
@@ -623,6 +730,7 @@ class RFIDReaderInterface(
             try {
                 Log.d(TAG, "Calling targetReader.connect()...")
                 connectWithRegionRecovery(targetReader)
+                readerConnectionEstablished = true
                 Log.i(TAG, "targetReader.connect() completed successfully!")
                 // The timeout only guards the blocking SDK connect call. Bluetooth reader
                 // setup can legitimately take longer than the connect window.
@@ -703,10 +811,22 @@ class RFIDReaderInterface(
                         return@submit
                     }
                     if (readerUnavailable) {
+                        val unavailableReason = if (
+                            isIntegratedEm45Reader(
+                                hostIdentity,
+                                currentReaderTransport,
+                                readerDevice?.name,
+                            )
+                        ) {
+                            "Integrated EM45 RFID transport could not be opened; close other RFID apps and retry, then power-cycle the device if the error persists"
+                        } else {
+                            "Reader unavailable while connecting"
+                        }
+                        Log.w(TAG, unavailableReason)
                         updateConnectionState(
                             InternalConnectionState.DISCONNECTED,
                             ReaderConnectionStatus.DISCONNECTED,
-                            "Reader unavailable while connecting",
+                            unavailableReason,
                         )
                         return@submit
                     }
@@ -843,6 +963,7 @@ class RFIDReaderInterface(
     @Synchronized
     private fun rearmConnectedReaderSession(targetReader: RFIDReader, logMessage: String): ReaderInfo? {
         Log.i(TAG, logMessage)
+        readerConnectionEstablished = true
         // Dispatch hardware I/O off the main thread — SDK commands like setStartTrigger
         // timeout when called on the main (Pigeon message handler) thread.
         ioExecutor.submit {
@@ -1002,6 +1123,23 @@ class RFIDReaderInterface(
         }
     }
 
+    fun integratedReaderIdsSnapshot(): Set<Long> {
+        val list = availableRFIDReaderList ?: return emptySet()
+        return list.mapIndexedNotNullTo(linkedSetOf()) { index, device ->
+            if (
+                isIntegratedEm45Reader(
+                    hostIdentity,
+                    availableRFIDReaderTransports.getOrNull(index),
+                    device.name,
+                )
+            ) {
+                index.toLong()
+            } else {
+                null
+            }
+        }
+    }
+
     fun setScanningEnabled(enabled: Boolean) {
         if (scanningEnabled == enabled) return
         scanningEnabled = enabled
@@ -1110,13 +1248,16 @@ class RFIDReaderInterface(
         }
         updateConnectionState(InternalConnectionState.DISCONNECTING, ReaderConnectionStatus.DISCONNECTING, "Disconnecting reader")
         try {
-            if (reader?.isConnected == true) {
+            if (readerConnectionEstablished || reader?.isConnected == true) {
                 reader?.disconnect()
             }
+            readerConnectionEstablished = false
             updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disconnected")
             // User initiated disconnect -> cancel any auto reconnect sequence
             cancelPendingReconnect()
             reconnectAttempt = 0
+            activeReaderOwner = null
+            currentReaderTransport = null
         } catch (e: Throwable) {
             emitError(ReaderErrorCode.UNKNOWN, "Error during disconnect", e.message, e)
             updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Error during disconnect", e)
@@ -1326,7 +1467,10 @@ class RFIDReaderInterface(
             try {
                 // receive events from reader
                 Log.d(TAG, "Setting up event listeners...")
-                reader!!.Events.addEventsListener(this)
+                if (eventsListenerReader !== reader) {
+                    reader!!.Events.addEventsListener(this)
+                    eventsListenerReader = reader
+                }
                 // HH event
                 reader!!.Events.setHandheldEvent(true)
                 // tag event with tag data
@@ -1344,8 +1488,19 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Event listeners configured")
 
                 // set start and stop triggers
-                Log.d(TAG, "Setting trigger mode...")
-                reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
+                val sdkManagesScannerPlugin = sdkShouldManageScannerPlugin(
+                    hostIdentity,
+                    currentReaderTransport,
+                )
+                Log.i(
+                    TAG,
+                    "Setting trigger mode: RFID_MODE sdkManagesScannerPlugin=$sdkManagesScannerPlugin " +
+                        "transport=$currentReaderTransport em45=${hostIdentity.isEm45}",
+                )
+                reader!!.Config.setTriggerMode(
+                    ENUM_TRIGGER_MODE.RFID_MODE,
+                    sdkManagesScannerPlugin,
+                )
                 Log.d(TAG, "Setting start/stop triggers...")
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
                 reader!!.Config.stopTrigger = triggerInfo.StopTrigger
@@ -1529,6 +1684,12 @@ class RFIDReaderInterface(
 
     internal fun handleHandheldTriggerEvent(handheldEvent: HANDHELD_TRIGGER_EVENT_TYPE) {
         try {
+            if (isIntegratedEm45Reader(hostIdentity, currentReaderTransport, readerDevice?.name)) {
+                Log.i(
+                    TAG,
+                    "EM45 trigger event=$handheldEvent inventoryActive=$inventoryActive locating=$isLocating",
+                )
+            }
             if (!scanningEnabled) {
                 Log.d(TAG, "Trigger event ignored (scanning disabled)")
                 return
@@ -1674,6 +1835,7 @@ class RFIDReaderInterface(
             try {
                 readerRef.Actions.Inventory.perform()
                 Log.d(TAG, "Inventory started (performInventory)")
+                logEm45InventoryTransition("started", reason)
             } catch (e: InvalidUsageException) {
                 synchronized(this) {
                     inventoryActive = false
@@ -1715,6 +1877,7 @@ class RFIDReaderInterface(
             try {
                 readerRef.Actions.Inventory.stop()
                 Log.d(TAG, "Inventory stopped (stopInventory)")
+                logEm45InventoryTransition("stopped", lastInventoryStopReason)
             } catch (e: InvalidUsageException) {
                 Log.w(TAG, "Inventory stop failed with InvalidUsageException: ${e.message}")
             } catch (e: OperationFailureException) {
@@ -1756,6 +1919,15 @@ class RFIDReaderInterface(
         lastInventoryStopReason = reason
         stopInventory()
         schedulePurgeTags()
+    }
+
+    private fun logEm45InventoryTransition(state: String, reason: String?) {
+        if (isIntegratedEm45Reader(hostIdentity, currentReaderTransport, readerDevice?.name)) {
+            Log.i(
+                TAG,
+                "EM45 inventory $state reason=${reason ?: "unspecified"} transport=$currentReaderTransport",
+            )
+        }
     }
 
     @Synchronized
@@ -1907,35 +2079,46 @@ class RFIDReaderInterface(
 
 
     fun onDestroy() {
-        try {
-            if (reader != null) {
-                reader!!.Events?.removeEventsListener(this)
-                reader!!.disconnect()
-                reader!!.Dispose()
-                readers?.Dispose()
-                Readers.deattach(this)
-            }
-        } catch (e: InvalidUsageException) {
-            e.printStackTrace()
-        } catch (e: OperationFailureException) {
-            e.printStackTrace()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        synchronized(this) {
+            clearConnectTimeout()
+            pendingConnectFuture?.cancel(true)
+            pendingConnectFuture = null
         }
+
+        eventsListenerReader?.let { listenerReader ->
+            runCatching { listenerReader.Events?.removeEventsListener(this) }
+                .onFailure { Log.w(TAG, "Failed to remove RFID event listener during teardown", it) }
+        }
+        eventsListenerReader = null
+
+        reader?.let { readerToDisconnect ->
+            if (readerConnectionEstablished) {
+                runCatching { readerToDisconnect.disconnect() }
+                    .onFailure { Log.w(TAG, "Failed to disconnect RFID reader during teardown", it) }
+            }
+        }
+        readerConnectionEstablished = false
+
+        retainedReaderInstances.toList().forEach { owner ->
+            runCatching { owner.Dispose() }
+                .onFailure { Log.w(TAG, "Failed to dispose retained RFID reader session", it) }
+        }
+        retainedReaderInstances.clear()
+        activeReaderOwner = null
+        currentReaderTransport = null
+        readers = null
+        reader = null
+        readerDevice = null
+        runCatching { Readers.deattach(this) }
+            .onFailure { Log.w(TAG, "Failed to detach RFID reader event handler", it) }
     }
 
     override fun RFIDReaderAppeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} appeared")
-        if (applicationContext != null && currentConnectionType != null) {
-//            getAvailableReaderList(currentConnectionType!!)
-        }
     }
 
     override fun RFIDReaderDisappeared(device: ReaderDevice?) {
         Log.d(TAG, "Reader ${device?.name} disappeared")
-        if (applicationContext != null && currentConnectionType != null) {
-//            getAvailableReaderList(currentConnectionType!!)
-        }
         // If the device that disappeared is our current reader and we were connected -> schedule auto reconnect.
         if (device != null && readerDevice != null && device == readerDevice) {
             val wasConnected = internalState == InternalConnectionState.CONNECTED

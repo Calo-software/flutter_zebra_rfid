@@ -20,6 +20,56 @@ import org.junit.Test
 
 internal class CaptureDevicePlannerTest {
   @Test
+  fun buildDevices_em45MatchesIntegratedRfidToInternalCameraEndpoint() {
+    val devices = CaptureDevicePlanner(
+      CaptureDevicePlanningPlatform.ANDROID,
+      hostIsEm45 = true,
+    ).buildDevices(
+      readers = listOf(reader(name = "EM45", id = 0, model = "EM45 RFID")),
+      endpoints = listOf(
+        endpoint(
+          endpointId = "datawedge:INTERNAL_CAMERA",
+          displayName = "Internal camera",
+          source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+          mode = BarcodeScannerMode.DATA_WEDGE,
+          zebraScannerIdentifier = "INTERNAL_CAMERA",
+        ),
+      ),
+      state = state(),
+      integratedReaderIds = setOf(0),
+    )
+
+    val captureDevice = devices.single()
+    assertEquals(CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER, captureDevice.topology)
+    assertEquals(CaptureMatchConfidence.HIGH, captureDevice.matchConfidence)
+    assertEquals("EM45", captureDevice.displayName)
+    assertEquals("datawedge:INTERNAL_CAMERA", captureDevice.barcode?.endpointId)
+  }
+
+  @Test
+  fun buildDevices_em45DoesNotClaimExternalBluetoothReaderAsIntegrated() {
+    val devices = CaptureDevicePlanner(
+      CaptureDevicePlanningPlatform.ANDROID,
+      hostIsEm45 = true,
+    ).buildDevices(
+      readers = listOf(reader(name = "RFD40", id = 4, model = "RFD40")),
+      endpoints = listOf(
+        endpoint(
+          endpointId = "datawedge:INTERNAL_CAMERA",
+          displayName = "Internal camera",
+          source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+          mode = BarcodeScannerMode.DATA_WEDGE,
+        ),
+      ),
+      state = state(),
+      integratedReaderIds = emptySet(),
+    )
+
+    assertTrue(devices.none { it.topology == CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER })
+    assertEquals(CaptureDeviceTopology.TC22RFID_SLED, devices.single().topology)
+  }
+
+  @Test
   fun buildDevices_androidMatchesTc22SledToBuiltInTerminalBarcodeEndpoint() {
     val devices = androidPlanner.buildDevices(
       readers = listOf(
@@ -72,6 +122,31 @@ internal class CaptureDevicePlannerTest {
     assertEquals(CaptureDeviceTopology.BARCODE_ONLY, devices[0].topology)
     assertEquals(CaptureDeviceTopology.RFID_ONLY, devices[1].topology)
     assertNull(devices[1].barcode)
+  }
+
+  @Test
+  fun buildDevices_iosNeverEmitsIntegratedMobileComputerForEm45Inputs() {
+    val devices = CaptureDevicePlanner(
+      CaptureDevicePlanningPlatform.IOS,
+      hostIsEm45 = true,
+    ).buildDevices(
+      readers = listOf(reader(name = "EM45", id = 0, model = "EM45 RFID")),
+      endpoints = listOf(
+        endpoint(
+          endpointId = "datawedge:INTERNAL_CAMERA",
+          displayName = "Internal camera",
+          source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+          mode = BarcodeScannerMode.DATA_WEDGE,
+          zebraScannerIdentifier = "INTERNAL_CAMERA",
+        ),
+      ),
+      state = state(),
+      integratedReaderIds = setOf(0),
+    )
+
+    assertTrue(devices.none { it.topology == CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER })
+    assertTrue(devices.any { it.topology == CaptureDeviceTopology.RFID_ONLY })
+    assertTrue(devices.any { it.topology == CaptureDeviceTopology.BARCODE_ONLY })
   }
 
   @Test

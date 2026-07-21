@@ -32,18 +32,26 @@ internal data class CaptureDevicePlanningState(
 
 internal class CaptureDevicePlanner(
     private val platform: CaptureDevicePlanningPlatform,
+    private val hostIsEm45: Boolean = false,
 ) {
     fun buildDevices(
         readers: List<Reader>,
         endpoints: List<BarcodeScannerEndpoint>,
         state: CaptureDevicePlanningState,
+        integratedReaderIds: Set<Long> = emptySet(),
     ): List<CaptureDevice> {
         val assignedEndpoints = linkedSetOf<String>()
         val devices = mutableListOf<CaptureDevice>()
 
         readers.forEach { reader ->
             val id = captureDeviceId(reader)
-            val match = selectBarcodeEndpoint(id, reader, endpoints, state.barcodeOverrides)
+            val match = selectBarcodeEndpoint(
+                id,
+                reader,
+                endpoints,
+                state.barcodeOverrides,
+                integratedReaderIds,
+            )
             match.endpoint?.let { assignedEndpoints.add(it.endpointId) }
             devices.add(buildDevice(id, reader, match, state))
         }
@@ -92,6 +100,8 @@ internal class CaptureDevicePlanner(
             if (active) state.activeBarcodeError else null,
         )
         val displayName = when {
+            match.topology == CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER ->
+                reader.name ?: "EM45 RFID"
             match.topology == CaptureDeviceTopology.TC22RFID_SLED ->
                 "${reader.name ?: "RFID sled"} + terminal barcode"
             barcode != null -> "${reader.name ?: "RFID reader"} + ${barcode.displayName}"
@@ -146,6 +156,7 @@ internal class CaptureDevicePlanner(
         reader: Reader,
         endpoints: List<BarcodeScannerEndpoint>,
         barcodeOverrides: Map<String, String>,
+        integratedReaderIds: Set<Long>,
     ): BarcodeMatch {
         val override = barcodeOverrides[captureDeviceId]
         if (override != null) {
@@ -155,7 +166,7 @@ internal class CaptureDevicePlanner(
                     endpoint,
                     CaptureMatchConfidence.MANUAL,
                     "Barcode Endpoint was manually selected for this Capture Device.",
-                    topologyFor(reader, endpoint),
+                    topologyFor(reader, endpoint, integratedReaderIds),
                 )
             }
         }
@@ -170,12 +181,24 @@ internal class CaptureDevicePlanner(
                     it,
                     CaptureMatchConfidence.EXACT,
                     "RFID Reader and Barcode Endpoint share serial $readerSerial.",
-                    topologyFor(reader, it),
+                    topologyFor(reader, it, integratedReaderIds),
                 )
             }
         }
 
         if (platform == CaptureDevicePlanningPlatform.ANDROID) {
+            endpoints.firstOrNull {
+                it.source == BarcodeScannerSource.BUILT_IN_TERMINAL &&
+                    looksLikeIntegratedMobileComputer(reader, integratedReaderIds)
+            }?.let {
+                return BarcodeMatch(
+                    it,
+                    CaptureMatchConfidence.HIGH,
+                    "EM45 integrated RFID Reader paired with its built-in camera Barcode Endpoint.",
+                    CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER,
+                )
+            }
+
             endpoints.firstOrNull {
                 it.source == BarcodeScannerSource.BUILT_IN_TERMINAL && looksLikeSled(reader)
             }?.let {
@@ -223,7 +246,12 @@ internal class CaptureDevicePlanner(
     private fun topologyFor(
         reader: Reader,
         endpoint: BarcodeScannerEndpoint,
+        integratedReaderIds: Set<Long>,
     ): CaptureDeviceTopology = when {
+        platform == CaptureDevicePlanningPlatform.ANDROID &&
+            endpoint.source == BarcodeScannerSource.BUILT_IN_TERMINAL &&
+            looksLikeIntegratedMobileComputer(reader, integratedReaderIds) ->
+            CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER
         platform == CaptureDevicePlanningPlatform.ANDROID &&
             endpoint.source == BarcodeScannerSource.BUILT_IN_TERMINAL &&
             looksLikeSled(reader) ->
@@ -240,6 +268,11 @@ internal class CaptureDevicePlanner(
         val text = "${reader.name.orEmpty()} ${reader.info?.modelVersion.orEmpty()} ${reader.info?.scannerName.orEmpty()}".uppercase()
         return text.contains("RFD") || text.contains("SLED")
     }
+
+    private fun looksLikeIntegratedMobileComputer(
+        reader: Reader,
+        integratedReaderIds: Set<Long>,
+    ): Boolean = hostIsEm45 && reader.id in integratedReaderIds && !looksLikeSled(reader)
 
     private fun nameTokensOverlap(reader: Reader, endpoint: BarcodeScannerEndpoint): Boolean {
         val readerTokens = tokens("${reader.name.orEmpty()} ${reader.info?.modelVersion.orEmpty()} ${reader.info?.scannerName.orEmpty()}")

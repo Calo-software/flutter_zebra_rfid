@@ -137,6 +137,8 @@ extension CaptureDeviceTopologyLabelX on CaptureDeviceTopology {
         CaptureDeviceTopology.rfidOnly => 'RFID only',
         CaptureDeviceTopology.barcodeOnly => 'Barcode only',
         CaptureDeviceTopology.unknown => 'Unknown topology',
+        CaptureDeviceTopology.integratedMobileComputer =>
+          'Integrated mobile computer',
       };
 }
 

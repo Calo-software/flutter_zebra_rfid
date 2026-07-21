@@ -68,6 +68,8 @@ enum CaptureDeviceTopology {
   rfidOnly,
   barcodeOnly,
   unknown,
+  // Android runtime only. Kept in the shared codec so platform enum ordinals align.
+  integratedMobileComputer,
 }
 
 enum CaptureMatchConfidence {

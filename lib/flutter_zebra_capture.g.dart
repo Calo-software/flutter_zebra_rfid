@@ -55,6 +55,7 @@ enum CaptureDeviceTopology {
   rfidOnly,
   barcodeOnly,
   unknown,
+  integratedMobileComputer,
 }
 
 enum CaptureMatchConfidence {

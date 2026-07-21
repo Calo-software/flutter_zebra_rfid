@@ -81,6 +81,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
             })
         scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
         scannerInterface = BarcodeScannerInterface(scannerCallbacks)
+        scannerInterface!!.prepareDataWedgeControl(applicationContext)
         captureCallbacks = FlutterZebraCaptureCallbacks(flutterPluginBinding.binaryMessenger)
         captureCoordinator = CaptureDeviceCoordinator(
             applicationContext,

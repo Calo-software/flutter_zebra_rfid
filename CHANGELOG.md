@@ -1,5 +1,27 @@
 ## Unreleased
 
+## 0.5.0 - 2026-07-21
+
+### Added
+- Support the Zebra EM45 RFID as an integrated Android Capture Device using the bundled Zebra API3 `2.0.5.275` SDK.
+- Discover integrated RFID Readers through `RE_SERIAL` and `QC_SERIAL` before legacy local transports on Zebra terminals.
+- Match the EM45 RFID Reader with DataWedge's `INTERNAL_CAMERA` Barcode Endpoint as one `integratedMobileComputer` topology.
+- Emit focused Android logs for EM45 host identity, selected RFID transport, DataWedge endpoint, trigger events, and inventory transitions.
+
+### Changed
+- Retain the Zebra `Readers` instance that owns each discovered RFID Reader and dispose duplicate, empty, and stale discovery sessions safely.
+- Keep DataWedge under plugin control when configuring EM45 RFID trigger mode; external RFD and TC22 sled trigger behavior is unchanged.
+
+### Fixed
+- Avoid Zebra SDK listener and disposed-object exceptions when an EM45 connection fails before event registration; failed connections now tear down through their owning `Readers` session.
+
+### Migration Notes
+- `CaptureDeviceTopology.integratedMobileComputer` is appended to the public topology enum. Consumers with exhaustive switches must handle the new value.
+- EM45 discovery and matching are Android-only. The shared enum case exists in generated iOS code for wire-codec parity, but the iOS planner never emits it.
+- EM45 operators must map `RIGHT_TRIGGER_2` to `SYMBOL_TRIGGER_6` in Zebra Key Programmer before validating physical trigger behavior.
+- The Zebra SDK binary did not change in this release; Android still bundles API3 `2.0.5.275` and requires `minSdk 30`.
+- Perform a clean rebuild and reinstall before EM45 hardware validation because native Kotlin and generated Pigeon surfaces changed.
+
 ## 0.4.4 - 2026-07-07
 
 ### Fixed

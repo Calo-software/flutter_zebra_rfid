@@ -3,6 +3,7 @@ package nz.calo.flutter_zebra_rfid.capture
 import BarcodeScannerMode
 import CaptureCapabilityStatus
 import CaptureDevice
+import CaptureDeviceTopology
 import CaptureReaderBeeperVolume
 import CaptureReaderConfig
 import CaptureReaderConfigBatchMode
@@ -17,6 +18,7 @@ import ScannerConnectionStatus
 import android.content.Context
 import android.util.Log
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
+import nz.calo.flutter_zebra_rfid.hardware.currentZebraHostIdentity
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 class CaptureDeviceCoordinator(
@@ -26,7 +28,11 @@ class CaptureDeviceCoordinator(
     private val callbacks: FlutterZebraCaptureCallbacks,
 ) : FlutterZebraCapture {
     private val tag = "FlutterZebraCapture"
-    private val planner = CaptureDevicePlanner(CaptureDevicePlanningPlatform.ANDROID)
+    private val hostIdentity = currentZebraHostIdentity()
+    private val planner = CaptureDevicePlanner(
+        CaptureDevicePlanningPlatform.ANDROID,
+        hostIsEm45 = hostIdentity.isEm45,
+    )
     private val barcodeOverrides = linkedMapOf<String, String>()
     private var activeCaptureDeviceId: String? = null
     private var activeRfidStatus: CaptureCapabilityStatus? = null
@@ -35,6 +41,7 @@ class CaptureDeviceCoordinator(
     private var activeBarcodeError: String? = null
     private var pendingRfidConfig: CaptureReaderConfig? = null
     private var pendingRfidConfigApplied = false
+    private var pendingBarcodeEndpointId: String? = null
 
     init {
         rfidInterface.readersChangedListener = { emitDevices() }
@@ -43,6 +50,13 @@ class CaptureDeviceCoordinator(
             if (status == ReaderConnectionStatus.CONNECTED) {
                 activeRfidError = null
                 applyPendingRfidConfig()
+                connectPendingBarcodeEndpoint()
+            } else if (
+                pendingBarcodeEndpointId != null &&
+                (status == ReaderConnectionStatus.DISCONNECTED || status == ReaderConnectionStatus.ERROR)
+            ) {
+                pendingBarcodeEndpointId = null
+                activeBarcodeStatus = CaptureCapabilityStatus.DISCONNECTED
             }
             emitDevices()
         }
@@ -86,6 +100,7 @@ class CaptureDeviceCoordinator(
             activeBarcodeError = null
             pendingRfidConfig = rfidConfig
             pendingRfidConfigApplied = false
+            pendingBarcodeEndpointId = null
 
             activeRfidStatus = if (device.rfid != null) {
                 CaptureCapabilityStatus.CONNECTING
@@ -99,27 +114,35 @@ class CaptureDeviceCoordinator(
             }
             emitDevices()
 
-            device.rfid?.let { rfid ->
-                try {
-                    rfidInterface.connectReader(rfid.readerId.toLong())
-                } catch (e: Throwable) {
-                    activeRfidStatus = CaptureCapabilityStatus.ERROR
-                    activeRfidError = e.message ?: e.toString()
-                    Log.e(tag, "RFID connect failed", e)
+            val integratedEm45 = device.topology == CaptureDeviceTopology.INTEGRATED_MOBILE_COMPUTER
+            val connectRfid = {
+                val rfid = device.rfid
+                if (rfid != null) {
+                    try {
+                        rfidInterface.connectReader(rfid.readerId.toLong())
+                    } catch (e: Throwable) {
+                        activeRfidStatus = CaptureCapabilityStatus.ERROR
+                        activeRfidError = e.message ?: e.toString()
+                        Log.e(tag, "RFID connect failed", e)
+                    }
                 }
             }
 
-            device.barcode?.let { barcode ->
+            if (integratedEm45 && device.rfid != null && device.barcode != null) {
+                pendingBarcodeEndpointId = device.barcode.endpointId
+                Log.i(
+                    tag,
+                    "EM45 Capture Device releasing DataWedge Barcode Endpoint before RFID connect " +
+                        "endpoint=${device.barcode.endpointId}",
+                )
+                barcodeInterface.prepareForIntegratedRfid(connectRfid)
+            } else {
+                connectRfid()
+            }
+
+            if (!integratedEm45) device.barcode?.let { barcode ->
                 try {
-                    barcodeInterface.setActiveEndpoint(barcode.endpointId)
-                    val endpoint = barcodeInterface.barcodeEndpoints()
-                        .firstOrNull { it.endpointId == barcode.endpointId }
-                    if (endpoint?.mode == BarcodeScannerMode.SCANNER_SDK && endpoint.scannerId != null) {
-                        barcodeInterface.connectToScanner(endpoint.scannerId.toInt())
-                    } else {
-                        activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
-                    }
-                    activeBarcodeError = null
+                    connectBarcodeEndpoint(barcode.endpointId)
                 } catch (e: Throwable) {
                     activeBarcodeStatus = CaptureCapabilityStatus.ERROR
                     activeBarcodeError = e.message ?: e.toString()
@@ -146,8 +169,12 @@ class CaptureDeviceCoordinator(
                 activeBarcodeError = null
                 pendingRfidConfig = null
                 pendingRfidConfigApplied = false
+                pendingBarcodeEndpointId = null
             }
             rfidInterface.disconnectCurrentReader()
+            if (hostIdentity.isEm45) {
+                barcodeInterface.configureDataWedgeIdle()
+            }
             barcodeInterface.disconnectCurrentScanner()
             if (activeCaptureDeviceId == captureDeviceId) {
                 activeCaptureDeviceId = null
@@ -193,6 +220,7 @@ class CaptureDeviceCoordinator(
         return planner.buildDevices(
             readers = rfidInterface.availableReadersSnapshot(),
             endpoints = barcodeInterface.barcodeEndpoints(),
+            integratedReaderIds = rfidInterface.integratedReaderIdsSnapshot(),
             state = CaptureDevicePlanningState(
                 activeCaptureDeviceId = activeCaptureDeviceId,
                 activeRfidStatus = activeRfidStatus,
@@ -215,6 +243,31 @@ class CaptureDeviceCoordinator(
             activeRfidError = "Connected, but RFID configuration failed: ${e.message ?: e}"
             Log.e(tag, "Pending RFID config failed", e)
         }
+    }
+
+    private fun connectPendingBarcodeEndpoint() {
+        val endpointId = pendingBarcodeEndpointId ?: return
+        pendingBarcodeEndpointId = null
+        try {
+            Log.i(tag, "EM45 RFID connected; activating Barcode Endpoint endpoint=$endpointId")
+            connectBarcodeEndpoint(endpointId)
+        } catch (e: Throwable) {
+            activeBarcodeStatus = CaptureCapabilityStatus.ERROR
+            activeBarcodeError = e.message ?: e.toString()
+            Log.e(tag, "Deferred Barcode connect failed", e)
+        }
+    }
+
+    private fun connectBarcodeEndpoint(endpointId: String) {
+        barcodeInterface.setActiveEndpoint(endpointId)
+        val endpoint = barcodeInterface.barcodeEndpoints()
+            .firstOrNull { it.endpointId == endpointId }
+        if (endpoint?.mode == BarcodeScannerMode.SCANNER_SDK && endpoint.scannerId != null) {
+            barcodeInterface.connectToScanner(endpoint.scannerId.toInt())
+        } else {
+            activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
+        }
+        activeBarcodeError = null
     }
 }
 

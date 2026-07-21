@@ -97,6 +97,7 @@ enum CaptureDeviceTopology: Int {
   case rfidOnly = 3
   case barcodeOnly = 4
   case unknown = 5
+  case integratedMobileComputer = 6
 }
 
 enum CaptureMatchConfidence: Int {

@@ -20,6 +20,8 @@ Demonstrates usage of the `flutter_zebra_rfid` plugin, including:
 | iOS | (Parity in progress – core features tested on Android) |
 | Permissions | Bluetooth scan / connect granted (Android 12+) |
 
+For EM45 RFID testing, enable Developer Options and USB debugging, verify RFID in Zebra 123RFID Mobile, and map `RIGHT_TRIGGER_2` to `SYMBOL_TRIGGER_6` in **Settings → Key Programmer**.
+
 Ensure the Zebra RFID SDK AAR is present (already bundled in the plugin's `android/RFIDAPI3Library`).
 
 ---
@@ -44,6 +46,8 @@ If multiple devices/emulators are attached provide `-d <deviceId>`.
 5. Open Scan Log to confirm RFID and barcode scans remain separated by type.
 6. Use the RFID and Barcode tabs for lower-level SDK troubleshooting.
 7. Review Diagnostics & Errors panels on the RFID tab when investigating reader-specific failures.
+
+On an EM45 RFID, refresh should produce one **Integrated mobile computer** Capture Device containing the local RFID Reader and `INTERNAL_CAMERA` Barcode Endpoint. Use the Scan Log to alternate physical RFID trigger cycles and camera barcode reads.
 
 ---
 ## 4. Diagnostics Panel Fields
@@ -112,6 +116,10 @@ This example now surfaces the primary Capture Device workflow plus lower-level R
 | Battery data blank | Tap Status; some devices delay initial battery event |
 | Tags not appearing | Ensure trigger pressed; check antenna power configuration |
 | RFID stops after barcode connects on TC22 sled | Reinstall latest build and confirm logs show Scanner SDK USB CDC is suppressed on Zebra terminal |
+| EM45 RFID is not discovered | Verify 123RFID Mobile first, then confirm logs probe `RE_SERIAL` and `QC_SERIAL` before service transports |
+| EM45 returns `RFID_COMM_OPEN_ERROR` | Disconnect and close 123RFID Mobile because the integrated RFID Reader is single-owner. If 123RFID also fails after reboot, repair/update the device software before continuing plugin tests. |
+| EM45 trigger does nothing | Map `RIGHT_TRIGGER_2` to `SYMBOL_TRIGGER_6` in Zebra Key Programmer |
+| EM45 camera barcode is separate from RFID | Confirm DataWedge enumerates `INTERNAL_CAMERA`, then refresh the Capture tab |
 
 ---
 ## 12. Related Docs
