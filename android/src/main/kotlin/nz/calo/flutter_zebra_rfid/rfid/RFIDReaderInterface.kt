@@ -250,6 +250,8 @@ class RFIDReaderInterface(
     private val CONNECT_TIMEOUT_MS = 10_000L
     private val RETRY_BACKOFF_MS = 2_000L
     private val MAX_CONNECT_ATTEMPTS = 2 // initial + 1 retry
+    private val DEVICE_STATUS_RETRY_DELAY_MS = 500L
+    private val MAX_DEVICE_STATUS_ATTEMPTS = 3
 
     // Internal state machine to prevent race conditions
     private enum class InternalConnectionState { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
@@ -1154,18 +1156,54 @@ class RFIDReaderInterface(
     }
 
     fun triggerDeviceStatus() {
-        val targetReader = reader ?: return
-        if (targetReader.ReaderCapabilities.isSledBatteryStatusSupported) {
+        enqueueDeviceStatusRefresh(attempt = 1)
+    }
+
+    private fun enqueueDeviceStatusRefresh(attempt: Int) {
+        ioExecutor.submit {
+            val targetReader = reader ?: return@submit
+            if (!targetReader.isConnected) return@submit
             try {
-                batteryDataFromStatistics(targetReader.Config.getBatteryStats())
-                    ?.let(::emitBatteryData)
+                try {
+                    // Some RFD40 connections report the capability flag as false even
+                    // though the PP+ battery statistics API is available. Ask the SDK
+                    // directly and retain the standard battery event as the fallback.
+                    batteryDataFromStatistics(targetReader.Config.getBatteryStats())
+                        ?.let(::emitBatteryData)
+                } catch (error: Throwable) {
+                    // Battery statistics are only available on supported PP+ sleds.
+                    Log.d(TAG, "Battery statistics unavailable: ${error.message}")
+                }
+                targetReader.Config.getDeviceStatus(true, true, true)
+                Log.d(TAG, "Device status refresh requested (attempt $attempt)")
+            } catch (error: OperationFailureException) {
+                val lockBusy = error.results == RFIDResults.RFID_API_LOCK_ACQUIRE_FAILURE ||
+                    error.vendorMessage?.contains("LOCK_ACQUIRE_FAILURE", ignoreCase = true) == true ||
+                    error.statusDescription?.contains("LOCK_ACQUIRE_FAILURE", ignoreCase = true) == true
+                if (lockBusy && attempt < MAX_DEVICE_STATUS_ATTEMPTS) {
+                    Log.w(
+                        TAG,
+                        "RFID SDK busy during device status refresh; retrying " +
+                            "attempt ${attempt + 1}/$MAX_DEVICE_STATUS_ATTEMPTS",
+                    )
+                    mainHandler.postDelayed(
+                        { enqueueDeviceStatusRefresh(attempt + 1) },
+                        DEVICE_STATUS_RETRY_DELAY_MS,
+                    )
+                } else {
+                    Log.w(
+                        TAG,
+                        "Device status refresh failed without changing reader connection state: " +
+                            "${error.results} (${error.statusDescription})",
+                    )
+                }
             } catch (error: Throwable) {
-                // Battery statistics are only available on supported PP+ sleds.
-                // Keep the standard SDK battery event as the compatibility path.
-                Log.d(TAG, "Battery statistics unavailable: ${error.message}")
+                Log.w(
+                    TAG,
+                    "Device status refresh failed without changing reader connection state: ${error.message}",
+                )
             }
         }
-        targetReader.Config.getDeviceStatus(true, true, true)
     }
 
     @Synchronized

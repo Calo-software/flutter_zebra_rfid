@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
+import 'package:flutter_zebra_rfid/shared_types.dart';
 import 'package:flutter_zebra_rfid_example/example_ui.dart';
 
 class CaptureDashboard extends StatefulWidget {
@@ -23,6 +24,8 @@ class _CaptureDashboardState extends State<CaptureDashboard>
   CaptureDevice? _activeDevice;
   RfidTag? _lastTag;
   Barcode? _lastBarcode;
+  BatteryData? _sledBattery;
+  DateTime? _sledBatteryUpdatedAt;
   bool _isLoading = false;
   String? _message;
 
@@ -34,7 +37,12 @@ class _CaptureDashboardState extends State<CaptureDashboard>
         setState(() => _devices = devices);
       }))
       ..add(_api.capture.onActiveCaptureDeviceChanged.listen((device) {
-        setState(() => _activeDevice = device);
+        setState(() {
+          if (_activeDevice?.id != device?.id) {
+            _clearSledBattery();
+          }
+          _activeDevice = device;
+        });
       }))
       ..add(_api.capture.onCaptureDeviceStatusChanged.listen((device) {
         setState(() => _activeDevice = device);
@@ -44,6 +52,20 @@ class _CaptureDashboardState extends State<CaptureDashboard>
       }))
       ..add(_api.rfid.onTagsRead.listen((tags) {
         if (tags.isNotEmpty) setState(() => _lastTag = tags.first);
+      }))
+      ..add(_api.rfid.onBatteryDataReceived.listen((battery) {
+        if (!mounted) return;
+        setState(() {
+          _sledBattery = battery;
+          _sledBatteryUpdatedAt = DateTime.now();
+        });
+      }))
+      ..add(_api.rfid.onReaderConnectionStatusChanged.listen((status) {
+        if (!mounted || status == ConnectionStatus.connected) return;
+        if (status == ConnectionStatus.disconnected ||
+            status == ConnectionStatus.error) {
+          setState(_clearSledBattery);
+        }
       }))
       ..add(_api.barcode.onBarcodeRead.listen((barcode) {
         setState(() => _lastBarcode = barcode);
@@ -68,6 +90,8 @@ class _CaptureDashboardState extends State<CaptureDashboard>
       barcodeEndpoints: _barcodeEndpoints,
       lastTag: _lastTag,
       lastBarcode: _lastBarcode,
+      sledBattery: _sledBattery,
+      sledBatteryUpdatedAt: _sledBatteryUpdatedAt,
       isLoading: _isLoading,
       message: _message,
       onRefresh: _refresh,
@@ -75,6 +99,11 @@ class _CaptureDashboardState extends State<CaptureDashboard>
       onDisconnect: _disconnect,
       onOverrideBarcode: _overrideBarcode,
     );
+  }
+
+  void _clearSledBattery() {
+    _sledBattery = null;
+    _sledBatteryUpdatedAt = null;
   }
 
   Future<void> _refresh() async {
@@ -145,6 +174,8 @@ class CaptureDashboardView extends StatelessWidget {
     required this.barcodeEndpoints,
     required this.lastTag,
     required this.lastBarcode,
+    required this.sledBattery,
+    required this.sledBatteryUpdatedAt,
     required this.isLoading,
     required this.onRefresh,
     required this.onConnect,
@@ -158,6 +189,8 @@ class CaptureDashboardView extends StatelessWidget {
   final List<BarcodeScannerEndpoint> barcodeEndpoints;
   final RfidTag? lastTag;
   final Barcode? lastBarcode;
+  final BatteryData? sledBattery;
+  final DateTime? sledBatteryUpdatedAt;
   final bool isLoading;
   final String? message;
   final Future<void> Function() onRefresh;
@@ -237,6 +270,11 @@ class CaptureDashboardView extends StatelessWidget {
                     icon: Icons.devices_other,
                     color: scheme.tertiary,
                   ),
+                  if (sledBattery != null || activeDevice?.rfid != null)
+                    _SledBatteryPill(
+                      battery: sledBattery,
+                      updatedAt: sledBatteryUpdatedAt,
+                    ),
                   ExampleStatusPill(
                     label:
                         lastTag == null ? 'No RFID tag' : 'RFID ${lastTag!.id}',
@@ -315,6 +353,57 @@ class CaptureDashboardView extends StatelessWidget {
       ],
     );
   }
+}
+
+class _SledBatteryPill extends StatelessWidget {
+  const _SledBatteryPill({required this.battery, required this.updatedAt});
+
+  final BatteryData? battery;
+  final DateTime? updatedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final percentage = battery?.percentage;
+    final details = <String>[
+      if (battery != null) 'Source: ${battery!.sourceLabel}',
+      if (battery != null) 'Charging: ${battery!.isCharging ? 'yes' : 'no'}',
+      if (battery?.healthPercentage != null)
+        'Health: ${battery!.healthPercentage}%',
+      if (battery?.cycleCount != null) 'Charge cycles: ${battery!.cycleCount}',
+      if (updatedAt != null) 'Updated: ${updatedAt!.toLocal()}',
+    ];
+
+    return Tooltip(
+      message: details.isEmpty
+          ? 'Waiting for battery data from the connected RFID sled.'
+          : details.join('\n'),
+      child: ExampleStatusPill(
+        label: percentage == null
+            ? 'Sled battery unknown'
+            : 'Sled battery $percentage%',
+        icon: _batteryIcon(battery),
+        color: percentage != null && percentage <= 15
+            ? scheme.error
+            : scheme.primary,
+      ),
+    );
+  }
+}
+
+IconData _batteryIcon(BatteryData? battery) {
+  if (battery == null) return Icons.battery_unknown;
+  if (battery.isCharging) return Icons.battery_charging_full;
+  return switch (battery.percentage) {
+    0 => Icons.battery_0_bar,
+    < 15 => Icons.battery_1_bar,
+    < 30 => Icons.battery_2_bar,
+    < 45 => Icons.battery_3_bar,
+    < 60 => Icons.battery_4_bar,
+    < 75 => Icons.battery_5_bar,
+    < 90 => Icons.battery_6_bar,
+    _ => Icons.battery_full,
+  };
 }
 
 class _CaptureDeviceTile extends StatelessWidget {

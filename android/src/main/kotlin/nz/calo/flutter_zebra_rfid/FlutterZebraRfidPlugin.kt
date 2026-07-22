@@ -447,8 +447,10 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                             return
                         }
                         Log.e(TAG, "BLE permission granted, can continue...")
-                        scannerInterface!!.updateAvailableScanners(applicationContext)
-                        callback(Result.success(Unit))
+                        scannerInterface!!.updateAvailableScanners(
+                            applicationContext,
+                            callback,
+                        )
                     }
                 })
         } catch (e: Throwable) {
@@ -476,8 +478,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun refreshBarcodeScanners(callback: (Result<Unit>) -> Unit) {
         try {
-            scannerInterface!!.refreshBarcodeScanners(applicationContext)
-            callback(Result.success(Unit))
+            scannerInterface!!.refreshBarcodeScanners(applicationContext, callback)
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
@@ -485,8 +486,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun setActiveBarcodeScanner(endpointId: String, callback: (Result<Unit>) -> Unit) {
         try {
-            scannerInterface!!.setActiveEndpoint(endpointId)
-            callback(Result.success(Unit))
+            scannerInterface!!.setActiveEndpoint(endpointId, callback)
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }

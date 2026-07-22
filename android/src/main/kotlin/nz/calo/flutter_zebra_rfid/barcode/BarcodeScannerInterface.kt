@@ -45,25 +45,46 @@ class BarcodeScannerInterface(
     private var isInitialized = false
     private var applicationContext: Context? = null
     private var dataWedgeReceiverRegistered = false
+    private var dataWedgeCoordinator: DataWedgeCommandCoordinator? = null
     private var dataWedgeEndpoints: List<DataWedgeScanner> = emptyList()
+    private var dataWedgeScannerStatus: String? = null
+    private var initialDataWedgeSetupComplete = false
     private var activeEndpointId: String? = null
     private var preferredEndpointId: String? = null
     var endpointsChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ScannerConnectionStatus) -> Unit)? = null
 
-    fun updateAvailableScanners(context: Context) {
-        refreshBarcodeScanners(context)
+    fun updateAvailableScanners(
+        context: Context,
+        onComplete: (Result<Unit>) -> Unit = {},
+    ) {
+        refreshBarcodeScanners(context, onComplete)
     }
 
     fun refreshBarcodeScanners(context: Context) {
-        if (!isInitialized) {
-            initialize(context.applicationContext)
-        } else {
-            ensureScannerSdkInitialized(context.applicationContext)
+        refreshBarcodeScanners(context) { result ->
+            result.exceptionOrNull()?.let {
+                Log.e(tag, "Barcode scanner refresh failed", it)
+            }
         }
-        getAvailableScannerList()
-        enumerateDataWedgeScanners()
-        emitEndpoints()
+    }
+
+    fun refreshBarcodeScanners(
+        context: Context,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        try {
+            if (!isInitialized) {
+                initialize(context.applicationContext)
+            } else {
+                ensureScannerSdkInitialized(context.applicationContext)
+            }
+            getAvailableScannerList()
+            emitEndpoints()
+            enqueueDataWedgeHealthCheck(onComplete)
+        } catch (error: Throwable) {
+            onComplete(Result.failure(error))
+        }
     }
 
     fun connectToScanner(scannerId: Int) {
@@ -101,15 +122,41 @@ class BarcodeScannerInterface(
     }
 
     fun setActiveEndpoint(endpointId: String) {
-        val endpoint = currentEndpoints(includeActive = false).firstOrNull { it.endpointId == endpointId }
+        val endpoint = activateEndpoint(endpointId)
+        if (endpoint.mode == BarcodeScannerMode.DATA_WEDGE) {
+            recoverDataWedgeEndpoint(endpoint) { result ->
+                result.exceptionOrNull()?.let {
+                    Log.e(tag, "DataWedge endpoint activation failed", it)
+                }
+            }
+        }
+    }
+
+    fun setActiveEndpoint(
+        endpointId: String,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        try {
+            val endpoint = activateEndpoint(endpointId)
+            if (endpoint.mode == BarcodeScannerMode.DATA_WEDGE) {
+                recoverDataWedgeEndpoint(endpoint, onComplete)
+            } else {
+                onComplete(Result.success(Unit))
+            }
+        } catch (error: Throwable) {
+            onComplete(Result.failure(error))
+        }
+    }
+
+    private fun activateEndpoint(endpointId: String): BarcodeScannerEndpoint {
+        val endpoint = currentEndpoints(includeActive = false)
+            .firstOrNull { it.endpointId == endpointId }
             ?: throw Error("Barcode scanner endpoint not available: $endpointId")
         activeEndpointId = endpointId
         preferredEndpointId = endpointId
         savePreferredEndpoint(endpointId)
-        if (endpoint.mode == BarcodeScannerMode.DATA_WEDGE) {
-            configureDataWedgeProfile(endpoint)
-        }
         emitEndpoints()
+        return endpoint
     }
 
     fun clearActiveEndpoint() {
@@ -142,6 +189,8 @@ class BarcodeScannerInterface(
                 applicationContext?.unregisterReceiver(dataWedgeReceiver)
                 dataWedgeReceiverRegistered = false
             }
+            dataWedgeCoordinator?.cancel()
+            dataWedgeCoordinator = null
             sdkHandler = null
         } catch (e: Exception) {
             Log.w(tag, "Barcode dispose failed", e)
@@ -208,9 +257,15 @@ class BarcodeScannerInterface(
         preferredEndpointId = context
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(PREF_ACTIVE_ENDPOINT, null)
+        dataWedgeCoordinator = DataWedgeCommandCoordinator(
+            sendIntent = { context.sendOrderedBroadcast(it, null) },
+            scheduleTimeout = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
+            cancelTimeout = { runnable -> mainHandler.removeCallbacks(runnable) },
+        )
         registerDataWedgeReceiver(context)
         ensureScannerSdkInitialized(context)
         isInitialized = true
+        enqueueDataWedgeStartup()
     }
 
     private fun ensureScannerSdkInitialized(context: Context) {
@@ -404,23 +459,19 @@ class BarcodeScannerInterface(
             context.registerReceiver(dataWedgeReceiver, filter)
         }
         dataWedgeReceiverRegistered = true
-        registerForDataWedgeStatus()
-        createDataWedgeProfile(null)
     }
 
     private val dataWedgeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 ACTION_BARCODE -> handleDataWedgeBarcode(intent)
-                ACTION_RESULT -> handleDataWedgeResult(intent)
+                ACTION_RESULT -> {
+                    handleDataWedgeResult(intent)
+                    dataWedgeCoordinator?.handleResult(intent)
+                }
                 ACTION_RESULT_NOTIFICATION -> handleDataWedgeNotification(intent)
             }
         }
-    }
-
-    private fun enumerateDataWedgeScanners() {
-        sendDataWedgeIntent(EXTRA_ENUMERATE_SCANNERS, "")
-        sendDataWedgeIntent(EXTRA_GET_SCANNER_STATUS, "")
     }
 
     private fun handleDataWedgeResult(intent: Intent) {
@@ -429,6 +480,7 @@ class BarcodeScannerInterface(
             emitEndpoints()
         }
         if (intent.hasExtra(EXTRA_RESULT_SCANNER_STATUS)) {
+            dataWedgeScannerStatus = intent.getStringExtra(EXTRA_RESULT_SCANNER_STATUS)
             emitEndpoints()
         }
     }
@@ -436,6 +488,7 @@ class BarcodeScannerInterface(
     private fun handleDataWedgeNotification(intent: Intent) {
         val extras = intent.getBundleExtra(EXTRA_RESULT_NOTIFICATION) ?: return
         if (extras.getString(EXTRA_RESULT_NOTIFICATION_TYPE) == NOTIFICATION_SCANNER_STATUS) {
+            dataWedgeScannerStatus = extras.getString(NOTIFICATION_SCANNER_STATUS)
             emitEndpoints()
         }
     }
@@ -492,27 +545,198 @@ class BarcodeScannerInterface(
         }
     }
 
-    private fun configureDataWedgeProfile(endpoint: BarcodeScannerEndpoint) {
-        createDataWedgeProfile(endpoint)
-    }
-
-    private fun createDataWedgeProfile(endpoint: BarcodeScannerEndpoint?) {
+    private fun enqueueDataWedgeStartup() {
         val context = applicationContext ?: return
-        val profileName = dataWedgeProfileName(context.packageName)
-
-        sendDataWedgeIntent(
-            EXTRA_SET_CONFIG,
-            buildDataWedgeBarcodeProfileConfig(profileName, context.packageName, endpoint),
-        )
-        sendDataWedgeIntent(
-            EXTRA_SET_CONFIG,
-            buildDataWedgeDisableRfidProfileConfig(profileName),
-        )
-        sendDataWedgeIntent(
-            EXTRA_SET_CONFIG,
-            buildDataWedgeIntentProfileConfig(profileName, ACTION_BARCODE),
+        enqueueDataWedgeCommands(
+            commands = listOf(
+                dataWedgeStatusCommand(),
+                registerNotificationCommand(context.packageName),
+            ),
+            operation = "DataWedge startup",
         )
     }
+
+    private fun enqueueDataWedgeHealthCheck(onComplete: (Result<Unit>) -> Unit) {
+        enqueueDataWedgeCommands(
+            commands = listOf(
+                dataWedgeStatusCommand(),
+                DataWedgeCommand(
+                    label = "enumerate-scanners",
+                    extraKey = EXTRA_ENUMERATE_SCANNERS,
+                    value = "",
+                    responseExtra = EXTRA_RESULT_ENUMERATE_SCANNERS,
+                ),
+                scannerStatusCommand(),
+            ),
+            operation = "DataWedge health check",
+            onSuccess = {
+                val endpoint = activeEndpoint()
+                if (
+                    endpoint?.mode == BarcodeScannerMode.DATA_WEDGE &&
+                    (!initialDataWedgeSetupComplete ||
+                        !isDataWedgeScannerReady(dataWedgeScannerStatus))
+                ) {
+                    Log.i(
+                        tag,
+                        "Configuring DataWedge endpoint=${endpoint.endpointId} status=$dataWedgeScannerStatus",
+                    )
+                    recoverDataWedgeEndpoint(endpoint) { result ->
+                        if (result.isSuccess) initialDataWedgeSetupComplete = true
+                        onComplete(result)
+                    }
+                } else {
+                    initialDataWedgeSetupComplete = true
+                    onComplete(Result.success(Unit))
+                }
+            },
+            onError = { onComplete(Result.failure(IllegalStateException(it))) },
+        )
+    }
+
+    private fun recoverDataWedgeEndpoint(
+        endpoint: BarcodeScannerEndpoint,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        val context = applicationContext
+        if (context == null) {
+            onComplete(Result.failure(IllegalStateException("DataWedge is not initialized")))
+            return
+        }
+        val profileName = dataWedgeProfileName(context.packageName)
+        enqueueDataWedgeCommands(
+            commands = listOf(
+                dataWedgeStatusCommand(),
+                profileConfigCommand(profileName, context.packageName, endpoint),
+            ),
+            operation = "DataWedge recovery",
+            onSuccess = { verifyDataWedgeScannerReady(onComplete) },
+            onError = { onComplete(Result.failure(IllegalStateException(it))) },
+        )
+    }
+
+    private fun verifyDataWedgeScannerReady(
+        onComplete: (Result<Unit>) -> Unit,
+        attempt: Int = 1,
+    ) {
+        enqueueDataWedgeCommands(
+            commands = listOf(scannerStatusCommand()),
+            operation = "DataWedge readiness check",
+            onSuccess = {
+                when {
+                    isDataWedgeScannerReady(dataWedgeScannerStatus) ->
+                        onComplete(Result.success(Unit))
+                    attempt >= DATAWEDGE_READY_ATTEMPTS -> onComplete(
+                        Result.failure(
+                            IllegalStateException(
+                                "DataWedge recovery completed but scanner status is ${dataWedgeScannerStatus ?: "unknown"}",
+                            ),
+                        ),
+                    )
+                    else -> repairDataWedgeScannerState(onComplete, attempt)
+                }
+            },
+            onError = { onComplete(Result.failure(IllegalStateException(it))) },
+        )
+    }
+
+    private fun repairDataWedgeScannerState(
+        onComplete: (Result<Unit>) -> Unit,
+        attempt: Int,
+    ) {
+        val status = dataWedgeScannerStatus
+        val command = if (status == "IDLE") {
+            DataWedgeCommand(
+                label = "resume-scanner",
+                extraKey = EXTRA_SCANNER_INPUT_PLUGIN,
+                value = "RESUME_PLUGIN",
+                acceptedFailureCodes = setOf("SCANNER_ALREADY_RESUMED"),
+                postCompletionDelayMs = DATAWEDGE_STATE_SETTLE_MS,
+            )
+        } else {
+            DataWedgeCommand(
+                label = "enable-scanner",
+                extraKey = EXTRA_SCANNER_INPUT_PLUGIN,
+                value = "ENABLE_PLUGIN",
+                acceptedFailureCodes = setOf("SCANNER_ALREADY_ENABLED"),
+                postCompletionDelayMs = DATAWEDGE_STATE_SETTLE_MS,
+            )
+        }
+        Log.i(tag, "Repairing DataWedge scanner status=$status attempt=$attempt")
+        enqueueDataWedgeCommands(
+            commands = listOf(command),
+            operation = "DataWedge scanner state repair",
+            onSuccess = { verifyDataWedgeScannerReady(onComplete, attempt + 1) },
+            onError = { onComplete(Result.failure(IllegalStateException(it))) },
+        )
+    }
+
+    private fun dataWedgeStatusCommand() = DataWedgeCommand(
+        label = "datawedge-status",
+        extraKey = EXTRA_GET_DATAWEDGE_STATUS,
+        value = "",
+        responseExtra = EXTRA_RESULT_GET_DATAWEDGE_STATUS,
+    )
+
+    private fun scannerStatusCommand() = DataWedgeCommand(
+        label = "scanner-status",
+        extraKey = EXTRA_GET_SCANNER_STATUS,
+        value = "",
+        responseExtra = EXTRA_RESULT_SCANNER_STATUS,
+    )
+
+    private fun registerNotificationCommand(packageName: String) = DataWedgeCommand(
+        label = "register-scanner-status",
+        extraKey = EXTRA_REGISTER_NOTIFICATION,
+        value = Bundle().apply {
+            putString(EXTRA_APPLICATION_NAME, packageName)
+            putString(EXTRA_NOTIFICATION_TYPE, NOTIFICATION_SCANNER_STATUS)
+        },
+        // This API returns a notification bundle rather than a correlated
+        // RESULT_ACTION. Keep later commands serialized behind Android 14's
+        // documented DataWedge intent delivery window.
+        completionDelayMs = 600L,
+    )
+
+    private fun profileConfigCommand(
+        profileName: String,
+        packageName: String,
+        endpoint: BarcodeScannerEndpoint?,
+    ) = DataWedgeCommand(
+        label = "configure-profile",
+        extraKey = EXTRA_SET_CONFIG,
+        value = buildDataWedgeProfileConfig(
+            profileName = profileName,
+            packageName = packageName,
+            endpoint = endpoint,
+            actionBarcode = ACTION_BARCODE,
+        ),
+        acceptedFailureCodes = setOf("APP_ALREADY_ASSOCIATED"),
+        sendResult = SEND_RESULT_COMPLETE,
+        // SET_CONFIG can report before its profile disable/re-enable cycle has
+        // finished. DataWedge 15 recommends delaying subsequent critical APIs.
+        postCompletionDelayMs = DATAWEDGE_PROFILE_SETTLE_MS,
+    )
+
+    private fun enqueueDataWedgeCommands(
+        commands: List<DataWedgeCommand>,
+        operation: String,
+        onSuccess: (List<DataWedgeCommandResult>) -> Unit = {},
+        onError: (String) -> Unit = { Log.e(tag, it) },
+    ) {
+        val coordinator = dataWedgeCoordinator
+        if (coordinator == null) {
+            onError("$operation failed: DataWedge coordinator is not initialized")
+            return
+        }
+        coordinator.enqueue(
+            commands = commands,
+            onSuccess = onSuccess,
+            onError = { onError("$operation failed: $it") },
+        )
+    }
+
+    private fun isDataWedgeScannerReady(status: String?): Boolean =
+        status == "WAITING" || status == "SCANNING"
 
     private fun isDataWedgeRfidIntent(intent: Intent): Boolean {
         val source = intent.getStringExtra(DATAWEDGE_SOURCE)
@@ -533,34 +757,6 @@ class BarcodeScannerInterface(
         }
 
         return false
-    }
-
-    private fun registerForDataWedgeStatus() {
-        val context = applicationContext ?: return
-        sendDataWedgeIntent(EXTRA_REGISTER_NOTIFICATION, Bundle().apply {
-            putString(EXTRA_APPLICATION_NAME, context.packageName)
-            putString(EXTRA_NOTIFICATION_TYPE, NOTIFICATION_SCANNER_STATUS)
-        })
-    }
-
-    private fun sendDataWedgeIntent(extraKey: String, extras: Bundle) {
-        val context = applicationContext ?: return
-        context.sendBroadcast(Intent().apply {
-            action = ACTION_DATAWEDGE
-            putExtra(extraKey, extras)
-            putExtra(EXTRA_SEND_RESULT, "true")
-            putExtra(EXTRA_RESULT_CATEGORY, Intent.CATEGORY_DEFAULT)
-        })
-    }
-
-    private fun sendDataWedgeIntent(extraKey: String, value: String) {
-        val context = applicationContext ?: return
-        context.sendBroadcast(Intent().apply {
-            action = ACTION_DATAWEDGE
-            putExtra(extraKey, value)
-            putExtra(EXTRA_SEND_RESULT, "true")
-            putExtra(EXTRA_RESULT_CATEGORY, Intent.CATEGORY_DEFAULT)
-        })
     }
 
     private fun scannerSdkEndpointId(scannerId: Int): String = "scanner-sdk:$scannerId"
@@ -611,15 +807,22 @@ class BarcodeScannerInterface(
         private const val EXTRA_RESULT_SCANNER_STATUS =
             "com.symbol.datawedge.api.RESULT_SCANNER_STATUS"
         private const val EXTRA_SET_CONFIG = "com.symbol.datawedge.api.SET_CONFIG"
+        private const val EXTRA_SCANNER_INPUT_PLUGIN =
+            "com.symbol.datawedge.api.SCANNER_INPUT_PLUGIN"
+        private const val EXTRA_GET_DATAWEDGE_STATUS =
+            "com.symbol.datawedge.api.GET_DATAWEDGE_STATUS"
+        private const val EXTRA_RESULT_GET_DATAWEDGE_STATUS =
+            "com.symbol.datawedge.api.RESULT_GET_DATAWEDGE_STATUS"
         private const val EXTRA_REGISTER_NOTIFICATION =
             "com.symbol.datawedge.api.REGISTER_FOR_NOTIFICATION"
         private const val EXTRA_RESULT_NOTIFICATION = "com.symbol.datawedge.api.NOTIFICATION"
         private const val EXTRA_RESULT_NOTIFICATION_TYPE = "NOTIFICATION_TYPE"
         private const val EXTRA_APPLICATION_NAME = "com.symbol.datawedge.api.APPLICATION_NAME"
         private const val EXTRA_NOTIFICATION_TYPE = "com.symbol.datawedge.api.NOTIFICATION_TYPE"
-        private const val EXTRA_SEND_RESULT = "SEND_RESULT"
-        private const val EXTRA_RESULT_CATEGORY = "com.symbol.datawedge.api.RESULT_CATEGORY"
         private const val NOTIFICATION_SCANNER_STATUS = "SCANNER_STATUS"
+        private const val DATAWEDGE_PROFILE_SETTLE_MS = 750L
+        private const val DATAWEDGE_STATE_SETTLE_MS = 600L
+        private const val DATAWEDGE_READY_ATTEMPTS = 3
         private const val DATAWEDGE_DATA_STRING = "com.symbol.datawedge.data_string"
         private const val DATAWEDGE_LABEL_TYPE = "com.symbol.datawedge.label_type"
         private const val DATAWEDGE_SOURCE = "com.symbol.datawedge.source"
@@ -643,19 +846,7 @@ internal fun buildDataWedgeBarcodeProfileConfig(
         putString("PACKAGE_NAME", packageName)
         putStringArray("ACTIVITY_LIST", arrayOf("*"))
     }))
-    putBundle("PLUGIN_CONFIG", Bundle().apply {
-        putString("PLUGIN_NAME", "BARCODE")
-        putString("RESET_CONFIG", "false")
-        putBundle("PARAM_LIST", Bundle().apply {
-            putString("scanner_input_enabled", "true")
-            endpoint?.zebraScannerIdentifier?.let {
-                putString("scanner_selection_by_identifier", it)
-            }
-            endpoint?.scannerIndex?.let {
-                putString("scanner_selection", it.toString())
-            }
-        })
-    })
+    putBundle("PLUGIN_CONFIG", buildDataWedgeBarcodePluginConfig(endpoint))
 }
 
 internal fun buildDataWedgeDisableRfidProfileConfig(profileName: String): Bundle =
@@ -663,13 +854,7 @@ internal fun buildDataWedgeDisableRfidProfileConfig(profileName: String): Bundle
         putString("PROFILE_NAME", profileName)
         putString("PROFILE_ENABLED", "true")
         putString("CONFIG_MODE", "UPDATE")
-        putBundle("PLUGIN_CONFIG", Bundle().apply {
-            putString("PLUGIN_NAME", "RFID")
-            putString("RESET_CONFIG", "false")
-            putBundle("PARAM_LIST", Bundle().apply {
-                putString("rfid_input_enabled", "false")
-            })
-        })
+        putBundle("PLUGIN_CONFIG", buildDataWedgeRfidPluginConfig())
     }
 
 internal fun buildDataWedgeIntentProfileConfig(
@@ -679,13 +864,62 @@ internal fun buildDataWedgeIntentProfileConfig(
     putString("PROFILE_NAME", profileName)
     putString("PROFILE_ENABLED", "true")
     putString("CONFIG_MODE", "UPDATE")
-    putBundle("PLUGIN_CONFIG", Bundle().apply {
-        putString("PLUGIN_NAME", "INTENT")
-        putString("RESET_CONFIG", "true")
-        putBundle("PARAM_LIST", Bundle().apply {
-            putString("intent_output_enabled", "true")
-            putString("intent_action", actionBarcode)
-            putString("intent_delivery", "2")
-        })
+    putBundle("PLUGIN_CONFIG", buildDataWedgeIntentPluginConfig(actionBarcode))
+}
+
+internal fun buildDataWedgeProfileConfig(
+    profileName: String,
+    packageName: String,
+    endpoint: BarcodeScannerEndpoint?,
+    actionBarcode: String,
+): Bundle = Bundle().apply {
+    putString("PROFILE_NAME", profileName)
+    putString("PROFILE_ENABLED", "true")
+    putString("CONFIG_MODE", "CREATE_IF_NOT_EXIST")
+    putParcelableArray("APP_LIST", arrayOf(Bundle().apply {
+        putString("PACKAGE_NAME", packageName)
+        putStringArray("ACTIVITY_LIST", arrayOf("*"))
+    }))
+    putParcelableArrayList(
+        "PLUGIN_CONFIG",
+        arrayListOf(
+            buildDataWedgeBarcodePluginConfig(endpoint),
+            buildDataWedgeRfidPluginConfig(),
+            buildDataWedgeIntentPluginConfig(actionBarcode),
+        ),
+    )
+}
+
+private fun buildDataWedgeBarcodePluginConfig(
+    endpoint: BarcodeScannerEndpoint?,
+): Bundle = Bundle().apply {
+    putString("PLUGIN_NAME", "BARCODE")
+    putString("RESET_CONFIG", "false")
+    putBundle("PARAM_LIST", Bundle().apply {
+        putString("scanner_input_enabled", "true")
+        endpoint?.zebraScannerIdentifier?.let {
+            putString("scanner_selection_by_identifier", it)
+        }
+        endpoint?.scannerIndex?.let {
+            putString("scanner_selection", it.toString())
+        }
+    })
+}
+
+private fun buildDataWedgeRfidPluginConfig(): Bundle = Bundle().apply {
+    putString("PLUGIN_NAME", "RFID")
+    putString("RESET_CONFIG", "false")
+    putBundle("PARAM_LIST", Bundle().apply {
+        putString("rfid_input_enabled", "false")
+    })
+}
+
+private fun buildDataWedgeIntentPluginConfig(actionBarcode: String): Bundle = Bundle().apply {
+    putString("PLUGIN_NAME", "INTENT")
+    putString("RESET_CONFIG", "true")
+    putBundle("PARAM_LIST", Bundle().apply {
+        putString("intent_output_enabled", "true")
+        putString("intent_action", actionBarcode)
+        putString("intent_delivery", "2")
     })
 }

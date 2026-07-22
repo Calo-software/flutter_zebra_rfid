@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.5 - 2026-07-22
 
 ### Added
 - Expose an explicit `BatteryData.percentage` getter while retaining `level` for source compatibility.
@@ -12,6 +12,13 @@
 ### Fixed
 - Remove the Android voltage-curve fallback that could present a guessed percentage as reader battery status.
 - Clear stale battery feedback from the example UI when the RFID Reader disconnects.
+- Serialize Android DataWedge commands and correlate their results so profile setup, scanner enumeration, and recovery cannot overlap.
+- Configure Barcode, RFID-disable, and Intent plug-ins in one DataWedge profile update instead of racing three broadcasts.
+- Rely on DataWedge app-profile association instead of issuing an invalid `SWITCH_TO_PROFILE` command for an already-associated foreground app.
+- Wait for DataWedge profile transitions and repair the scanner according to its reported state (`ENABLE_PLUGIN` when disabled, `RESUME_PLUGIN` only when suspended).
+- Serialize RFID device-status refreshes behind reader setup and retry transient SDK lock contention without failing an established reader connection.
+- Make barcode refresh check DataWedge health and automatically recover a selected scanner in `IDLE` or `DISABLED` state.
+- Add `recoverActiveBarcodeScanner()` for an explicit operator-triggered recovery that verifies the scanner returns to `WAITING` or `SCANNING`.
 
 ## 0.4.4 - 2026-07-07
 

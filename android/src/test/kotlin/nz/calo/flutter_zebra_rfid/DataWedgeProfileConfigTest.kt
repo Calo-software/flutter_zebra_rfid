@@ -7,6 +7,7 @@ import ScannerConnectionStatus
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeBarcodeProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeDisableRfidProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeIntentProfileConfig
+import nz.calo.flutter_zebra_rfid.barcode.buildDataWedgeProfileConfig
 import nz.calo.flutter_zebra_rfid.barcode.dataWedgeProfileName
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -73,6 +74,40 @@ internal class DataWedgeProfileConfigTest {
     assertEquals("true", params.getString("intent_output_enabled"))
     assertEquals("test.ACTION_BARCODE", params.getString("intent_action"))
     assertEquals("2", params.getString("intent_delivery"))
+  }
+
+  @Test
+  fun buildDataWedgeProfileConfig_configuresAllPluginsInOneCommand() {
+    val endpoint = dataWedgeEndpoint(
+      zebraScannerIdentifier = "INTERNAL_IMAGER",
+      scannerIndex = 2,
+    )
+
+    val config = buildDataWedgeProfileConfig(
+      profileName = "test.profile.barcode",
+      packageName = "test.profile",
+      endpoint = endpoint,
+      actionBarcode = "test.ACTION_BARCODE",
+    )
+
+    assertEquals("CREATE_IF_NOT_EXIST", config.getString("CONFIG_MODE"))
+    val plugins = config.getParcelableArrayList<android.os.Bundle>("PLUGIN_CONFIG")!!
+    assertEquals(listOf("BARCODE", "RFID", "INTENT"), plugins.map {
+      it.getString("PLUGIN_NAME")
+    })
+    assertEquals(
+      "INTERNAL_IMAGER",
+      plugins[0].getBundle("PARAM_LIST")!!
+        .getString("scanner_selection_by_identifier"),
+    )
+    assertEquals(
+      "false",
+      plugins[1].getBundle("PARAM_LIST")!!.getString("rfid_input_enabled"),
+    )
+    assertEquals(
+      "test.ACTION_BARCODE",
+      plugins[2].getBundle("PARAM_LIST")!!.getString("intent_action"),
+    )
   }
 
   private fun dataWedgeEndpoint(
