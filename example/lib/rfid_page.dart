@@ -94,6 +94,11 @@ class _RfidPageState extends State<RfidPage>
         setState(() {
           _connectionStatus = status; // already a ConnectionStatus from wrapper
           _currentReader = reader;
+          if (_connectionStatus == ConnectionStatus.disconnected) {
+            _batteryData = null;
+            _batteryLastUpdate = null;
+            _batteryUpdateCount = 0;
+          }
           if (_connectionStatus == ConnectionStatus.connected) {
             // configure reader
             _flutterZebraRfidApi.configureReader(
@@ -907,11 +912,19 @@ class _RfidPageState extends State<RfidPage>
                     if (_batteryData == null)
                       const Text('No battery data')
                     else ...[
-                      Text('Level: ${_batteryData!.level}%'),
+                      Text('Percentage: ${_batteryData!.percentage}%'),
                       // Raw battery debug line (shows unformatted underlying fields)
                       Text(
                           'Raw: {level: ${_batteryData!.level}, charging: ${_batteryData!.isCharging}, cause: ${_batteryData!.cause}}'),
                       Text('Charging: ${_batteryData!.isCharging}'),
+                      Text('Source: ${_batteryData!.sourceLabel}'),
+                      if (_batteryData!.healthPercentage != null)
+                        Text(
+                            'Battery health: ${_batteryData!.healthPercentage}%'),
+                      if (_batteryData!.cycleCount != null)
+                        Text('Charge cycles: ${_batteryData!.cycleCount}'),
+                      Text(
+                          'Estimated: ${_batteryData!.isPercentageEstimated ?? false}'),
                       Text('Cause: ${_batteryData!.cause}'),
                       Text(
                           'Last Update: ${_batteryLastUpdate?.toIso8601String() ?? '-'}'),
@@ -1209,7 +1222,7 @@ class _ReadersContainer extends StatelessWidget {
       if (batteryData!.isCharging) {
         return Icons.battery_charging_full;
       }
-      final level = batteryData!.level;
+      final level = batteryData!.percentage;
       if (level == 0) {
         return Icons.battery_0_bar;
       }
@@ -1312,7 +1325,7 @@ class _ReadersContainer extends StatelessWidget {
                   ExampleStatusPill(
                     label: batteryData == null
                         ? 'Battery unknown'
-                        : '${batteryData!.level}% battery',
+                        : '${batteryData!.percentage}% battery',
                     icon: batteryStatusIcon(),
                     color: batteryData?.isCharging == true
                         ? const Color(0xFF1B7F4A)

@@ -1,5 +1,18 @@
 ## Unreleased
 
+### Added
+- Expose an explicit `BatteryData.percentage` getter while retaining `level` for source compatibility.
+- Identify battery feedback as a Zebra reader event or Zebra PP+ battery statistics.
+- Surface PP+ battery health and charge-cycle counts when supported by the connected sled.
+
+### Changed
+- Report Zebra battery statistics for supported RFD40/RFD90 sleds and request fresh battery status automatically after iOS connection.
+- Demonstrate percentage, source, charging, health, cycle count, freshness, and estimation state in the example app.
+
+### Fixed
+- Remove the Android voltage-curve fallback that could present a guessed percentage as reader battery status.
+- Clear stale battery feedback from the example UI when the RFID Reader disconnects.
+
 ## 0.4.4 - 2026-07-07
 
 ### Fixed

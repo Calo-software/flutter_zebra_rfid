@@ -209,6 +209,19 @@ class BluetoothPairingResult {
   final bool success;
 }
 
+extension BatteryDataX on BatteryData {
+  /// Explicit 0-100 battery percentage.
+  ///
+  /// `level` is retained in the generated contract for source compatibility.
+  int get percentage => level < 0 ? 0 : (level > 100 ? 100 : level);
+
+  String get sourceLabel => switch (source) {
+        BatteryDataSource.readerStatistics => 'Zebra battery statistics',
+        BatteryDataSource.readerEvent => 'Zebra battery event',
+        null => 'Legacy battery event',
+      };
+}
+
 extension ReaderInfoX on ReaderInfo {
   String get asString => '''
 TransmitPowerLevels: ${transmitPowerLevels.first} - ${transmitPowerLevels.last}

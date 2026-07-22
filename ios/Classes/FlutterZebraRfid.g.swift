@@ -113,6 +113,13 @@ enum ReaderBeeperVolume: Int {
   case high = 3
 }
 
+enum BatteryDataSource: Int {
+  /// Standard battery event reported by the Zebra RFID SDK.
+  case readerEvent = 0
+  /// Explicit PP+ battery statistics reported by a supported Zebra sled.
+  case readerStatistics = 1
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct ReaderError {
   var code: ReaderErrorCode
@@ -350,9 +357,17 @@ struct RfidTag {
 
 /// Generated class from Pigeon that represents data sent in messages.
 struct BatteryData {
+  /// Battery percentage in the inclusive range 0-100.
+  ///
+  /// Kept as `level` for backwards compatibility. Prefer the handwritten
+  /// `BatteryData.percentage` extension getter in Dart application code.
   var level: Int64
   var isCharging: Bool
   var cause: String
+  var source: BatteryDataSource? = nil
+  var isPercentageEstimated: Bool? = nil
+  var healthPercentage: Int64? = nil
+  var cycleCount: Int64? = nil
 
 
 
@@ -361,11 +376,19 @@ struct BatteryData {
     let level = pigeonVar_list[0] is Int64 ? pigeonVar_list[0] as! Int64 : Int64(pigeonVar_list[0] as! Int32)
     let isCharging = pigeonVar_list[1] as! Bool
     let cause = pigeonVar_list[2] as! String
+    let source: BatteryDataSource? = nilOrValue(pigeonVar_list[3])
+    let isPercentageEstimated: Bool? = nilOrValue(pigeonVar_list[4])
+    let healthPercentage: Int64? = isNullish(pigeonVar_list[5]) ? nil : (pigeonVar_list[5] is Int64? ? pigeonVar_list[5] as! Int64? : Int64(pigeonVar_list[5] as! Int32))
+    let cycleCount: Int64? = isNullish(pigeonVar_list[6]) ? nil : (pigeonVar_list[6] is Int64? ? pigeonVar_list[6] as! Int64? : Int64(pigeonVar_list[6] as! Int32))
 
     return BatteryData(
       level: level,
       isCharging: isCharging,
-      cause: cause
+      cause: cause,
+      source: source,
+      isPercentageEstimated: isPercentageEstimated,
+      healthPercentage: healthPercentage,
+      cycleCount: cycleCount
     )
   }
   func toList() -> [Any?] {
@@ -373,6 +396,10 @@ struct BatteryData {
       level,
       isCharging,
       cause,
+      source,
+      isPercentageEstimated,
+      healthPercentage,
+      cycleCount,
     ]
   }
 }
@@ -494,22 +521,28 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 135:
-      return ReaderError.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return BatteryDataSource(rawValue: enumResultAsInt)
+      }
+      return nil
     case 136:
-      return Reader.fromList(self.readValue() as! [Any?])
+      return ReaderError.fromList(self.readValue() as! [Any?])
     case 137:
-      return BluetoothDevice.fromList(self.readValue() as! [Any?])
+      return Reader.fromList(self.readValue() as! [Any?])
     case 138:
-      return ReaderConfig.fromList(self.readValue() as! [Any?])
+      return BluetoothDevice.fromList(self.readValue() as! [Any?])
     case 139:
-      return ReaderInfo.fromList(self.readValue() as! [Any?])
+      return ReaderConfig.fromList(self.readValue() as! [Any?])
     case 140:
-      return ReaderRegion.fromList(self.readValue() as! [Any?])
+      return ReaderInfo.fromList(self.readValue() as! [Any?])
     case 141:
-      return RfidTag.fromList(self.readValue() as! [Any?])
+      return ReaderRegion.fromList(self.readValue() as! [Any?])
     case 142:
-      return BatteryData.fromList(self.readValue() as! [Any?])
+      return RfidTag.fromList(self.readValue() as! [Any?])
     case 143:
+      return BatteryData.fromList(self.readValue() as! [Any?])
+    case 144:
       return Diagnostics.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -537,32 +570,35 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ReaderBeeperVolume {
       super.writeByte(134)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ReaderError {
+    } else if let value = value as? BatteryDataSource {
       super.writeByte(135)
-      super.writeValue(value.toList())
-    } else if let value = value as? Reader {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? ReaderError {
       super.writeByte(136)
       super.writeValue(value.toList())
-    } else if let value = value as? BluetoothDevice {
+    } else if let value = value as? Reader {
       super.writeByte(137)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderConfig {
+    } else if let value = value as? BluetoothDevice {
       super.writeByte(138)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderInfo {
+    } else if let value = value as? ReaderConfig {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderRegion {
+    } else if let value = value as? ReaderInfo {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? RfidTag {
+    } else if let value = value as? ReaderRegion {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? BatteryData {
+    } else if let value = value as? RfidTag {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? Diagnostics {
+    } else if let value = value as? BatteryData {
       super.writeByte(143)
+      super.writeValue(value.toList())
+    } else if let value = value as? Diagnostics {
+      super.writeByte(144)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)

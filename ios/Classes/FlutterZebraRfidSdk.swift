@@ -32,6 +32,7 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         let asciiResult = _rfidApi.srfidEstablishAsciiConnection(activeReader.getReaderID())
 
         _callbacks.onReaderConnectionStatusChanged(status: ReaderConnectionStatus.connected) {_ in}
+        _rfidApi.srfidRequestBatteryStatus(activeReader.getReaderID())
     }
     
     func srfidEventCommunicationSessionTerminated(_ readerID: Int32) {
@@ -93,7 +94,9 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
             batteryData: BatteryData(
                 level: Int64(batteryEvent.getPowerLevel()),
                 isCharging: batteryEvent.getIsCharging(),
-                cause: batteryEvent.getCause()
+                cause: batteryEvent.getCause(),
+                source: BatteryDataSource.readerEvent,
+                isPercentageEstimated: false
             ), completion: {_ in }
         )
     }
@@ -422,12 +425,13 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
             completion(.failure(exception))
             return
         }
-        let result = _rfidApi.srfidRequestDeviceStatus(Int32(readerId),
-                                          aBattery: true,
+        let batteryResult = _rfidApi.srfidRequestBatteryStatus(Int32(readerId))
+        let statusResult = _rfidApi.srfidRequestDeviceStatus(Int32(readerId),
+                                          aBattery: false,
                                           aTemperature: true,
                                           aPower: true
         )
-        if (result != SRFID_RESULT_SUCCESS) {
+        if (batteryResult != SRFID_RESULT_SUCCESS && statusResult != SRFID_RESULT_SUCCESS) {
             completion(.failure(exception))
             return
         }

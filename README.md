@@ -129,6 +129,12 @@ api.onTagsRead.listen((tags) { /* update UI */ });
 api.onTagsLocated.listen((tags) { /* handle tags with distance info */ });
 api.onReaderConnectionError.listen((err) { /* switch on err.code */ });
 api.onReaderConnectionStatusChanged.listen((s) { /* connection state updates */ });
+api.onBatteryDataReceived.listen((battery) {
+  print('${battery.percentage}% (${battery.sourceLabel})');
+});
+
+// Requests a fresh percentage. This is also requested automatically on connect.
+await api.triggerDeviceStatus();
 
 // Start inventory
 await api.startInventory();
@@ -140,6 +146,12 @@ await api.stopInventory();
 final diag = await api.diagnostics();
 print('Connect attempts: ${diag.connectAttempts} last error: ${diag.lastErrorCode}');
 ```
+
+Supported PP+ sleds report Zebra battery statistics, including health and cycle
+count when available; other readers use Zebra's standard battery event.
+`BatteryData.level` remains for compatibility, while new code should use
+`BatteryData.percentage` and inspect `source`/`sourceLabel` when displaying the
+value.
 
 ## 6. Error Codes
 | Code | Meaning | Typical Action |

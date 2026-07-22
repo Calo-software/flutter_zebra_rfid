@@ -70,6 +70,13 @@ enum ReaderBeeperVolume {
   high,
 }
 
+enum BatteryDataSource {
+  /// Standard battery event reported by the Zebra RFID SDK.
+  readerEvent,
+  /// Explicit PP+ battery statistics reported by a supported Zebra sled.
+  readerStatistics,
+}
+
 class ReaderError {
   ReaderError({
     required this.code,
@@ -332,19 +339,39 @@ class BatteryData {
     required this.level,
     required this.isCharging,
     required this.cause,
+    this.source,
+    this.isPercentageEstimated,
+    this.healthPercentage,
+    this.cycleCount,
   });
 
+  /// Battery percentage in the inclusive range 0-100.
+  ///
+  /// Kept as `level` for backwards compatibility. Prefer the handwritten
+  /// `BatteryData.percentage` extension getter in Dart application code.
   int level;
 
   bool isCharging;
 
   String cause;
 
+  BatteryDataSource? source;
+
+  bool? isPercentageEstimated;
+
+  int? healthPercentage;
+
+  int? cycleCount;
+
   Object encode() {
     return <Object?>[
       level,
       isCharging,
       cause,
+      source,
+      isPercentageEstimated,
+      healthPercentage,
+      cycleCount,
     ];
   }
 
@@ -354,6 +381,10 @@ class BatteryData {
       level: result[0]! as int,
       isCharging: result[1]! as bool,
       cause: result[2]! as String,
+      source: result[3] as BatteryDataSource?,
+      isPercentageEstimated: result[4] as bool?,
+      healthPercentage: result[5] as int?,
+      cycleCount: result[6] as int?,
     );
   }
 }
@@ -472,32 +503,35 @@ class _PigeonCodec extends StandardMessageCodec {
     } else     if (value is ReaderBeeperVolume) {
       buffer.putUint8(134);
       writeValue(buffer, value.index);
-    } else     if (value is ReaderError) {
+    } else     if (value is BatteryDataSource) {
       buffer.putUint8(135);
-      writeValue(buffer, value.encode());
-    } else     if (value is Reader) {
+      writeValue(buffer, value.index);
+    } else     if (value is ReaderError) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
-    } else     if (value is BluetoothDevice) {
+    } else     if (value is Reader) {
       buffer.putUint8(137);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderConfig) {
+    } else     if (value is BluetoothDevice) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderInfo) {
+    } else     if (value is ReaderConfig) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else     if (value is ReaderRegion) {
+    } else     if (value is ReaderInfo) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else     if (value is RfidTag) {
+    } else     if (value is ReaderRegion) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else     if (value is BatteryData) {
+    } else     if (value is RfidTag) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else     if (value is Diagnostics) {
+    } else     if (value is BatteryData) {
       buffer.putUint8(143);
+      writeValue(buffer, value.encode());
+    } else     if (value is Diagnostics) {
+      buffer.putUint8(144);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -507,41 +541,44 @@ class _PigeonCodec extends StandardMessageCodec {
   @override
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
-      case 129: 
+      case 129:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionType.values[value];
-      case 130: 
+      case 130:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConnectionStatus.values[value];
-      case 131: 
+      case 131:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : BluetoothScanStatus.values[value];
-      case 132: 
+      case 132:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderErrorCode.values[value];
-      case 133: 
+      case 133:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderConfigBatchMode.values[value];
-      case 134: 
+      case 134:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : ReaderBeeperVolume.values[value];
-      case 135: 
+      case 135:
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : BatteryDataSource.values[value];
+      case 136:
         return ReaderError.decode(readValue(buffer)!);
-      case 136: 
+      case 137:
         return Reader.decode(readValue(buffer)!);
-      case 137: 
+      case 138:
         return BluetoothDevice.decode(readValue(buffer)!);
-      case 138: 
+      case 139:
         return ReaderConfig.decode(readValue(buffer)!);
-      case 139: 
+      case 140:
         return ReaderInfo.decode(readValue(buffer)!);
-      case 140: 
+      case 141:
         return ReaderRegion.decode(readValue(buffer)!);
-      case 141: 
+      case 142:
         return RfidTag.decode(readValue(buffer)!);
-      case 142: 
+      case 143:
         return BatteryData.decode(readValue(buffer)!);
-      case 143: 
+      case 144:
         return Diagnostics.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
