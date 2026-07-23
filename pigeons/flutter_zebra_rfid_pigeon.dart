@@ -250,11 +250,31 @@ class BatteryData {
     required this.level,
     required this.isCharging,
     required this.cause,
+    this.source,
+    this.isPercentageEstimated,
+    this.healthPercentage,
+    this.cycleCount,
   });
 
+  /// Battery percentage in the inclusive range 0-100.
+  ///
+  /// Kept as `level` for backwards compatibility. Prefer the handwritten
+  /// `BatteryData.percentage` extension getter in Dart application code.
   final int level;
   final bool isCharging;
   final String cause;
+  final BatteryDataSource? source;
+  final bool? isPercentageEstimated;
+  final int? healthPercentage;
+  final int? cycleCount;
+}
+
+enum BatteryDataSource {
+  /// Standard battery event reported by the Zebra RFID SDK.
+  readerEvent,
+
+  /// Explicit PP+ battery statistics reported by a supported Zebra sled.
+  readerStatistics,
 }
 
 class Diagnostics {
@@ -274,6 +294,8 @@ class Diagnostics {
     this.pendingPurgeActive,
     this.lastInventoryStopReason,
     this.lastInventoryStartReason,
+    this.readerPowerState,
+    this.readerPowerStateError,
   });
 
   final ReaderConnectionStatus connectionState;
@@ -299,4 +321,10 @@ class Diagnostics {
   final String? lastInventoryStopReason;
   // Reason associated with the latest successful inventory start.
   final String? lastInventoryStartReason;
+  // Current Zebra reader power state, or null when disconnected/unsupported.
+  // Android values include off, standby, active, rfActive, bluetoothOff,
+  // unknown, and unavailable when the SDK query fails.
+  final String? readerPowerState;
+  // Zebra SDK failure details when readerPowerState is unavailable.
+  final String? readerPowerStateError;
 }

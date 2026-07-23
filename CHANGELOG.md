@@ -1,5 +1,8 @@
 ## Unreleased
 
+### Added
+- Include the connected Zebra RFID Reader power state and SDK failure details in diagnostics on Android so support can distinguish standby, active, Bluetooth-off, unsupported commands, and unavailable sessions.
+
 ## 0.5.0 - 2026-07-21
 
 ### Added
@@ -21,6 +24,28 @@
 - EM45 operators must map `RIGHT_TRIGGER_2` to `SYMBOL_TRIGGER_6` in Zebra Key Programmer before validating physical trigger behavior.
 - The Zebra SDK binary did not change in this release; Android still bundles API3 `2.0.5.275` and requires `minSdk 30`.
 - Perform a clean rebuild and reinstall before EM45 hardware validation because native Kotlin and generated Pigeon surfaces changed.
+
+## 0.4.5 - 2026-07-22
+
+### Added
+- Expose an explicit `BatteryData.percentage` getter while retaining `level` for source compatibility.
+- Identify battery feedback as a Zebra reader event or Zebra PP+ battery statistics.
+- Surface PP+ battery health and charge-cycle counts when supported by the connected sled.
+
+### Changed
+- Report Zebra battery statistics for supported RFD40/RFD90 sleds and request fresh battery status automatically after iOS connection.
+- Demonstrate percentage, source, charging, health, cycle count, freshness, and estimation state in the example app.
+
+### Fixed
+- Remove the Android voltage-curve fallback that could present a guessed percentage as reader battery status.
+- Clear stale battery feedback from the example UI when the RFID Reader disconnects.
+- Serialize Android DataWedge commands and correlate their results so profile setup, scanner enumeration, and recovery cannot overlap.
+- Configure Barcode, RFID-disable, and Intent plug-ins in one DataWedge profile update instead of racing three broadcasts.
+- Rely on DataWedge app-profile association instead of issuing an invalid `SWITCH_TO_PROFILE` command for an already-associated foreground app.
+- Wait for DataWedge profile transitions and repair the scanner according to its reported state (`ENABLE_PLUGIN` when disabled, `RESUME_PLUGIN` only when suspended).
+- Serialize RFID device-status refreshes behind reader setup and retry transient SDK lock contention without failing an established reader connection.
+- Make barcode refresh check DataWedge health and automatically recover a selected scanner in `IDLE` or `DISABLED` state.
+- Add `recoverActiveBarcodeScanner()` for an explicit operator-triggered recovery that verifies the scanner returns to `WAITING` or `SCANNING`.
 
 ## 0.4.4 - 2026-07-07
 

@@ -43,6 +43,22 @@ class FlutterZebraBarcodeApi {
   Future<void> setActiveBarcodeScanner({required String endpointId}) =>
       _api.setActiveBarcodeScanner(endpointId);
 
+  /// Re-applies and verifies the active DataWedge endpoint configuration.
+  ///
+  /// This is safe to expose as an operator recovery action. It completes only
+  /// after DataWedge reports that the scanner is ready, or throws when native
+  /// recovery fails.
+  Future<void> recoverActiveBarcodeScanner() async {
+    final endpoint = await activeBarcodeScanner;
+    if (endpoint == null) {
+      throw StateError('No active barcode scanner endpoint');
+    }
+    if (endpoint.mode != BarcodeScannerMode.dataWedge) {
+      throw StateError('The active barcode scanner is not a DataWedge endpoint');
+    }
+    await setActiveBarcodeScanner(endpointId: endpoint.endpointId);
+  }
+
   /// Clears the selected active barcode scanner endpoint.
   Future<void> clearActiveBarcodeScanner() => _api.clearActiveBarcodeScanner();
 

@@ -8,7 +8,7 @@ Demonstrates usage of the `flutter_zebra_rfid` plugin, including:
 * Connection timeout & automatic single retry
 * Structured connection errors (`ReaderErrorCode`)
 * Diagnostics snapshot (attempt counters, last error, timings)
-* Battery status & tag reads
+* Battery percentage, source, charging state, health, cycle count & tag reads
 
 ---
 ## 1. Prerequisites
@@ -60,6 +60,11 @@ On an EM45 RFID, refresh should produce one **Integrated mobile computer** Captu
 | Last Connect Start | Epoch ms timestamp of last connect attempt start |
 | Last Connect Duration ms | Duration of the last successful connect (ms) |
 | Locating | Whether multi-tag locating is active |
+
+The RFID page shows the current battery percentage in its status pill. Open
+Diagnostics for its source and freshness. Supported PP+ sleds can additionally
+show battery health and charge cycles. Tap **Force Status** to request a fresh
+value.
 
 ---
 ## 5. Inducing & Observing Errors
@@ -113,7 +118,7 @@ This example now surfaces the primary Capture Device workflow plus lower-level R
 | ------- | ---------- |
 | No readers found | Confirm device paired / transport mode, toggle connection type, ensure Bluetooth ON |
 | Timeout always happens | Move reader closer, ensure it’s powered, verify battery | 
-| Battery data blank | Tap Status; some devices delay initial battery event |
+| Battery data blank | Connect the RFID Reader, then tap Force Status; some readers delay the first battery event |
 | Tags not appearing | Ensure trigger pressed; check antenna power configuration |
 | RFID stops after barcode connects on TC22 sled | Reinstall latest build and confirm logs show Scanner SDK USB CDC is suppressed on Zebra terminal |
 | EM45 RFID is not discovered | Verify 123RFID Mobile first, then confirm logs probe `RE_SERIAL` and `QC_SERIAL` before service transports |

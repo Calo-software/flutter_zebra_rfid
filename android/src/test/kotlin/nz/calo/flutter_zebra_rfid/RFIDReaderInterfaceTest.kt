@@ -1,10 +1,12 @@
 package nz.calo.flutter_zebra_rfid
 
 import android.content.Context
+import Diagnostics
 import FlutterZebraRfidCallbacks
 import androidx.test.core.app.ApplicationProvider
 import com.zebra.rfid.api3.Actions
 import com.zebra.rfid.api3.Antennas
+import com.zebra.rfid.api3.BatteryStatistics
 import com.zebra.rfid.api3.Config
 import com.zebra.rfid.api3.ENUM_TRANSPORT
 import com.zebra.rfid.api3.ENUM_TRIGGER_MODE
@@ -16,6 +18,7 @@ import com.zebra.rfid.api3.RegionInfo
 import com.zebra.rfid.api3.RFIDReader
 import com.zebra.rfid.api3.RFIDResults
 import com.zebra.rfid.api3.ReaderCapabilities
+import com.zebra.rfid.api3.READER_POWER_STATE
 import com.zebra.rfid.api3.ReaderDevice
 import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.OperationFailureException
@@ -23,6 +26,8 @@ import com.zebra.rfid.api3.START_TRIGGER_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import io.flutter.plugin.common.BinaryMessenger
 import nz.calo.flutter_zebra_rfid.rfid.buildRegulatoryConfigForSingleSupportedRegion
+import nz.calo.flutter_zebra_rfid.rfid.batteryDataFromStatistics
+import nz.calo.flutter_zebra_rfid.rfid.batteryDataFromReaderEvent
 import nz.calo.flutter_zebra_rfid.rfid.buildInventoryTriggerInfo
 import nz.calo.flutter_zebra_rfid.rfid.describeSupportedRegions
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
@@ -33,6 +38,7 @@ import nz.calo.flutter_zebra_rfid.rfid.isIntegratedLocalTransport
 import nz.calo.flutter_zebra_rfid.rfid.sdkShouldManageScannerPlugin
 import nz.calo.flutter_zebra_rfid.rfid.selectUniqueReaderCandidates
 import nz.calo.flutter_zebra_rfid.hardware.ZebraHostIdentity
+import nz.calo.flutter_zebra_rfid.rfid.readerPowerStateLabel
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,9 +50,120 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import android.os.Looper
 
 @RunWith(RobolectricTestRunner::class)
 internal class RFIDReaderInterfaceTest {
+
+  @Test
+  fun readerPowerStateLabel_mapsZebraPowerStates() {
+    assertEquals("off", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_OFF))
+    assertEquals("standby", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_STANDBY))
+    assertEquals("active", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_ACTIVE))
+    assertEquals("rfActive", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_RF_ACTIVE))
+    assertEquals("bluetoothOff", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_BT_OFF))
+    assertEquals("unknown", readerPowerStateLabel(READER_POWER_STATE.POWER_STATE_UNKNOWN))
+  }
+
+  @Test
+  fun diagnostics_queriesConnectedReaderPowerState() {
+    val subject = createSubject()
+    val reader = mockReader()
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(reader.Config.readerPowerState)
+      .thenReturn(READER_POWER_STATE.POWER_STATE_STANDBY)
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+
+    var result: Result<Diagnostics>? = null
+    subject.diagnosticsWithReaderPowerState { result = it }
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      result != null
+    }
+
+    assertEquals("standby", result!!.getOrThrow().readerPowerState)
+    assertNull(result!!.getOrThrow().readerPowerStateError)
+    Mockito.verify(reader.Config).readerPowerState
+  }
+
+  @Test
+  fun diagnostics_exposesReaderPowerStateFailureDetails() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val failure = Mockito.mock(OperationFailureException::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(failure.results).thenReturn(RFIDResults.RFID_READER_FUNCTION_UNSUPPORTED)
+    Mockito.`when`(failure.statusDescription).thenReturn("Not supported")
+    Mockito.`when`(failure.vendorMessage).thenReturn("Reader rejected command")
+    Mockito.`when`(reader.Config.readerPowerState).thenThrow(failure)
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+
+    var result: Result<Diagnostics>? = null
+    subject.diagnosticsWithReaderPowerState { result = it }
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      result != null
+    }
+
+    val diagnostics = result!!.getOrThrow()
+    assertEquals("unavailable", diagnostics.readerPowerState)
+    assertEquals(
+      "result=RFID_READER_FUNCTION_UNSUPPORTED, status=Not supported, vendor=Reader rejected command",
+      diagnostics.readerPowerStateError,
+    )
+  }
+
+  @Test
+  fun batteryStatistics_exposesExplicitPercentageAndHealth() {
+    val statistics = BatteryStatistics().apply {
+      percentage = 73
+      charging = 1
+      health = 91
+      cycleCount = 42
+    }
+
+    val data = batteryDataFromStatistics(statistics)
+
+    assertNotNull(data)
+    assertEquals(73L, data!!.level)
+    assertTrue(data.isCharging)
+    assertEquals(BatteryDataSource.READER_STATISTICS, data.source)
+    assertEquals(false, data.isPercentageEstimated)
+    assertEquals(91L, data.healthPercentage)
+    assertEquals(42L, data.cycleCount)
+  }
+
+  @Test
+  fun batteryStatistics_rejectsInvalidPercentage() {
+    val statistics = BatteryStatistics().apply { percentage = -1 }
+
+    assertNull(batteryDataFromStatistics(statistics))
+  }
+
+  @Test
+  fun coarseReaderEvent_doesNotOverwriteExplicitBatteryStatisticsPercentage() {
+    val statistics = batteryDataFromStatistics(BatteryStatistics().apply {
+      percentage = 73
+      health = 91
+      cycleCount = 42
+    })
+
+    val data = batteryDataFromReaderEvent(
+      level = 0,
+      isCharging = true,
+      cause = "coarse event",
+      previous = statistics,
+    )
+
+    assertEquals(73L, data.level)
+    assertTrue(data.isCharging)
+    assertEquals(BatteryDataSource.READER_STATISTICS, data.source)
+    assertEquals(91L, data.healthPercentage)
+    assertEquals(42L, data.cycleCount)
+  }
 
   @Test
   fun connectReader_alreadyConnectedRearmsReaderSetup() {

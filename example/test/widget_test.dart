@@ -86,6 +86,36 @@ void main() {
     expect(find.text('Barcode ABC123'), findsOneWidget);
   });
 
+  testWidgets('Shows connected sled battery status', (tester) async {
+    final device = _device(status: CaptureDeviceStatus.connected);
+
+    await tester.pumpWidget(_harness(_view(
+      devices: [device],
+      activeDevice: device,
+      sledBattery: BatteryData(
+        level: 73,
+        isCharging: false,
+        cause: 'status event',
+        source: BatteryDataSource.readerStatistics,
+        healthPercentage: 91,
+        cycleCount: 42,
+      ),
+      sledBatteryUpdatedAt: DateTime(2026, 7, 22, 10, 30),
+    )));
+
+    expect(find.text('Sled battery 73%'), findsOneWidget);
+    expect(
+      find.byTooltip(
+        'Source: Zebra battery statistics\n'
+        'Charging: no\n'
+        'Health: 91%\n'
+        'Charge cycles: 42\n'
+        'Updated: 2026-07-22 10:30:00.000',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Shows degraded per-capability failure', (tester) async {
     final device = _device(
       status: CaptureDeviceStatus.degraded,
@@ -141,6 +171,8 @@ CaptureDashboardView _view({
   List<BarcodeScannerEndpoint> barcodeEndpoints = const [],
   RfidTag? lastTag,
   Barcode? lastBarcode,
+  BatteryData? sledBattery,
+  DateTime? sledBatteryUpdatedAt,
 }) =>
     CaptureDashboardView(
       devices: devices,
@@ -148,6 +180,8 @@ CaptureDashboardView _view({
       barcodeEndpoints: barcodeEndpoints,
       lastTag: lastTag,
       lastBarcode: lastBarcode,
+      sledBattery: sledBattery,
+      sledBatteryUpdatedAt: sledBatteryUpdatedAt,
       isLoading: false,
       onRefresh: () async {},
       onConnect: (_) async {},

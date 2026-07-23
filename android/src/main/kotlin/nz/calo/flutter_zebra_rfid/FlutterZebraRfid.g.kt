@@ -127,6 +127,19 @@ enum class ReaderBeeperVolume(val raw: Int) {
   }
 }
 
+enum class BatteryDataSource(val raw: Int) {
+  /** Standard battery event reported by the Zebra RFID SDK. */
+  READER_EVENT(0),
+  /** Explicit PP+ battery statistics reported by a supported Zebra sled. */
+  READER_STATISTICS(1);
+
+  companion object {
+    fun ofRaw(raw: Int): BatteryDataSource? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class ReaderError (
   val code: ReaderErrorCode,
@@ -321,9 +334,19 @@ data class RfidTag (
 
 /** Generated class from Pigeon that represents data sent in messages. */
 data class BatteryData (
+  /**
+   * Battery percentage in the inclusive range 0-100.
+   *
+   * Kept as `level` for backwards compatibility. Prefer the handwritten
+   * `BatteryData.percentage` extension getter in Dart application code.
+   */
   val level: Long,
   val isCharging: Boolean,
-  val cause: String
+  val cause: String,
+  val source: BatteryDataSource? = null,
+  val isPercentageEstimated: Boolean? = null,
+  val healthPercentage: Long? = null,
+  val cycleCount: Long? = null
 )
  {
   companion object {
@@ -331,7 +354,11 @@ data class BatteryData (
       val level = pigeonVar_list[0].let { num -> if (num is Int) num.toLong() else num as Long }
       val isCharging = pigeonVar_list[1] as Boolean
       val cause = pigeonVar_list[2] as String
-      return BatteryData(level, isCharging, cause)
+      val source = pigeonVar_list[3] as BatteryDataSource?
+      val isPercentageEstimated = pigeonVar_list[4] as Boolean?
+      val healthPercentage = pigeonVar_list[5].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val cycleCount = pigeonVar_list[6].let { num -> if (num is Int) num.toLong() else num as Long? }
+      return BatteryData(level, isCharging, cause, source, isPercentageEstimated, healthPercentage, cycleCount)
     }
   }
   fun toList(): List<Any?> {
@@ -339,6 +366,10 @@ data class BatteryData (
       level,
       isCharging,
       cause,
+      source,
+      isPercentageEstimated,
+      healthPercentage,
+      cycleCount,
     )
   }
 }
@@ -359,7 +390,9 @@ data class Diagnostics (
   val lastInventoryStopMs: Long? = null,
   val pendingPurgeActive: Boolean? = null,
   val lastInventoryStopReason: String? = null,
-  val lastInventoryStartReason: String? = null
+  val lastInventoryStartReason: String? = null,
+  val readerPowerState: String? = null,
+  val readerPowerStateError: String? = null
 )
  {
   companion object {
@@ -379,7 +412,9 @@ data class Diagnostics (
       val pendingPurgeActive = pigeonVar_list[12] as Boolean?
       val lastInventoryStopReason = pigeonVar_list[13] as String?
       val lastInventoryStartReason = pigeonVar_list[14] as String?
-      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs, inventoryActive, lastInventoryStartMs, lastInventoryStopMs, pendingPurgeActive, lastInventoryStopReason, lastInventoryStartReason)
+      val readerPowerState = pigeonVar_list[15] as String?
+      val readerPowerStateError = pigeonVar_list[16] as String?
+      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs, inventoryActive, lastInventoryStartMs, lastInventoryStopMs, pendingPurgeActive, lastInventoryStopReason, lastInventoryStartReason, readerPowerState, readerPowerStateError)
     }
   }
   fun toList(): List<Any?> {
@@ -399,6 +434,8 @@ data class Diagnostics (
       pendingPurgeActive,
       lastInventoryStopReason,
       lastInventoryStartReason,
+      readerPowerState,
+      readerPowerStateError,
     )
   }
 }
@@ -436,46 +473,51 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         }
       }
       135.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderError.fromList(it)
+        return (readValue(buffer) as Int?)?.let {
+          BatteryDataSource.ofRaw(it)
         }
       }
       136.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Reader.fromList(it)
+          ReaderError.fromList(it)
         }
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BluetoothDevice.fromList(it)
+          Reader.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderConfig.fromList(it)
+          BluetoothDevice.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderInfo.fromList(it)
+          ReaderConfig.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderRegion.fromList(it)
+          ReaderInfo.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidTag.fromList(it)
+          ReaderRegion.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BatteryData.fromList(it)
+          RfidTag.fromList(it)
         }
       }
       143.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BatteryData.fromList(it)
+        }
+      }
+      144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           Diagnostics.fromList(it)
         }
@@ -509,40 +551,44 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(134)
         writeValue(stream, value.raw)
       }
-      is ReaderError -> {
+      is BatteryDataSource -> {
         stream.write(135)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw)
       }
-      is Reader -> {
+      is ReaderError -> {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is BluetoothDevice -> {
+      is Reader -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is ReaderConfig -> {
+      is BluetoothDevice -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is ReaderInfo -> {
+      is ReaderConfig -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is ReaderRegion -> {
+      is ReaderInfo -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is RfidTag -> {
+      is ReaderRegion -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is BatteryData -> {
+      is RfidTag -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is Diagnostics -> {
+      is BatteryData -> {
         stream.write(143)
+        writeValue(stream, value.toList())
+      }
+      is Diagnostics -> {
+        stream.write(144)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -954,7 +1000,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onReaderConnectionStatusChanged(statusArg: ReaderConnectionStatus, callback: (Result<Unit>) -> Unit)
@@ -971,7 +1017,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onTagsRead(tagsArg: List<RfidTag>, callback: (Result<Unit>) -> Unit)
@@ -988,7 +1034,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onBatteryDataReceived(batteryDataArg: BatteryData, callback: (Result<Unit>) -> Unit)
@@ -1005,7 +1051,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onTagsLocated(tagsArg: List<RfidTag>, callback: (Result<Unit>) -> Unit)
@@ -1022,7 +1068,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onBluetoothDeviceDiscovered(deviceArg: BluetoothDevice, callback: (Result<Unit>) -> Unit)
@@ -1039,7 +1085,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onBluetoothScanStatusChanged(statusArg: BluetoothScanStatus, callback: (Result<Unit>) -> Unit)
@@ -1056,7 +1102,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onBluetoothPairingResult(deviceArg: BluetoothDevice, successArg: Boolean, callback: (Result<Unit>) -> Unit)
@@ -1073,7 +1119,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onReaderConnectionError(errorArg: ReaderError, callback: (Result<Unit>) -> Unit)
@@ -1090,7 +1136,7 @@ class FlutterZebraRfidCallbacks(private val binaryMessenger: BinaryMessenger, pr
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }
