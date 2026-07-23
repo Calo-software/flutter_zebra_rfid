@@ -294,6 +294,8 @@ class Diagnostics {
     this.pendingPurgeActive,
     this.lastInventoryStopReason,
     this.lastInventoryStartReason,
+    this.readerPowerState,
+    this.readerPowerStateError,
   });
 
   final ReaderConnectionStatus connectionState;
@@ -319,4 +321,10 @@ class Diagnostics {
   final String? lastInventoryStopReason;
   // Reason associated with the latest successful inventory start.
   final String? lastInventoryStartReason;
+  // Current Zebra reader power state, or null when disconnected/unsupported.
+  // Android values include off, standby, active, rfActive, bluetoothOff,
+  // unknown, and unavailable when the SDK query fails.
+  final String? readerPowerState;
+  // Zebra SDK failure details when readerPowerState is unavailable.
+  final String? readerPowerStateError;
 }

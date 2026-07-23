@@ -44,6 +44,7 @@ import com.zebra.rfid.api3.RFIDResults
 import com.zebra.rfid.api3.RegionInfo
 import com.zebra.rfid.api3.RegulatoryConfig
 import com.zebra.rfid.api3.ReaderDevice
+import com.zebra.rfid.api3.READER_POWER_STATE
 import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.Readers.RFIDReaderEventHandler
 import com.zebra.rfid.api3.RfidEventsListener
@@ -109,6 +110,22 @@ internal fun batteryDataFromReaderEvent(
         cycleCount = previous?.cycleCount,
     )
 }
+
+internal fun readerPowerStateLabel(state: READER_POWER_STATE): String {
+    return when (state) {
+        READER_POWER_STATE.POWER_STATE_OFF -> "off"
+        READER_POWER_STATE.POWER_STATE_STANDBY -> "standby"
+        READER_POWER_STATE.POWER_STATE_ACTIVE -> "active"
+        READER_POWER_STATE.POWER_STATE_RF_ACTIVE -> "rfActive"
+        READER_POWER_STATE.POWER_STATE_BT_OFF -> "bluetoothOff"
+        else -> "unknown"
+    }
+}
+
+private data class ReaderPowerStateDiagnostic(
+    val state: String?,
+    val error: String? = null,
+)
 
 private class ReaderRegionConfigurationException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
@@ -987,7 +1004,52 @@ class RFIDReaderInterface(
 
     // Diagnostics snapshot
     @Synchronized
-    fun diagnostics(): Diagnostics {
+    fun diagnostics(): Diagnostics = diagnosticsSnapshot(
+        readerPowerState = null,
+        readerPowerStateError = null,
+    )
+
+    fun diagnosticsWithReaderPowerState(callback: (Result<Diagnostics>) -> Unit) {
+        ioExecutor.submit {
+            val powerState = currentReaderPowerState()
+            val snapshot = diagnosticsSnapshot(powerState.state, powerState.error)
+            mainHandler.post { callback(Result.success(snapshot)) }
+        }
+    }
+
+    private fun currentReaderPowerState(): ReaderPowerStateDiagnostic {
+        val targetReader = reader ?: return ReaderPowerStateDiagnostic(null)
+        if (!targetReader.isConnected) return ReaderPowerStateDiagnostic(null)
+        return try {
+            ReaderPowerStateDiagnostic(readerPowerStateLabel(targetReader.Config.readerPowerState))
+        } catch (error: OperationFailureException) {
+            val details = listOfNotNull(
+                error.results?.let { "result=$it" },
+                error.statusDescription?.takeIf { it.isNotBlank() }?.let { "status=$it" },
+                error.vendorMessage?.takeIf { it.isNotBlank() }?.let { "vendor=$it" },
+            ).joinToString(", ").ifBlank { "OperationFailureException" }
+            Log.w(TAG, "Reader power-state diagnostics unavailable: $details", error)
+            ReaderPowerStateDiagnostic("unavailable", details)
+        } catch (error: InvalidUsageException) {
+            val details = listOfNotNull(
+                error.info?.takeIf { it.isNotBlank() }?.let { "info=$it" },
+                error.vendorMessage?.takeIf { it.isNotBlank() }?.let { "vendor=$it" },
+            ).joinToString(", ").ifBlank { "InvalidUsageException" }
+            Log.w(TAG, "Reader power-state diagnostics unavailable: $details", error)
+            ReaderPowerStateDiagnostic("unavailable", details)
+        } catch (error: Throwable) {
+            val details = error.message?.takeIf { it.isNotBlank() }
+                ?: error.javaClass.simpleName
+            Log.w(TAG, "Reader power-state diagnostics unavailable: $details", error)
+            ReaderPowerStateDiagnostic("unavailable", details)
+        }
+    }
+
+    @Synchronized
+    private fun diagnosticsSnapshot(
+        readerPowerState: String?,
+        readerPowerStateError: String?,
+    ): Diagnostics {
         val externalStatus = when (internalState) {
             InternalConnectionState.CONNECTING -> ReaderConnectionStatus.CONNECTING
             InternalConnectionState.CONNECTED -> ReaderConnectionStatus.CONNECTED
@@ -1010,7 +1072,9 @@ class RFIDReaderInterface(
             if (lastInventoryStopTimestamp == 0L) null else lastInventoryStopTimestamp,
             pendingPurgeRunnable != null,
             lastInventoryStopReason,
-            lastInventoryStartReason
+            lastInventoryStartReason,
+            readerPowerState,
+            readerPowerStateError,
         )
     }
 

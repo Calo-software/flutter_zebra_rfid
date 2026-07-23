@@ -1,3 +1,8 @@
+## Unreleased
+
+### Added
+- Include the connected Zebra RFID Reader power state and SDK failure details in diagnostics on Android so support can distinguish standby, active, Bluetooth-off, unsupported commands, and unavailable sessions.
+
 ## 0.4.5 - 2026-07-22
 
 ### Added

@@ -406,6 +406,8 @@ class Diagnostics {
     this.pendingPurgeActive,
     this.lastInventoryStopReason,
     this.lastInventoryStartReason,
+    this.readerPowerState,
+    this.readerPowerStateError,
   });
 
   ReaderConnectionStatus connectionState;
@@ -438,6 +440,10 @@ class Diagnostics {
 
   String? lastInventoryStartReason;
 
+  String? readerPowerState;
+
+  String? readerPowerStateError;
+
   Object encode() {
     return <Object?>[
       connectionState,
@@ -455,6 +461,8 @@ class Diagnostics {
       pendingPurgeActive,
       lastInventoryStopReason,
       lastInventoryStartReason,
+      readerPowerState,
+      readerPowerStateError,
     ];
   }
 
@@ -476,6 +484,8 @@ class Diagnostics {
       pendingPurgeActive: result[12] as bool?,
       lastInventoryStopReason: result[13] as String?,
       lastInventoryStartReason: result[14] as String?,
+      readerPowerState: result[15] as String?,
+      readerPowerStateError: result[16] as String?,
     );
   }
 }

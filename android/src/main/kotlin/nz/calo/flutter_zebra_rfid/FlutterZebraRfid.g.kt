@@ -390,7 +390,9 @@ data class Diagnostics (
   val lastInventoryStopMs: Long? = null,
   val pendingPurgeActive: Boolean? = null,
   val lastInventoryStopReason: String? = null,
-  val lastInventoryStartReason: String? = null
+  val lastInventoryStartReason: String? = null,
+  val readerPowerState: String? = null,
+  val readerPowerStateError: String? = null
 )
  {
   companion object {
@@ -410,7 +412,9 @@ data class Diagnostics (
       val pendingPurgeActive = pigeonVar_list[12] as Boolean?
       val lastInventoryStopReason = pigeonVar_list[13] as String?
       val lastInventoryStartReason = pigeonVar_list[14] as String?
-      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs, inventoryActive, lastInventoryStartMs, lastInventoryStopMs, pendingPurgeActive, lastInventoryStopReason, lastInventoryStartReason)
+      val readerPowerState = pigeonVar_list[15] as String?
+      val readerPowerStateError = pigeonVar_list[16] as String?
+      return Diagnostics(connectionState, connectAttempts, lastErrorCode, lastErrorMessage, lastConnectStartMs, lastConnectDurationMs, isLocating, scanningEnabled, scanningEnabledLastToggleMs, inventoryActive, lastInventoryStartMs, lastInventoryStopMs, pendingPurgeActive, lastInventoryStopReason, lastInventoryStartReason, readerPowerState, readerPowerStateError)
     }
   }
   fun toList(): List<Any?> {
@@ -430,6 +434,8 @@ data class Diagnostics (
       pendingPurgeActive,
       lastInventoryStopReason,
       lastInventoryStartReason,
+      readerPowerState,
+      readerPowerStateError,
     )
   }
 }

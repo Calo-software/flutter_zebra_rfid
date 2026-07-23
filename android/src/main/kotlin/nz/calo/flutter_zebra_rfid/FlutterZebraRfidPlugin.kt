@@ -408,8 +408,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun diagnostics(callback: (Result<Diagnostics>) -> Unit) {
         try {
-            val snapshot = rfidInterface!!.diagnostics()
-            callback(Result.success(snapshot))
+            rfidInterface!!.diagnosticsWithReaderPowerState(callback)
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }

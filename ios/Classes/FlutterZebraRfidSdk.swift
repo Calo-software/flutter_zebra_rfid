@@ -506,7 +506,9 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
             lastInventoryStopMs: nil,
             pendingPurgeActive: nil,
             lastInventoryStopReason: nil,
-            lastInventoryStartReason: nil
+            lastInventoryStartReason: nil,
+      readerPowerState: nil,
+      readerPowerStateError: nil
         )))
     }
 

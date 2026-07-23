@@ -421,6 +421,8 @@ struct Diagnostics {
   var pendingPurgeActive: Bool? = nil
   var lastInventoryStopReason: String? = nil
   var lastInventoryStartReason: String? = nil
+  var readerPowerState: String? = nil
+  var readerPowerStateError: String? = nil
 
 
 
@@ -441,6 +443,8 @@ struct Diagnostics {
     let pendingPurgeActive: Bool? = nilOrValue(pigeonVar_list[12])
     let lastInventoryStopReason: String? = nilOrValue(pigeonVar_list[13])
     let lastInventoryStartReason: String? = nilOrValue(pigeonVar_list[14])
+    let readerPowerState: String? = nilOrValue(pigeonVar_list[15])
+    let readerPowerStateError: String? = nilOrValue(pigeonVar_list[16])
 
     return Diagnostics(
       connectionState: connectionState,
@@ -457,7 +461,9 @@ struct Diagnostics {
       lastInventoryStopMs: lastInventoryStopMs,
       pendingPurgeActive: pendingPurgeActive,
       lastInventoryStopReason: lastInventoryStopReason,
-      lastInventoryStartReason: lastInventoryStartReason
+      lastInventoryStartReason: lastInventoryStartReason,
+      readerPowerState: readerPowerState,
+      readerPowerStateError: readerPowerStateError
     )
   }
   func toList() -> [Any?] {
@@ -477,6 +483,8 @@ struct Diagnostics {
       pendingPurgeActive,
       lastInventoryStopReason,
       lastInventoryStartReason,
+      readerPowerState,
+      readerPowerStateError,
     ]
   }
 }

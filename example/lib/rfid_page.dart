@@ -895,6 +895,9 @@ class _RfidPageState extends State<RfidPage>
                       const Text('No data')
                     else ...[
                       Text('State: ${d.connectionState.name}'),
+                      Text('Reader Power: ${d.readerPowerState ?? '-'}'),
+                      if (d.readerPowerStateError != null)
+                        Text('Reader Power Error: ${d.readerPowerStateError}'),
                       Text('Attempts: ${d.connectAttempts}'),
                       Text('Last Error Code: ${d.lastErrorCode?.name ?? '-'}'),
                       Text('Last Error Msg: ${d.lastErrorMessage ?? '-'}'),
