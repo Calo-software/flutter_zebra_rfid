@@ -205,6 +205,7 @@ CaptureDevice _device({
       active: status != CaptureDeviceStatus.disconnected,
       rfid: CaptureRfidCapability(
         readerId: 1,
+        hardwareIdentity: 'test-rfd40',
         displayName: 'RFD40',
         status: rfidStatus,
         serialNumber: '123',

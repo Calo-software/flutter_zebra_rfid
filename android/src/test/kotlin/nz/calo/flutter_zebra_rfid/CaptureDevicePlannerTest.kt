@@ -82,6 +82,7 @@ internal class CaptureDevicePlannerTest {
           name = "RFD40",
           id = 7,
           serial = "MATCHED-SERIAL",
+          hardwareIdentity = "RFD40-ID",
         ),
       ),
       endpoints = listOf(
@@ -102,11 +103,11 @@ internal class CaptureDevicePlannerTest {
         ),
       ),
       state = state(
-        barcodeOverrides = mapOf("capture:rfid:7" to "scanner-sdk:manual"),
+        barcodeOverrides = mapOf("capture:rfid:RFD40-ID" to "scanner-sdk:manual"),
       ),
     )
 
-    val captureDevice = devices.first { it.id == "capture:rfid:7" }
+    val captureDevice = devices.first { it.id == "capture:rfid:RFD40-ID" }
     assertEquals(CaptureMatchConfidence.MANUAL, captureDevice.matchConfidence)
     assertEquals("scanner-sdk:manual", captureDevice.barcode?.endpointId)
     assertTrue(devices.any { it.id == "capture:barcode:scanner-sdk:auto" })
@@ -142,7 +143,14 @@ internal class CaptureDevicePlannerTest {
   @Test
   fun buildDevices_activeCapabilityErrorProducesDegradedCaptureDevice() {
     val devices = androidPlanner.buildDevices(
-      readers = listOf(reader(name = "RFD40", id = 1, serial = "SERIAL")),
+      readers = listOf(
+        reader(
+          name = "RFD40",
+          id = 1,
+          serial = "SERIAL",
+          hardwareIdentity = "RFD40-ID",
+        ),
+      ),
       endpoints = listOf(
         endpoint(
           endpointId = "scanner-sdk:1",
@@ -154,7 +162,7 @@ internal class CaptureDevicePlannerTest {
         ),
       ),
       state = state(
-        activeCaptureDeviceId = "capture:rfid:1",
+        activeCaptureDeviceId = "capture:rfid:RFD40-ID",
         activeRfidStatus = CaptureCapabilityStatus.CONNECTED,
         activeBarcodeStatus = CaptureCapabilityStatus.ERROR,
         activeBarcodeError = "Scanner session failed",
@@ -166,6 +174,32 @@ internal class CaptureDevicePlannerTest {
     assertEquals("Scanner session failed", captureDevice.lastError)
     assertEquals(CaptureCapabilityStatus.CONNECTED, captureDevice.rfid?.status)
     assertEquals(CaptureCapabilityStatus.ERROR, captureDevice.barcode?.status)
+  }
+
+  @Test
+  fun buildDevices_keepsCaptureIdentityStableWhenDiscoveryOrderChanges() {
+    val firstPass = androidPlanner.buildDevices(
+      readers = listOf(
+        reader(name = "Other", id = 0, hardwareIdentity = "AA:BB:CC:00"),
+        reader(name = "RFD40", id = 1, hardwareIdentity = "AA:BB:CC:40"),
+      ),
+      endpoints = emptyList(),
+      state = state(),
+    )
+    val secondPass = androidPlanner.buildDevices(
+      readers = listOf(
+        reader(name = "RFD40", id = 0, hardwareIdentity = "AA:BB:CC:40"),
+        reader(name = "Other", id = 1, hardwareIdentity = "AA:BB:CC:00"),
+      ),
+      endpoints = emptyList(),
+      state = state(),
+    )
+
+    val firstIdentity = firstPass.single { it.displayName == "RFD40" }.id
+    val secondIdentity = secondPass.single { it.displayName == "RFD40" }.id
+
+    assertEquals("capture:rfid:AA:BB:CC:40", firstIdentity)
+    assertEquals(firstIdentity, secondIdentity)
   }
 
   private val androidPlanner = CaptureDevicePlanner(CaptureDevicePlanningPlatform.ANDROID)
@@ -193,6 +227,7 @@ internal class CaptureDevicePlannerTest {
     id: Long,
     model: String? = null,
     serial: String? = null,
+    hardwareIdentity: String? = null,
   ): Reader =
     Reader(
       name = name,
@@ -203,6 +238,7 @@ internal class CaptureDevicePlannerTest {
         scannerName = name,
         serialNumber = serial,
       ),
+      hardwareIdentity = hardwareIdentity,
     )
 
   private fun endpoint(

@@ -98,6 +98,7 @@ enum ReaderErrorCode: Int {
   case sdkInvalidUsage = 6
   case sdkOperationFailure = 7
   case timeout = 8
+  case captureDeviceOwnsConnection = 9
 }
 
 enum ReaderConfigBatchMode: Int {
@@ -154,6 +155,7 @@ struct Reader {
   var name: String? = nil
   var id: Int64
   var info: ReaderInfo? = nil
+  var hardwareIdentity: String? = nil
 
 
 
@@ -162,11 +164,13 @@ struct Reader {
     let name: String? = nilOrValue(pigeonVar_list[0])
     let id = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
     let info: ReaderInfo? = nilOrValue(pigeonVar_list[2])
+    let hardwareIdentity: String? = nilOrValue(pigeonVar_list[3])
 
     return Reader(
       name: name,
       id: id,
-      info: info
+      info: info,
+      hardwareIdentity: hardwareIdentity
     )
   }
   func toList() -> [Any?] {
@@ -174,6 +178,7 @@ struct Reader {
       name,
       id,
       info,
+      hardwareIdentity,
     ]
   }
 }

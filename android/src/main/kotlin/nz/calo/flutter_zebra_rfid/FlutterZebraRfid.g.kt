@@ -93,7 +93,8 @@ enum class ReaderErrorCode(val raw: Int) {
   NOT_CONNECTED(5),
   SDK_INVALID_USAGE(6),
   SDK_OPERATION_FAILURE(7),
-  TIMEOUT(8);
+  TIMEOUT(8),
+  CAPTURE_DEVICE_OWNS_CONNECTION(9);
 
   companion object {
     fun ofRaw(raw: Int): ReaderErrorCode? {
@@ -168,7 +169,8 @@ data class ReaderError (
 data class Reader (
   val name: String? = null,
   val id: Long,
-  val info: ReaderInfo? = null
+  val info: ReaderInfo? = null,
+  val hardwareIdentity: String? = null
 )
  {
   companion object {
@@ -176,7 +178,8 @@ data class Reader (
       val name = pigeonVar_list[0] as String?
       val id = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
       val info = pigeonVar_list[2] as ReaderInfo?
-      return Reader(name, id, info)
+      val hardwareIdentity = pigeonVar_list[3] as String?
+      return Reader(name, id, info, hardwareIdentity)
     }
   }
   fun toList(): List<Any?> {
@@ -184,6 +187,7 @@ data class Reader (
       name,
       id,
       info,
+      hardwareIdentity,
     )
   }
 }

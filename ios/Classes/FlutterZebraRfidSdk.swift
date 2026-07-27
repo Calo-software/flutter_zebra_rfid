@@ -579,7 +579,13 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
                 )
             }
             
-            return Reader(name: $0.getReaderName(), id: Int64($0.getReaderID()), info: info)
+            let hardwareIdentity = $0.getReaderName() ?? String($0.getReaderID())
+            return Reader(
+                name: $0.getReaderName(),
+                id: Int64($0.getReaderID()),
+                info: info,
+                hardwareIdentity: hardwareIdentity
+            )
         }
         
         _callbacks.onAvailableReadersChanged(readers: _availableReaders) {_ in }

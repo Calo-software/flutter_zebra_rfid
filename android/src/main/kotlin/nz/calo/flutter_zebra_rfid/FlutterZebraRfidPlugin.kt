@@ -514,6 +514,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     // Zebra API3 overrides
     private fun dispose() {
+        captureCoordinator?.dispose()
         captureCoordinator = null
         bluetoothPairingManager?.dispose()
         bluetoothPairingManager = null

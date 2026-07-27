@@ -211,6 +211,7 @@ data class CaptureReaderConfig (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class CaptureRfidCapability (
   val readerId: Long,
+  val hardwareIdentity: String,
   val displayName: String,
   val status: CaptureCapabilityStatus,
   val model: String? = null,
@@ -221,17 +222,19 @@ data class CaptureRfidCapability (
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): CaptureRfidCapability {
       val readerId = pigeonVar_list[0].let { num -> if (num is Int) num.toLong() else num as Long }
-      val displayName = pigeonVar_list[1] as String
-      val status = pigeonVar_list[2] as CaptureCapabilityStatus
-      val model = pigeonVar_list[3] as String?
-      val serialNumber = pigeonVar_list[4] as String?
-      val error = pigeonVar_list[5] as String?
-      return CaptureRfidCapability(readerId, displayName, status, model, serialNumber, error)
+      val hardwareIdentity = pigeonVar_list[1] as String
+      val displayName = pigeonVar_list[2] as String
+      val status = pigeonVar_list[3] as CaptureCapabilityStatus
+      val model = pigeonVar_list[4] as String?
+      val serialNumber = pigeonVar_list[5] as String?
+      val error = pigeonVar_list[6] as String?
+      return CaptureRfidCapability(readerId, hardwareIdentity, displayName, status, model, serialNumber, error)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       readerId,
+      hardwareIdentity,
       displayName,
       status,
       model,
@@ -467,6 +470,8 @@ interface FlutterZebraCapture {
   fun connectCaptureDevice(captureDeviceId: String, rfidConfig: CaptureReaderConfig?, callback: (Result<Unit>) -> Unit)
   fun disconnectCaptureDevice(captureDeviceId: String, callback: (Result<Unit>) -> Unit)
   fun setCaptureDeviceBarcodeOverride(captureDeviceId: String, barcodeEndpointId: String, callback: (Result<Unit>) -> Unit)
+  fun configureCaptureDevice(captureDeviceId: String, rfidConfig: CaptureReaderConfig, shouldPersist: Boolean, callback: (Result<Unit>) -> Unit)
+  fun setCaptureDeviceForeground(foreground: Boolean, callback: (Result<Unit>) -> Unit)
   fun activeCaptureDevice(): CaptureDevice?
 
   companion object {
@@ -555,6 +560,46 @@ interface FlutterZebraCapture {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.configureCaptureDevice$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val captureDeviceIdArg = args[0] as String
+            val rfidConfigArg = args[1] as CaptureReaderConfig
+            val shouldPersistArg = args[2] as Boolean
+            api.configureCaptureDevice(captureDeviceIdArg, rfidConfigArg, shouldPersistArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.setCaptureDeviceForeground$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val foregroundArg = args[0] as Boolean
+            api.setCaptureDeviceForeground(foregroundArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.activeCaptureDevice$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
@@ -594,7 +639,7 @@ class FlutterZebraCaptureCallbacks(private val binaryMessenger: BinaryMessenger,
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onActiveCaptureDeviceChanged(deviceArg: CaptureDevice?, callback: (Result<Unit>) -> Unit)
@@ -611,7 +656,7 @@ class FlutterZebraCaptureCallbacks(private val binaryMessenger: BinaryMessenger,
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onCaptureDeviceStatusChanged(deviceArg: CaptureDevice, callback: (Result<Unit>) -> Unit)
@@ -628,7 +673,7 @@ class FlutterZebraCaptureCallbacks(private val binaryMessenger: BinaryMessenger,
         }
       } else {
         callback(Result.failure(createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }

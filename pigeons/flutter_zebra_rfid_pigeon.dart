@@ -132,6 +132,7 @@ enum ReaderErrorCode {
   sdkInvalidUsage,
   sdkOperationFailure,
   timeout,
+  captureDeviceOwnsConnection,
 }
 
 class ReaderError {
@@ -150,10 +151,12 @@ class Reader {
     required this.name,
     required this.id,
     this.info,
+    this.hardwareIdentity,
   });
   final String? name;
   final int id;
   final ReaderInfo? info;
+  final String? hardwareIdentity;
 }
 
 class BluetoothDevice {

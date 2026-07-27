@@ -55,6 +55,7 @@ enum ReaderErrorCode {
   sdkInvalidUsage,
   sdkOperationFailure,
   timeout,
+  captureDeviceOwnsConnection,
 }
 
 enum ReaderConfigBatchMode {
@@ -113,6 +114,7 @@ class Reader {
     this.name,
     required this.id,
     this.info,
+    this.hardwareIdentity,
   });
 
   String? name;
@@ -121,11 +123,14 @@ class Reader {
 
   ReaderInfo? info;
 
+  String? hardwareIdentity;
+
   Object encode() {
     return <Object?>[
       name,
       id,
       info,
+      hardwareIdentity,
     ];
   }
 
@@ -135,6 +140,7 @@ class Reader {
       name: result[0] as String?,
       id: result[1]! as int,
       info: result[2] as ReaderInfo?,
+      hardwareIdentity: result[3] as String?,
     );
   }
 }

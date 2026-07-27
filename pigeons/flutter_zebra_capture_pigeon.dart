@@ -29,6 +29,16 @@ abstract class FlutterZebraCapture {
     String barcodeEndpointId,
   );
 
+  @async
+  void configureCaptureDevice(
+    String captureDeviceId,
+    CaptureReaderConfig rfidConfig,
+    bool shouldPersist,
+  );
+
+  @async
+  void setCaptureDeviceForeground(bool foreground);
+
   CaptureDevice? activeCaptureDevice();
 }
 
@@ -132,6 +142,7 @@ class CaptureReaderConfig {
 class CaptureRfidCapability {
   CaptureRfidCapability({
     required this.readerId,
+    required this.hardwareIdentity,
     required this.displayName,
     required this.status,
     this.model,
@@ -140,6 +151,7 @@ class CaptureRfidCapability {
   });
 
   final int readerId;
+  final String hardwareIdentity;
   final String displayName;
   final CaptureCapabilityStatus status;
   final String? model;

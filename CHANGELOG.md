@@ -3,6 +3,21 @@
 ### Added
 - Include the connected Zebra RFID Reader power state and SDK failure details in diagnostics on Android so support can distinguish standby, active, Bluetooth-off, unsupported commands, and unavailable sessions.
 
+## 0.4.7 - 2026-07-27
+
+### Added
+- Add stable RFID hardware identity and foreground lifecycle control to the Capture Device API.
+
+### Changed
+- Make Capture Device orchestration the connection and recovery owner for its RFID Reader and Barcode Endpoint.
+- Restore RFID configuration and trigger ownership before activating barcode capture.
+
+### Fixed
+- Reconcile non-cancellable late RFID connection completions instead of ignoring successful native sessions.
+- Prevent a timeout, duplicate readiness request, or page lifecycle event from starting a competing Zebra connection.
+- Terminate invalidated RFID sessions before retrying and rebind tag events once during recovery.
+- Prevent low-level RFID and barcode connection calls from competing with an active Capture Device.
+
 ## 0.4.5 - 2026-07-22
 
 ### Added

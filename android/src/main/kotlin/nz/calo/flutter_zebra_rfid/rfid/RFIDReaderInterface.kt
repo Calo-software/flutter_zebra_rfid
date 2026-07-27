@@ -58,6 +58,9 @@ import com.zebra.rfid.api3.STATUS_EVENT_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import com.zebra.rfid.api3.TagAccess
 import com.zebra.rfid.api3.TriggerInfo
+import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleCompletion
+import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleGate
+import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleRequest
 
 
 fun readerConnectionTypeToTransport(type: ReaderConnectionType): ENUM_TRANSPORT {
@@ -216,6 +219,14 @@ private fun isReaderUnavailableDuringConnect(error: OperationFailureException): 
         error.results == RFIDResults.RFID_RECONNECT_FAILED
 }
 
+internal enum class RfidConnectionOwnership {
+    LEGACY,
+    CAPTURE_DEVICE,
+}
+
+internal class CaptureDeviceOwnershipException :
+    IllegalStateException("CAPTURE_DEVICE_OWNS_CONNECTION")
+
 class RFIDReaderInterface(
     private var callbacks: FlutterZebraRfidCallbacks,
     private var applicationContext: Context
@@ -263,6 +274,11 @@ class RFIDReaderInterface(
     private var connectAttempt: Int = 0
     private var pendingConnectFuture: Future<*>? = null
     private var lastConnectStartTimestamp: Long = 0L
+    private val lifecycleGate = RfidLifecycleGate()
+    private var connectionOwnership = RfidConnectionOwnership.LEGACY
+    private var managedHardwareIdentity: String? = null
+    private var captureDeviceControlsBarcode = false
+    private var eventsBoundReader: RFIDReader? = null
 
     private val CONNECT_TIMEOUT_MS = 10_000L
     private val RETRY_BACKOFF_MS = 2_000L
@@ -291,6 +307,7 @@ class RFIDReaderInterface(
     var readersChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ReaderConnectionStatus) -> Unit)? = null
     var connectionErrorListener: ((ReaderError) -> Unit)? = null
+    var managedRecoveryRequestListener: ((String) -> Unit)? = null
 
     private fun emitBatteryData(data: BatteryData) {
         lastBatteryData = data
@@ -389,7 +406,16 @@ class RFIDReaderInterface(
             ReaderConnectionStatus.DISCONNECTED,
             "Reader disconnected: $reason",
         )
-        scheduleAutoReconnect(reason)
+        if (connectionOwnership == RfidConnectionOwnership.CAPTURE_DEVICE) {
+            lifecycleGate.invalidate()
+            if (!lifecycleGate.hasActiveOperation()) {
+                mainHandler.post {
+                    managedRecoveryRequestListener?.invoke("physical_reader_disconnect")
+                }
+            }
+        } else {
+            scheduleAutoReconnect(reason)
+        }
     }
 
     private fun emitError(code: ReaderErrorCode, message: String, details: String? = null, throwable: Throwable? = null) {
@@ -507,7 +533,12 @@ class RFIDReaderInterface(
             }
             
             val readers = availableRFIDReaderList!!.mapIndexed { index, reader ->
-                Reader(reader.name, index.toLong())
+                Reader(
+                    reader.name,
+                    index.toLong(),
+                    null,
+                    buildReaderDiscoveryKey(reader),
+                )
             }
             callbacks.onAvailableReadersChanged(readers) {}
             readersChangedListener?.invoke()
@@ -565,10 +596,56 @@ class RFIDReaderInterface(
         return isZebra || isTcSeries
     }
 
+    fun connectReader(readerId: Long): ReaderInfo? =
+        connectReaderInternal(
+            readerId = readerId,
+            ownership = RfidConnectionOwnership.LEGACY,
+            hardwareIdentity = null,
+        )
+
+    fun connectReaderForCaptureDevice(
+        readerId: Long,
+        hardwareIdentity: String,
+        controlsBarcode: Boolean,
+    ): ReaderInfo? =
+        connectReaderInternal(
+            readerId = readerId,
+            ownership = RfidConnectionOwnership.CAPTURE_DEVICE,
+            hardwareIdentity = hardwareIdentity,
+            controlsBarcode = controlsBarcode,
+        )
+
     @Synchronized
-    fun connectReader(readerId: Long): ReaderInfo? {
+    private fun connectReaderInternal(
+        readerId: Long,
+        ownership: RfidConnectionOwnership,
+        hardwareIdentity: String?,
+        controlsBarcode: Boolean = false,
+    ): ReaderInfo? {
         Log.i(TAG, "========== CONNECT READER STARTED ==========")
         Log.i(TAG, "Requested reader ID: $readerId")
+
+        if (
+            ownership == RfidConnectionOwnership.LEGACY &&
+            connectionOwnership == RfidConnectionOwnership.CAPTURE_DEVICE
+        ) {
+            emitError(
+                ReaderErrorCode.CAPTURE_DEVICE_OWNS_CONNECTION,
+                "Capture Device owns the RFID connection",
+            )
+            throw CaptureDeviceOwnershipException()
+        }
+
+        if (ownership == RfidConnectionOwnership.CAPTURE_DEVICE) {
+            val identity = requireNotNull(hardwareIdentity)
+            connectionOwnership = ownership
+            managedHardwareIdentity = identity
+            captureDeviceControlsBarcode = controlsBarcode
+            autoReconnectEnabled = false
+        } else {
+            connectionOwnership = ownership
+            autoReconnectEnabled = true
+        }
         
         // Validate list
         val list = availableRFIDReaderList
@@ -599,6 +676,10 @@ class RFIDReaderInterface(
         }
 
         if (internalState == InternalConnectionState.CONNECTING) {
+            if (ownership == RfidConnectionOwnership.CAPTURE_DEVICE) {
+                Log.d(TAG, "Capture Device readiness request joined active RFID connection")
+                return null
+            }
             emitError(ReaderErrorCode.ALREADY_CONNECTING, "Connect already in progress; ignoring duplicate request")
             Log.d(TAG, "Connect already in progress; ignoring duplicate request")
             return null
@@ -627,6 +708,21 @@ class RFIDReaderInterface(
                 "Reader already physically connected",
             )
         }
+
+        val managedGeneration = if (ownership == RfidConnectionOwnership.CAPTURE_DEVICE) {
+            when (val request = lifecycleGate.request(requireNotNull(hardwareIdentity))) {
+                is RfidLifecycleRequest.Joined -> {
+                    Log.d(
+                        TAG,
+                        "Capture Device readiness request joined generation ${request.generation}",
+                    )
+                    return null
+                }
+                is RfidLifecycleRequest.Start -> request.generation
+            }
+        } else {
+            null
+        }
         
         Log.i(TAG, "Reader not connected, starting connection sequence...")
 
@@ -634,7 +730,11 @@ class RFIDReaderInterface(
         connectAttempt = 1
         totalConnectAttemptsCounter += 1
         Log.d(TAG, "Connect attempt: $connectAttempt, Total attempts: $totalConnectAttemptsCounter")
-        beginAsyncConnect(readerId)
+        beginAsyncConnect(
+            readerId = readerId,
+            managedGeneration = managedGeneration,
+            hardwareIdentity = hardwareIdentity,
+        )
         return null // async result
     }
 
@@ -643,6 +743,8 @@ class RFIDReaderInterface(
         readerId: Long,
         isRetry: Boolean = false,
         fromAutoReconnect: Boolean = false,
+        managedGeneration: Long? = null,
+        hardwareIdentity: String? = null,
     ) {
         val targetReader = reader ?: return
         
@@ -653,7 +755,7 @@ class RFIDReaderInterface(
         
         updateConnectionState(InternalConnectionState.CONNECTING, ReaderConnectionStatus.CONNECTING, "$attemptType connection attempt #$connectAttempt to readerId=$readerId (${readerDevice?.name})")
         lastConnectStartTimestamp = System.currentTimeMillis()
-        scheduleConnectTimeout(readerId, connectAttempt)
+        scheduleConnectTimeout(readerId, connectAttempt, managedGeneration)
         
         Log.d(TAG, "Launching blocking connect() call on background thread...")
         // Launch blocking connect off main thread
@@ -662,14 +764,66 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Calling targetReader.connect()...")
                 connectWithRegionRecovery(targetReader)
                 Log.i(TAG, "targetReader.connect() completed successfully!")
-                // The timeout only guards the blocking SDK connect call. Bluetooth reader
-                // setup can legitimately take longer than the connect window.
+                if (managedGeneration != null && hardwareIdentity != null) {
+                    when (
+                        lifecycleGate.completeSuccess(
+                            managedGeneration,
+                            hardwareIdentity,
+                        )
+                    ) {
+                        RfidLifecycleCompletion.TERMINATE_STALE_SESSION -> {
+                            Log.w(
+                                TAG,
+                                "Late RFID connection generation $managedGeneration must be terminated before retry",
+                            )
+                            runCatching {
+                                if (targetReader.isConnected) {
+                                    targetReader.disconnect()
+                                }
+                            }.onFailure {
+                                Log.w(TAG, "Failed to terminate stale RFID session", it)
+                            }
+                            synchronized(this) {
+                                clearConnectTimeout()
+                                eventsBoundReader = null
+                                lifecycleGate.completeTermination(managedGeneration)
+                                updateConnectionState(
+                                    InternalConnectionState.DISCONNECTED,
+                                    ReaderConnectionStatus.DISCONNECTED,
+                                    "Late RFID session terminated",
+                                )
+                            }
+                            mainHandler.post {
+                                managedRecoveryRequestListener?.invoke("late_session_terminated")
+                            }
+                            return@submit
+                        }
+                        RfidLifecycleCompletion.ADOPT_SESSION -> {
+                            Log.d(
+                                TAG,
+                                "Adopting RFID connection generation $managedGeneration",
+                            )
+                        }
+                        else -> return@submit
+                    }
+                } else {
+                    synchronized(this) {
+                        if (internalState != InternalConnectionState.CONNECTING) {
+                            Log.w(
+                                TAG,
+                                "Connection succeeded but state changed to $internalState; terminating stale session",
+                            )
+                            runCatching {
+                                if (targetReader.isConnected) targetReader.disconnect()
+                            }
+                            return@submit
+                        }
+                    }
+                }
+                // The timeout only observes the blocking SDK call. Reader setup can
+                // legitimately complete after that diagnostic deadline.
                 synchronized(this) {
                     clearConnectTimeout()
-                    if (internalState != InternalConnectionState.CONNECTING) {
-                        Log.w(TAG, "Connection succeeded but state changed to $internalState, ignoring")
-                        return@submit
-                    }
                 }
                 
                 Log.d(TAG, "Setting up reader configuration...")
@@ -696,6 +850,19 @@ class RFIDReaderInterface(
                     clearConnectTimeout()
                     Log.e(TAG, "InvalidUsageException during connect: ${e.message}", e)
                     Log.e(TAG, "  Info: ${e.info}")
+                    if (managedGeneration != null) {
+                        lifecycleGate.completeFailure(managedGeneration)
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Managed RFID connection failed",
+                            e,
+                        )
+                        mainHandler.post {
+                            managedRecoveryRequestListener?.invoke("rfid_session_lost")
+                        }
+                        return@submit
+                    }
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
                         return@submit
@@ -717,6 +884,15 @@ class RFIDReaderInterface(
                 synchronized(this) {
                     clearConnectTimeout()
                     Log.e(TAG, "Reader region configuration required during connect: ${e.message}", e)
+                    if (managedGeneration != null) {
+                        lifecycleGate.completeFailure(managedGeneration)
+                        emitError(ReaderErrorCode.SDK_OPERATION_FAILURE, "Reader region is not configured", e.message, e)
+                        updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader region is not configured", e)
+                        mainHandler.post {
+                            managedRecoveryRequestListener?.invoke("configuration_retry")
+                        }
+                        return@submit
+                    }
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
                         return@submit
@@ -735,6 +911,19 @@ class RFIDReaderInterface(
                         Log.e(TAG, "  Vendor message: ${e.vendorMessage}")
                         Log.e(TAG, "  Status description: ${e.statusDescription}")
                         Log.e(TAG, "  Results: ${e.results}")
+                    }
+                    if (managedGeneration != null) {
+                        lifecycleGate.completeFailure(managedGeneration)
+                        updateConnectionState(
+                            InternalConnectionState.DISCONNECTED,
+                            ReaderConnectionStatus.DISCONNECTED,
+                            "Managed RFID connection failed",
+                            e,
+                        )
+                        mainHandler.post {
+                            managedRecoveryRequestListener?.invoke("rfid_session_lost")
+                        }
+                        return@submit
                     }
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
@@ -767,6 +956,15 @@ class RFIDReaderInterface(
                     Log.e(TAG, "Unexpected error during connect: ${e.message}", e)
                     Log.e(TAG, "  Exception type: ${e.javaClass.name}")
                     e.printStackTrace()
+                    if (managedGeneration != null) {
+                        lifecycleGate.completeFailure(managedGeneration)
+                        emitError(ReaderErrorCode.UNKNOWN, "Managed RFID recovery failed", e.message, e)
+                        updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Managed RFID recovery failed", e)
+                        mainHandler.post {
+                            managedRecoveryRequestListener?.invoke("rfid_session_lost")
+                        }
+                        return@submit
+                    }
                     if (internalState != InternalConnectionState.CONNECTING) {
                         Log.d(TAG, "Ignoring connect failure because state is $internalState", e)
                         return@submit
@@ -893,11 +1091,23 @@ class RFIDReaderInterface(
                     if (lastConnectStartTimestamp != 0L) {
                         lastConnectDurationMs = System.currentTimeMillis() - lastConnectStartTimestamp
                     }
+                    val wasAlreadyConnected =
+                        internalState == InternalConnectionState.CONNECTED
                     updateConnectionState(
                         InternalConnectionState.CONNECTED,
                         ReaderConnectionStatus.CONNECTED,
                         logMessage,
                     )
+                    if (wasAlreadyConnected) {
+                        mainHandler.post {
+                            callbacks.onReaderConnectionStatusChanged(
+                                ReaderConnectionStatus.CONNECTED,
+                            ) {}
+                            connectionStatusListener?.invoke(
+                                ReaderConnectionStatus.CONNECTED,
+                            )
+                        }
+                    }
                 }
                 triggerDeviceStatus()
             } catch (e: OperationFailureException) {
@@ -975,21 +1185,22 @@ class RFIDReaderInterface(
     }
 
     @Synchronized
-    private fun scheduleConnectTimeout(readerId: Long, attempt: Int) {
+    private fun scheduleConnectTimeout(
+        readerId: Long,
+        attempt: Int,
+        managedGeneration: Long? = null,
+    ) {
         clearConnectTimeout()
         val runnable = Runnable {
             synchronized(this) {
                 if (internalState != InternalConnectionState.CONNECTING) return@synchronized
                 emitError(ReaderErrorCode.TIMEOUT, "Connection attempt #$attempt timed out after ${CONNECT_TIMEOUT_MS}ms")
-                updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Connect timeout (attempt #$attempt)")
-                // Cancel any in-flight future (best effort)
-                pendingConnectFuture?.cancel(true)
+                managedGeneration?.let(lifecycleGate::recordTimeout)
+                Log.w(
+                    TAG,
+                    "RFID connect deadline exceeded; native operation remains active and will be reconciled",
+                )
                 clearConnectTimeout()
-                if (attempt < MAX_CONNECT_ATTEMPTS) {
-                    connectAttempt += 1
-                    totalConnectAttemptsCounter += 1
-                    mainHandler.postDelayed({ beginAsyncConnect(readerId, isRetry = true) }, RETRY_BACKOFF_MS)
-                }
             }
         }
         connectTimeoutRunnable = runnable
@@ -1010,6 +1221,14 @@ class RFIDReaderInterface(
     )
 
     fun diagnosticsWithReaderPowerState(callback: (Result<Diagnostics>) -> Unit) {
+        if (lifecycleGate.hasActiveOperation()) {
+            val snapshot = diagnosticsSnapshot(
+                readerPowerState = null,
+                readerPowerStateError = "deferred_during_capture_device_recovery",
+            )
+            mainHandler.post { callback(Result.success(snapshot)) }
+            return
+        }
         ioExecutor.submit {
             val powerState = currentReaderPowerState()
             val snapshot = diagnosticsSnapshot(powerState.state, powerState.error)
@@ -1083,7 +1302,12 @@ class RFIDReaderInterface(
         val list = availableRFIDReaderList ?: return emptyList()
         return list.mapIndexed { index, device ->
             val info = if (device == readerDevice) readerInfo else null
-            Reader(device.name, index.toLong(), info)
+            Reader(
+                device.name,
+                index.toLong(),
+                info,
+                buildReaderDiscoveryKey(device),
+            )
         }
     }
 
@@ -1112,7 +1336,21 @@ class RFIDReaderInterface(
         Log.d(TAG, "Scanning enabled set to $scanningEnabled")
     }
 
-    fun configureReader(config: ReaderConfig, shouldPersist: Boolean) {
+    fun configureReader(
+        config: ReaderConfig,
+        shouldPersist: Boolean,
+        fromCaptureDevice: Boolean = false,
+    ) {
+        if (
+            connectionOwnership == RfidConnectionOwnership.CAPTURE_DEVICE &&
+            !fromCaptureDevice
+        ) {
+            emitError(
+                ReaderErrorCode.CAPTURE_DEVICE_OWNS_CONNECTION,
+                "Capture Device owns RFID configuration",
+            )
+            throw CaptureDeviceOwnershipException()
+        }
         if (reader == null) {
             Log.d(TAG, "No connected to any Reader!")
             throw Error("Not connected to any Reader")
@@ -1179,11 +1417,23 @@ class RFIDReaderInterface(
 
     }
 
-    fun disconnectCurrentReader() {
-        // Cancel any pending connect timeout / future if user is disconnecting
+    fun disconnectCurrentReader(fromCaptureDevice: Boolean = false) {
+        if (
+            connectionOwnership == RfidConnectionOwnership.CAPTURE_DEVICE &&
+            !fromCaptureDevice
+        ) {
+            emitError(
+                ReaderErrorCode.CAPTURE_DEVICE_OWNS_CONNECTION,
+                "Capture Device owns the RFID connection",
+            )
+            throw CaptureDeviceOwnershipException()
+        }
+
         synchronized(this) {
             clearConnectTimeout()
-            pendingConnectFuture?.cancel(true)
+            if (connectionOwnership == RfidConnectionOwnership.CAPTURE_DEVICE) {
+                lifecycleGate.invalidateSelection()
+            }
         }
         if (reader == null) {
             Log.d(TAG, "No connected RFID Reader (disconnect noop)")
@@ -1194,17 +1444,29 @@ class RFIDReaderInterface(
             return
         }
         updateConnectionState(InternalConnectionState.DISCONNECTING, ReaderConnectionStatus.DISCONNECTING, "Disconnecting reader")
-        try {
-            if (reader?.isConnected == true) {
-                reader?.disconnect()
+        ioExecutor.submit {
+            try {
+                if (reader?.isConnected == true) {
+                    reader?.disconnect()
+                }
+                synchronized(this) {
+                    eventsBoundReader = null
+                    updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disconnected")
+                    cancelPendingReconnect()
+                    reconnectAttempt = 0
+                    if (fromCaptureDevice) {
+                        connectionOwnership = RfidConnectionOwnership.LEGACY
+                        managedHardwareIdentity = null
+                        captureDeviceControlsBarcode = false
+                        autoReconnectEnabled = true
+                    }
+                }
+            } catch (e: Throwable) {
+                synchronized(this) {
+                    emitError(ReaderErrorCode.UNKNOWN, "Error during disconnect", e.message, e)
+                    updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Error during disconnect", e)
+                }
             }
-            updateConnectionState(InternalConnectionState.DISCONNECTED, ReaderConnectionStatus.DISCONNECTED, "Reader disconnected")
-            // User initiated disconnect -> cancel any auto reconnect sequence
-            cancelPendingReconnect()
-            reconnectAttempt = 0
-        } catch (e: Throwable) {
-            emitError(ReaderErrorCode.UNKNOWN, "Error during disconnect", e.message, e)
-            updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Error during disconnect", e)
         }
     }
 
@@ -1213,7 +1475,8 @@ class RFIDReaderInterface(
             return Reader(
                 readerDevice!!.name,
                 availableRFIDReaderList!!.indexOf(readerDevice!!).toLong(),
-                readerInfo
+                readerInfo,
+                buildReaderDiscoveryKey(readerDevice!!),
             )
         }
         return null
@@ -1456,7 +1719,15 @@ class RFIDReaderInterface(
             try {
                 // receive events from reader
                 Log.d(TAG, "Setting up event listeners...")
+                if (eventsBoundReader === reader) {
+                    runCatching {
+                        reader!!.Events.removeEventsListener(this)
+                    }.onFailure {
+                        Log.d(TAG, "Existing RFID event listener was already detached")
+                    }
+                }
                 reader!!.Events.addEventsListener(this)
+                eventsBoundReader = reader
                 // HH event
                 reader!!.Events.setHandheldEvent(true)
                 // tag event with tag data
@@ -1475,7 +1746,10 @@ class RFIDReaderInterface(
 
                 // set start and stop triggers
                 Log.d(TAG, "Setting trigger mode...")
-                reader!!.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true)
+                reader!!.Config.setTriggerMode(
+                    ENUM_TRIGGER_MODE.RFID_MODE,
+                    !captureDeviceControlsBarcode,
+                )
                 Log.d(TAG, "Setting start/stop triggers...")
                 reader!!.Config.startTrigger = triggerInfo.StartTrigger
                 reader!!.Config.stopTrigger = triggerInfo.StopTrigger

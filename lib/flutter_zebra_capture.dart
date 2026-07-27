@@ -37,6 +37,20 @@ class FlutterZebraCaptureApi {
   }) =>
       _api.setCaptureDeviceBarcodeOverride(captureDeviceId, barcodeEndpointId);
 
+  Future<void> configureCaptureDevice({
+    required String captureDeviceId,
+    required rfid.ReaderConfig rfidConfig,
+    required bool shouldPersist,
+  }) =>
+      _api.configureCaptureDevice(
+        captureDeviceId,
+        rfidConfig.toCaptureReaderConfig(),
+        shouldPersist,
+      );
+
+  Future<void> setCaptureDeviceForeground(bool foreground) =>
+      _api.setCaptureDeviceForeground(foreground);
+
   Future<CaptureDevice?> get activeCaptureDevice => _api.activeCaptureDevice();
 
   static final _sharedCallbacks = _FlutterZebraCaptureCallbacksImpl();

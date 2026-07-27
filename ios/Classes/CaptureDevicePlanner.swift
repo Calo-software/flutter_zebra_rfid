@@ -68,6 +68,7 @@ class CaptureDevicePlanner {
             : (match.endpoint?.connectionStatus.toCaptureStatus() ?? .unavailable)
         let rfid = CaptureRfidCapability(
             readerId: reader.id,
+            hardwareIdentity: reader.hardwareIdentity ?? reader.name ?? "reader-\(reader.id)",
             displayName: reader.name ?? "RFID reader \(reader.id)",
             status: rfidStatus,
             model: reader.info?.modelVersion,
@@ -199,7 +200,7 @@ class CaptureDevicePlanner {
     }
 
     private func captureDeviceId(_ reader: Reader) -> String {
-        "capture:rfid:\(reader.id)"
+        "capture:rfid:\(reader.hardwareIdentity ?? reader.name ?? String(reader.id))"
     }
 
     private func topologyFor(reader: Reader, endpoint: BarcodeScannerEndpoint) -> CaptureDeviceTopology {

@@ -54,6 +54,7 @@ class BarcodeScannerInterface internal constructor(
     private var initialDataWedgeSetupComplete = false
     private var activeEndpointId: String? = null
     private var preferredEndpointId: String? = null
+    private var captureDeviceOwnsConnection = false
     var endpointsChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ScannerConnectionStatus) -> Unit)? = null
 
@@ -90,7 +91,38 @@ class BarcodeScannerInterface internal constructor(
         }
     }
 
+    fun claimCaptureDeviceOwnership() {
+        captureDeviceOwnsConnection = true
+    }
+
+    fun releaseCaptureDeviceOwnership() {
+        captureDeviceOwnsConnection = false
+    }
+
     fun connectToScanner(
+        scannerId: Int,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        if (captureDeviceOwnsConnection) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("CAPTURE_DEVICE_OWNS_CONNECTION"),
+                ),
+            )
+            return
+        }
+        connectToScannerInternal(scannerId, onComplete)
+    }
+
+    fun connectToScannerForCaptureDevice(
+        scannerId: Int,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        claimCaptureDeviceOwnership()
+        connectToScannerInternal(scannerId, onComplete)
+    }
+
+    private fun connectToScannerInternal(
         scannerId: Int,
         onComplete: (Result<Unit>) -> Unit,
     ) {
@@ -103,7 +135,7 @@ class BarcodeScannerInterface internal constructor(
         }
 
         if (scanner == currentScanner) {
-            setActiveEndpoint(scannerSdkEndpointId(scanner.scannerID))
+            setActiveEndpointInternal(scannerSdkEndpointId(scanner.scannerID))
             onComplete(Result.success(Unit))
             return
         }
@@ -153,7 +185,7 @@ class BarcodeScannerInterface internal constructor(
                             ),
                         )
                     } else {
-                        setActiveEndpoint(expectedEndpointId)
+                        setActiveEndpointInternal(expectedEndpointId)
                         onComplete(Result.success(Unit))
                     }
                 },
@@ -169,6 +201,29 @@ class BarcodeScannerInterface internal constructor(
     }
 
     fun disconnectCurrentScanner(onComplete: (Result<Unit>) -> Unit) {
+        if (captureDeviceOwnsConnection) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("CAPTURE_DEVICE_OWNS_CONNECTION"),
+                ),
+            )
+            return
+        }
+        disconnectCurrentScannerInternal(onComplete)
+    }
+
+    fun disconnectCurrentScannerForCaptureDevice(
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        disconnectCurrentScannerInternal { result ->
+            releaseCaptureDeviceOwnership()
+            onComplete(result)
+        }
+    }
+
+    private fun disconnectCurrentScannerInternal(
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
         val scanner = currentScanner
         if (scanner == null) {
             onComplete(Result.success(Unit))
@@ -222,6 +277,18 @@ class BarcodeScannerInterface internal constructor(
     }
 
     fun setActiveEndpoint(endpointId: String) {
+        if (captureDeviceOwnsConnection) {
+            throw IllegalStateException("CAPTURE_DEVICE_OWNS_CONNECTION")
+        }
+        setActiveEndpointInternal(endpointId)
+    }
+
+    fun setActiveEndpointForCaptureDevice(endpointId: String) {
+        claimCaptureDeviceOwnership()
+        setActiveEndpointInternal(endpointId)
+    }
+
+    private fun setActiveEndpointInternal(endpointId: String) {
         val endpoint = activateEndpoint(endpointId)
         if (endpoint.mode == BarcodeScannerMode.DATA_WEDGE) {
             recoverDataWedgeEndpoint(endpoint) { result ->
@@ -233,6 +300,29 @@ class BarcodeScannerInterface internal constructor(
     }
 
     fun setActiveEndpoint(
+        endpointId: String,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        if (captureDeviceOwnsConnection) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("CAPTURE_DEVICE_OWNS_CONNECTION"),
+                ),
+            )
+            return
+        }
+        setActiveEndpointInternal(endpointId, onComplete)
+    }
+
+    fun setActiveEndpointForCaptureDevice(
+        endpointId: String,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        claimCaptureDeviceOwnership()
+        setActiveEndpointInternal(endpointId, onComplete)
+    }
+
+    private fun setActiveEndpointInternal(
         endpointId: String,
         onComplete: (Result<Unit>) -> Unit,
     ) {

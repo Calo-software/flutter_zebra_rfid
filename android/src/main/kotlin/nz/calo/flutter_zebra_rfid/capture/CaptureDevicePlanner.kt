@@ -81,6 +81,7 @@ internal class CaptureDevicePlanner(
 
         val rfid = CaptureRfidCapability(
             reader.id,
+            reader.hardwareIdentity ?: reader.name ?: "reader-${reader.id}",
             reader.name ?: "RFID reader ${reader.id}",
             rfidStatus,
             reader.info?.modelVersion,
@@ -218,7 +219,8 @@ internal class CaptureDevicePlanner(
         )
     }
 
-    private fun captureDeviceId(reader: Reader): String = "capture:rfid:${reader.id}"
+    private fun captureDeviceId(reader: Reader): String =
+        "capture:rfid:${reader.hardwareIdentity ?: reader.name ?: reader.id}"
 
     private fun topologyFor(
         reader: Reader,

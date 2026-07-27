@@ -132,6 +132,34 @@ class FlutterZebraCaptureSdk: NSObject, FlutterZebraCapture {
         completion(.success(()))
     }
 
+    func configureCaptureDevice(
+        captureDeviceId: String,
+        rfidConfig: CaptureReaderConfig,
+        shouldPersist: Bool,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard _activeCaptureDeviceId == captureDeviceId else {
+            completion(.failure(FlutterCaptureError(
+                code: "captureDeviceNotActive",
+                message: "Capture Device is not active",
+                details: captureDeviceId
+            )))
+            return
+        }
+        _rfid.configureReader(
+            config: rfidConfig.toReaderConfig(),
+            shouldPersist: shouldPersist,
+            completion: completion
+        )
+    }
+
+    func setCaptureDeviceForeground(
+        foreground: Bool,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        completion(.success(()))
+    }
+
     func activeCaptureDevice() throws -> CaptureDevice? {
         buildDevices().first(where: { $0.id == _activeCaptureDeviceId })
     }
