@@ -32,6 +32,7 @@ import io.flutter.plugin.common.PluginRegistry
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.bluetooth.BluetoothPairingManager
 import nz.calo.flutter_zebra_rfid.capture.CaptureDeviceCoordinator
+import nz.calo.flutter_zebra_rfid.capture.CaptureDiagnosticStore
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
 
 
@@ -50,6 +51,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
     private lateinit var scannerCallbacks: FlutterZebraBarcodeCallbacks
     private lateinit var captureCallbacks: FlutterZebraCaptureCallbacks
     private var bluetoothPairingManager: BluetoothPairingManager? = null
+    private var captureDiagnosticStore: CaptureDiagnosticStore? = null
 
     private val operationsOnPermission: MutableMap<Int, OperationOnPermission> = HashMap()
     private var lastEventId = 1751
@@ -62,6 +64,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = flutterPluginBinding.applicationContext
+        captureDiagnosticStore = CaptureDiagnosticStore(applicationContext.filesDir)
 
         rfidCallbacks = FlutterZebraRfidCallbacks(flutterPluginBinding.binaryMessenger)
         rfidInterface = RFIDReaderInterface(rfidCallbacks, applicationContext)
@@ -80,13 +83,17 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
                 }
             })
         scannerCallbacks = FlutterZebraBarcodeCallbacks(flutterPluginBinding.binaryMessenger)
-        scannerInterface = BarcodeScannerInterface(scannerCallbacks)
+        scannerInterface = BarcodeScannerInterface(
+            scannerCallbacks,
+            diagnostics = captureDiagnosticStore!!,
+        )
         captureCallbacks = FlutterZebraCaptureCallbacks(flutterPluginBinding.binaryMessenger)
         captureCoordinator = CaptureDeviceCoordinator(
             applicationContext,
             rfidInterface!!,
             scannerInterface!!,
             captureCallbacks,
+            captureDiagnosticStore,
         )
 
         FlutterZebraRfid.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -524,6 +531,8 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
         if (scannerInterface != null) {
             scannerInterface!!.onDestroy()
         }
+        captureDiagnosticStore?.close()
+        captureDiagnosticStore = null
     }
 
     companion object {

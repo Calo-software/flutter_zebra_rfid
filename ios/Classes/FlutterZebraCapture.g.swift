@@ -346,6 +346,47 @@ struct CaptureDevice {
   }
 }
 
+/// Generated class from Pigeon that represents data sent in messages.
+struct CaptureDiagnosticEvent {
+  var timestampMs: Int64
+  var sequence: Int64
+  var category: String
+  var operation: String
+  var outcome: String
+  var detailsJson: String
+
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> CaptureDiagnosticEvent? {
+    let timestampMs = pigeonVar_list[0] is Int64 ? pigeonVar_list[0] as! Int64 : Int64(pigeonVar_list[0] as! Int32)
+    let sequence = pigeonVar_list[1] is Int64 ? pigeonVar_list[1] as! Int64 : Int64(pigeonVar_list[1] as! Int32)
+    let category = pigeonVar_list[2] as! String
+    let operation = pigeonVar_list[3] as! String
+    let outcome = pigeonVar_list[4] as! String
+    let detailsJson = pigeonVar_list[5] as! String
+
+    return CaptureDiagnosticEvent(
+      timestampMs: timestampMs,
+      sequence: sequence,
+      category: category,
+      operation: operation,
+      outcome: outcome,
+      detailsJson: detailsJson
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      timestampMs,
+      sequence,
+      category,
+      operation,
+      outcome,
+      detailsJson,
+    ]
+  }
+}
+
 private class FlutterZebraCapturePigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -411,6 +452,8 @@ private class FlutterZebraCapturePigeonCodecReader: FlutterStandardReader {
       return CaptureBarcodeCapability.fromList(self.readValue() as! [Any?])
     case 141:
       return CaptureDevice.fromList(self.readValue() as! [Any?])
+    case 142:
+      return CaptureDiagnosticEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -458,6 +501,9 @@ private class FlutterZebraCapturePigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? CaptureDevice {
       super.writeByte(141)
       super.writeValue(value.toList())
+    } else if let value = value as? CaptureDiagnosticEvent {
+      super.writeByte(142)
+      super.writeValue(value.toList())
     } else {
       super.writeValue(value)
     }
@@ -487,6 +533,8 @@ protocol FlutterZebraCapture {
   func setCaptureDeviceBarcodeOverride(captureDeviceId: String, barcodeEndpointId: String, completion: @escaping (Result<Void, Error>) -> Void)
   func configureCaptureDevice(captureDeviceId: String, rfidConfig: CaptureReaderConfig, shouldPersist: Bool, completion: @escaping (Result<Void, Error>) -> Void)
   func setCaptureDeviceForeground(foreground: Bool, completion: @escaping (Result<Void, Error>) -> Void)
+  func captureDiagnostics() throws -> [CaptureDiagnosticEvent]
+  func clearCaptureDiagnostics() throws
   func activeCaptureDevice() throws -> CaptureDevice?
 }
 
@@ -599,6 +647,32 @@ class FlutterZebraCaptureSetup {
       }
     } else {
       setCaptureDeviceForegroundChannel.setMessageHandler(nil)
+    }
+    let captureDiagnosticsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.captureDiagnostics\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      captureDiagnosticsChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.captureDiagnostics()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      captureDiagnosticsChannel.setMessageHandler(nil)
+    }
+    let clearCaptureDiagnosticsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.clearCaptureDiagnostics\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearCaptureDiagnosticsChannel.setMessageHandler { _, reply in
+        do {
+          try api.clearCaptureDiagnostics()
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      clearCaptureDiagnosticsChannel.setMessageHandler(nil)
     }
     let activeCaptureDeviceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.activeCaptureDevice\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

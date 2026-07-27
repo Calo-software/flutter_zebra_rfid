@@ -1,7 +1,13 @@
-## Unreleased
+## 0.4.8 - 2026-07-28
 
 ### Added
+- Add a privacy-filtered, bounded Capture Device diagnostic buffer and export/clear API for remote support.
+- Record Capture Device discovery, capability, recovery, DataWedge, and supported Scanner SDK lifecycle events without scanned values.
 - Include the connected Zebra RFID Reader power state and SDK failure details in diagnostics on Android so support can distinguish standby, active, Bluetooth-off, unsupported commands, and unavailable sessions.
+
+### Changed
+- Persist at most 500 recent diagnostic events, 15 minutes, or 256 KB in app-private Android storage.
+- Keep compatible empty Capture Device diagnostic exports on iOS.
 
 ## 0.4.7 - 2026-07-27
 

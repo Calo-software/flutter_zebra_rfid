@@ -2,6 +2,15 @@ import os
 
 @available(iOS 14.0, *)
 class FlutterZebraCaptureSdk: NSObject, FlutterZebraCapture {
+    func captureDiagnostics() throws -> [CaptureDiagnosticEvent] {
+        []
+    }
+
+    func clearCaptureDiagnostics() throws {
+        // Android supplies full hardware diagnostics. iOS intentionally
+        // exposes the compatible, empty implementation for this pilot.
+    }
+
     init(
         callbacks: FlutterZebraCaptureCallbacksProtocol,
         rfid: FlutterZebraRfidSdk,

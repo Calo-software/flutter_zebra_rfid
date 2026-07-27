@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.util.Log
 import java.util.ArrayDeque
 import java.util.UUID
+import nz.calo.flutter_zebra_rfid.capture.CaptureDiagnosticSink
+import nz.calo.flutter_zebra_rfid.capture.record
 
 internal data class DataWedgeCommand(
     val label: String,
@@ -33,6 +35,7 @@ internal class DataWedgeCommandCoordinator(
     private val commandIdentifier: () -> String = { "flutter-zebra-${UUID.randomUUID()}" },
     private val timeoutMs: Long = 2_500L,
     private val maxAttempts: Int = 2,
+    private val diagnostics: CaptureDiagnosticSink = CaptureDiagnosticSink.NONE,
 ) {
     private data class Sequence(
         val commands: ArrayDeque<DataWedgeCommand>,
@@ -65,6 +68,15 @@ internal class DataWedgeCommandCoordinator(
                 onError = onError,
             ),
         )
+        diagnostics.record(
+            "datawedge",
+            "command_sequence",
+            "queued",
+            mapOf(
+                "command_count" to commands.size,
+                "commands" to commands.joinToString(",") { it.label },
+            ),
+        )
         startNextSequenceIfIdle()
     }
 
@@ -90,6 +102,12 @@ internal class DataWedgeCommandCoordinator(
             if (results.isEmpty()) {
                 failSequence("${command.label} failed: DataWedge returned an empty result list")
             } else if (failure == null) {
+                diagnostics.record(
+                    "datawedge",
+                    command.label,
+                    "completed",
+                    mapOf("attempt" to activeAttempt),
+                )
                 completeCommand(results)
             } else {
                 failSequence(
@@ -101,6 +119,12 @@ internal class DataWedgeCommandCoordinator(
         val result = intent.getStringExtra(EXTRA_RESULT)
         val resultCode = extractResultCode(intent.extras?.get(EXTRA_RESULT_INFO))
         if (result == RESULT_SUCCESS || resultCode in command.acceptedFailureCodes) {
+            diagnostics.record(
+                "datawedge",
+                command.label,
+                "completed",
+                mapOf("attempt" to activeAttempt, "result_code" to resultCode),
+            )
             completeCommand()
         } else {
             failSequence(
@@ -111,6 +135,12 @@ internal class DataWedgeCommandCoordinator(
     }
 
     fun cancel(reason: String = "DataWedge coordinator disposed") {
+        diagnostics.record(
+            "datawedge",
+            "command_sequence",
+            "cancelled",
+            mapOf("reason" to reason),
+        )
         timeout?.let(cancelTimeout)
         timeout = null
         val errorCallbacks = buildList {
@@ -163,6 +193,12 @@ internal class DataWedgeCommandCoordinator(
             putExtra(EXTRA_RESULT_CATEGORY, Intent.CATEGORY_DEFAULT)
         }
         Log.i(TAG, "Sending ${command.label} attempt=$activeAttempt id=$identifier")
+        diagnostics.record(
+            "datawedge",
+            command.label,
+            "sent",
+            mapOf("attempt" to activeAttempt),
+        )
         sendIntent(intent)
 
         timeout?.let(cancelTimeout)
@@ -176,6 +212,12 @@ internal class DataWedgeCommandCoordinator(
             if (activeIdentifier != identifier) return@Runnable
             if (activeAttempt < maxAttempts) {
                 Log.w(TAG, "Retrying ${command.label} after DataWedge result timeout")
+                diagnostics.record(
+                    "datawedge",
+                    command.label,
+                    "result_timeout_retry",
+                    mapOf("attempt" to activeAttempt),
+                )
                 sendActiveCommand()
             } else {
                 failSequence("${command.label} timed out waiting for DataWedge")
@@ -211,6 +253,15 @@ internal class DataWedgeCommandCoordinator(
         timeout?.let(cancelTimeout)
         timeout = null
         Log.e(TAG, message)
+        diagnostics.record(
+            "datawedge",
+            activeCommand?.label ?: "command_sequence",
+            "failed",
+            mapOf(
+                "attempt" to activeAttempt,
+                "failure_type" to message.substringBefore(':'),
+            ),
+        )
         val sequence = activeSequence
         activeSequence = null
         activeCommand = null

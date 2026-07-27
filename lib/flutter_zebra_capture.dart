@@ -53,6 +53,13 @@ class FlutterZebraCaptureApi {
 
   Future<CaptureDevice?> get activeCaptureDevice => _api.activeCaptureDevice();
 
+  Future<List<CaptureDiagnosticEvent>> get captureDiagnostics async =>
+      (await _api.captureDiagnostics())
+          .whereType<CaptureDiagnosticEvent>()
+          .toList(growable: false);
+
+  Future<void> clearCaptureDiagnostics() => _api.clearCaptureDiagnostics();
+
   static final _sharedCallbacks = _FlutterZebraCaptureCallbacksImpl();
 
   final _api = FlutterZebraCapture();

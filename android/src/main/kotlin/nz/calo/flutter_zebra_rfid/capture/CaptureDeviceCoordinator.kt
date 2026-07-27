@@ -2,6 +2,7 @@ package nz.calo.flutter_zebra_rfid.capture
 
 import BarcodeScannerMode
 import BarcodeScannerEndpoint
+import CaptureDiagnosticEvent
 import CaptureCapabilityStatus
 import CaptureDevice
 import CaptureDeviceStatus
@@ -22,6 +23,7 @@ import android.os.Looper
 import android.util.Log
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
+import org.json.JSONObject
 
 /**
  * Owns the lifecycle of the RFID Reader and Barcode Endpoint that together form
@@ -32,6 +34,7 @@ class CaptureDeviceCoordinator(
     private val rfidInterface: RFIDReaderInterface,
     private val barcodeInterface: BarcodeScannerInterface,
     private val callbacks: FlutterZebraCaptureCallbacks,
+    private val diagnosticStore: CaptureDiagnosticStore? = null,
 ) : FlutterZebraCapture {
     private val tag = "FlutterZebraCapture"
     private val planner = CaptureDevicePlanner(CaptureDevicePlanningPlatform.ANDROID)
@@ -72,12 +75,14 @@ class CaptureDeviceCoordinator(
 
     init {
         rfidInterface.readersChangedListener = {
+            recordReaderSnapshot("readers_changed")
             emitDevices()
             if (pendingReadiness && foreground && !lifecycleOperationActive) {
                 requestReadiness("reader_discovery", explicit = false)
             }
         }
         rfidInterface.connectionStatusListener = { status ->
+            recordDiagnostic("rfid", "connection_status", status.name)
             activeRfidStatus = status.toCaptureStatus()
             when (status) {
                 ReaderConnectionStatus.CONNECTED -> onRfidTransportReady()
@@ -120,10 +125,17 @@ class CaptureDeviceCoordinator(
             }
         }
         barcodeInterface.endpointsChangedListener = {
+            recordBarcodeEndpointSnapshot("endpoints_changed")
             refreshSelectedBarcodeEndpointSnapshot()
             emitDevices()
         }
         barcodeInterface.connectionStatusListener = { status ->
+            recordDiagnostic(
+                category = "barcode",
+                operation = "connection_status",
+                outcome = status.name,
+                details = barcodeDetails(selectedBarcodeEndpoint),
+            )
             activeBarcodeStatus = status.toCaptureStatus()
             if (status == ScannerConnectionStatus.CONNECTED) {
                 barcodeSessionConnected = true
@@ -141,12 +153,24 @@ class CaptureDeviceCoordinator(
     }
 
     override fun refreshCaptureDevices(callback: (Result<Unit>) -> Unit) {
+        recordDiagnostic("capture_device", "refresh", "started")
         runCatching {
             refreshDiscovery()
             emitDevices()
         }.fold(
-            onSuccess = { callback(Result.success(Unit)) },
-            onFailure = { callback(Result.failure(it)) },
+            onSuccess = {
+                recordDiagnostic("capture_device", "refresh", "completed")
+                callback(Result.success(Unit))
+            },
+            onFailure = {
+                recordDiagnostic(
+                    "capture_device",
+                    "refresh",
+                    "failed",
+                    mapOf("error_type" to it.javaClass.simpleName),
+                )
+                callback(Result.failure(it))
+            },
         )
     }
 
@@ -164,6 +188,12 @@ class CaptureDeviceCoordinator(
             )
             return
         }
+        recordDiagnostic(
+            category = "capture_device",
+            operation = "connect_requested",
+            outcome = "selected",
+            details = captureDeviceDetails(device),
+        )
 
         if (
             activeCaptureDeviceId == captureDeviceId &&
@@ -317,6 +347,11 @@ class CaptureDeviceCoordinator(
         foreground: Boolean,
         callback: (Result<Unit>) -> Unit,
     ) {
+        recordDiagnostic(
+            category = "capture_device",
+            operation = "foreground",
+            outcome = if (foreground) "resumed" else "backgrounded",
+        )
         if (this.foreground == foreground) {
             callback(Result.success(Unit))
             return
@@ -346,7 +381,24 @@ class CaptureDeviceCoordinator(
     override fun activeCaptureDevice(): CaptureDevice? =
         buildDevices().firstOrNull { it.id == activeCaptureDeviceId }
 
+    override fun captureDiagnostics(): List<CaptureDiagnosticEvent> =
+        diagnosticStore?.snapshot()?.map { record ->
+            CaptureDiagnosticEvent(
+                timestampMs = record.timestampMs,
+                sequence = record.sequence,
+                category = record.category,
+                operation = record.operation,
+                outcome = record.outcome,
+                detailsJson = JSONObject(record.details).toString(),
+            )
+        }.orEmpty()
+
+    override fun clearCaptureDiagnostics() {
+        diagnosticStore?.clear()
+    }
+
     fun dispose() {
+        recordDiagnostic("capture_device", "dispose", "started")
         disposed = true
         recoveryGeneration += 1
         cancelRetry()
@@ -384,6 +436,17 @@ class CaptureDeviceCoordinator(
                 null
             }
         logDebug("RFID recovery generation=$generation stage=discovery reason=$reason")
+        recordDiagnostic(
+            category = "capture_device",
+            operation = "readiness",
+            outcome = "started",
+            details = mapOf(
+                "reason" to reason,
+                "generation" to generation,
+                "attempt" to retryAttempt,
+                "joined_requests" to joinedCallbacks.size,
+            ),
+        )
 
         runCatching { refreshDiscovery() }.onFailure {
             failRecovery(generation, "reader_discovery", it)
@@ -537,6 +600,12 @@ class CaptureDeviceCoordinator(
         val device = buildDevices().firstOrNull { it.id == activeCaptureDeviceId }
         val barcode = device?.barcode
         if (barcode == null) {
+            recordDiagnostic(
+                category = "barcode",
+                operation = "restore",
+                outcome = "capability_missing",
+                details = mapOf("generation" to generation),
+            )
             foregroundResumeBarcodeEndpointId = null
             barcodeSessionConnected = false
             activeBarcodeStatus = CaptureCapabilityStatus.UNAVAILABLE
@@ -551,6 +620,17 @@ class CaptureDeviceCoordinator(
         emitDevices()
         try {
             val endpoint = discoveredBarcode ?: selectedBarcodeEndpoint
+            recordDiagnostic(
+                category = "barcode",
+                operation = "restore",
+                outcome = "started",
+                details = barcodeDetails(endpoint).plus(
+                    mapOf(
+                        "generation" to generation,
+                        "discovered" to (discoveredBarcode != null),
+                    ),
+                ),
+            )
             if (endpoint?.mode == BarcodeScannerMode.DATA_WEDGE) {
                 barcodeInterface.setActiveEndpointForCaptureDevice(
                     barcode.endpointId,
@@ -594,11 +674,30 @@ class CaptureDeviceCoordinator(
         if (generation != recoveryGeneration || disposed) return
         result.fold(
             onSuccess = {
+                recordDiagnostic(
+                    category = "barcode",
+                    operation = "restore",
+                    outcome = "completed",
+                    details = barcodeDetails(selectedBarcodeEndpoint).plus(
+                        "generation" to generation,
+                    ),
+                )
                 barcodeSessionConnected = true
                 activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
                 activeBarcodeError = null
             },
             onFailure = { error ->
+                recordDiagnostic(
+                    category = "barcode",
+                    operation = "restore",
+                    outcome = "failed",
+                    details = barcodeDetails(selectedBarcodeEndpoint).plus(
+                        mapOf(
+                            "generation" to generation,
+                            "error_type" to error.javaClass.simpleName,
+                        ),
+                    ),
+                )
                 barcodeSessionConnected = false
                 activeBarcodeStatus = CaptureCapabilityStatus.ERROR
                 activeBarcodeError = error.message ?: error.toString()
@@ -696,6 +795,17 @@ class CaptureDeviceCoordinator(
 
     private fun finishRecovery(generation: Long) {
         if (generation != recoveryGeneration || disposed) return
+        recordDiagnostic(
+            category = "recovery",
+            operation = "capture_device_recovery",
+            outcome = "lifecycle_complete",
+            details = mapOf(
+                "generation" to generation,
+                "attempt" to retryAttempt,
+                "rfid_status" to activeRfidStatus?.name,
+                "barcode_status" to activeBarcodeStatus?.name,
+            ),
+        )
         lifecycleOperationActive = false
         pendingReadiness = false
         retryAttempt = 0
@@ -754,6 +864,16 @@ class CaptureDeviceCoordinator(
         error: Throwable,
     ) {
         if (generation != recoveryGeneration || disposed) return
+        recordDiagnostic(
+            category = "recovery",
+            operation = stage,
+            outcome = "failed",
+            details = mapOf(
+                "generation" to generation,
+                "attempt" to retryAttempt,
+                "error_type" to error::class.java.simpleName,
+            ),
+        )
         lifecycleOperationActive = false
         activeRfidStatus = CaptureCapabilityStatus.ERROR
         activeRfidError = error.message ?: error.toString()
@@ -880,6 +1000,16 @@ class CaptureDeviceCoordinator(
         }
 
     private fun exhaustRecovery(reason: String) {
+        recordDiagnostic(
+            category = "recovery",
+            operation = "capture_device_recovery",
+            outcome = "exhausted",
+            details = mapOf(
+                "generation" to recoveryGeneration,
+                "attempt" to retryAttempt,
+                "reason" to reason,
+            ),
+        )
         pendingReadiness = false
         lifecycleOperationActive = false
         activeRfidStatus = CaptureCapabilityStatus.ERROR
@@ -893,6 +1023,92 @@ class CaptureDeviceCoordinator(
         retryRunnable?.let(mainHandler::removeCallbacks)
         retryRunnable = null
     }
+
+    private fun recordDiagnostic(
+        category: String,
+        operation: String,
+        outcome: String,
+        details: Map<String, Any?> = emptyMap(),
+    ) {
+        diagnosticStore?.record(category, operation, outcome, details)
+    }
+
+    private fun recordReaderSnapshot(reason: String) {
+        val readers = rfidInterface.availableReadersSnapshot()
+        recordDiagnostic(
+            category = "rfid",
+            operation = "reader_snapshot",
+            outcome = reason,
+            details = mapOf("reader_count" to readers.size),
+        )
+        readers.forEach { reader ->
+            recordDiagnostic(
+                category = "rfid",
+                operation = "reader_discovered",
+                outcome = reason,
+                details = mapOf(
+                    "reader_id" to reader.id,
+                    "hardware_identity" to reader.hardwareIdentity,
+                    "reader_name" to reader.name,
+                    "reader_serial" to reader.info?.serialNumber,
+                    "reader_model" to reader.info?.modelVersion,
+                    "reader_firmware" to reader.info?.firmwareVersion,
+                ),
+            )
+        }
+    }
+
+    private fun recordBarcodeEndpointSnapshot(reason: String) {
+        val endpoints = barcodeInterface.barcodeEndpoints()
+        recordDiagnostic(
+            category = "barcode",
+            operation = "endpoint_snapshot",
+            outcome = reason,
+            details = mapOf("endpoint_count" to endpoints.size),
+        )
+        endpoints.forEach { endpoint ->
+            recordDiagnostic(
+                category = "barcode",
+                operation = "endpoint_discovered",
+                outcome = reason,
+                details = barcodeDetails(endpoint),
+            )
+        }
+    }
+
+    private fun barcodeDetails(endpoint: BarcodeScannerEndpoint?): Map<String, Any?> =
+        if (endpoint == null) {
+            emptyMap()
+        } else {
+            mapOf(
+                "endpoint_id" to endpoint.endpointId,
+                "endpoint_name" to endpoint.displayName,
+                "endpoint_source" to endpoint.source.name,
+                "endpoint_mode" to endpoint.mode.name,
+                "endpoint_status" to endpoint.connectionStatus.name,
+                "endpoint_active" to endpoint.active,
+                "endpoint_preferred" to endpoint.preferred,
+                "scanner_id" to endpoint.scannerId,
+                "barcode_model" to endpoint.model,
+                "barcode_serial" to endpoint.serialNumber,
+            )
+        }
+
+    private fun captureDeviceDetails(device: CaptureDevice): Map<String, Any?> =
+        mapOf(
+            "capture_device_id" to device.id,
+            "topology" to device.topology.name,
+            "capture_status" to device.status.name,
+            "match_confidence" to device.matchConfidence.name,
+            "match_reason" to device.matchReason,
+            "rfid_status" to device.rfid?.status?.name,
+            "barcode_status" to device.barcode?.status?.name,
+            "reader_serial" to device.rfid?.serialNumber,
+            "reader_model" to device.rfid?.model,
+            "endpoint_id" to device.barcode?.endpointId,
+            "endpoint_mode" to device.barcode?.mode?.name,
+            "endpoint_source" to device.barcode?.source?.name,
+        )
 
     private fun logDebug(message: String) {
         runCatching { Log.d(tag, message) }

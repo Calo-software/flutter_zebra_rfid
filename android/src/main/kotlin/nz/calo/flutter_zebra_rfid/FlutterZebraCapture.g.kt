@@ -333,6 +333,39 @@ data class CaptureDevice (
     )
   }
 }
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class CaptureDiagnosticEvent (
+  val timestampMs: Long,
+  val sequence: Long,
+  val category: String,
+  val operation: String,
+  val outcome: String,
+  val detailsJson: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): CaptureDiagnosticEvent {
+      val timestampMs = pigeonVar_list[0].let { num -> if (num is Int) num.toLong() else num as Long }
+      val sequence = pigeonVar_list[1].let { num -> if (num is Int) num.toLong() else num as Long }
+      val category = pigeonVar_list[2] as String
+      val operation = pigeonVar_list[3] as String
+      val outcome = pigeonVar_list[4] as String
+      val detailsJson = pigeonVar_list[5] as String
+      return CaptureDiagnosticEvent(timestampMs, sequence, category, operation, outcome, detailsJson)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      timestampMs,
+      sequence,
+      category,
+      operation,
+      outcome,
+      detailsJson,
+    )
+  }
+}
 private object FlutterZebraCapturePigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -401,6 +434,11 @@ private object FlutterZebraCapturePigeonCodec : StandardMessageCodec() {
           CaptureDevice.fromList(it)
         }
       }
+      142.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          CaptureDiagnosticEvent.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -458,6 +496,10 @@ private object FlutterZebraCapturePigeonCodec : StandardMessageCodec() {
         stream.write(141)
         writeValue(stream, value.toList())
       }
+      is CaptureDiagnosticEvent -> {
+        stream.write(142)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -472,6 +514,8 @@ interface FlutterZebraCapture {
   fun setCaptureDeviceBarcodeOverride(captureDeviceId: String, barcodeEndpointId: String, callback: (Result<Unit>) -> Unit)
   fun configureCaptureDevice(captureDeviceId: String, rfidConfig: CaptureReaderConfig, shouldPersist: Boolean, callback: (Result<Unit>) -> Unit)
   fun setCaptureDeviceForeground(foreground: Boolean, callback: (Result<Unit>) -> Unit)
+  fun captureDiagnostics(): List<CaptureDiagnosticEvent>
+  fun clearCaptureDiagnostics()
   fun activeCaptureDevice(): CaptureDevice?
 
   companion object {
@@ -594,6 +638,37 @@ interface FlutterZebraCapture {
                 reply.reply(wrapResult(null))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.captureDiagnostics$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.captureDiagnostics())
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.clearCaptureDiagnostics$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.clearCaptureDiagnostics()
+              listOf(null)
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

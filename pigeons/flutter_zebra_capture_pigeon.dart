@@ -39,6 +39,10 @@ abstract class FlutterZebraCapture {
   @async
   void setCaptureDeviceForeground(bool foreground);
 
+  List<CaptureDiagnosticEvent> captureDiagnostics();
+
+  void clearCaptureDiagnostics();
+
   CaptureDevice? activeCaptureDevice();
 }
 
@@ -209,4 +213,22 @@ class CaptureDevice {
   final CaptureRfidCapability? rfid;
   final CaptureBarcodeCapability? barcode;
   final String? lastError;
+}
+
+class CaptureDiagnosticEvent {
+  CaptureDiagnosticEvent({
+    required this.timestampMs,
+    required this.sequence,
+    required this.category,
+    required this.operation,
+    required this.outcome,
+    required this.detailsJson,
+  });
+
+  final int timestampMs;
+  final int sequence;
+  final String category;
+  final String operation;
+  final String outcome;
+  final String detailsJson;
 }

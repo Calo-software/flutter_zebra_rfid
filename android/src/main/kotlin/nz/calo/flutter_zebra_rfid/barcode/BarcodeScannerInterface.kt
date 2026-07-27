@@ -26,6 +26,8 @@ import com.zebra.scannercontrol.IDcsSdkApiDelegate
 import com.zebra.scannercontrol.SDKHandler
 import java.nio.charset.Charset
 import java.util.Collections
+import nz.calo.flutter_zebra_rfid.capture.CaptureDiagnosticSink
+import nz.calo.flutter_zebra_rfid.capture.record
 
 internal fun stableScannerSdkEndpointId(
     scannerId: Int,
@@ -74,6 +76,7 @@ class BarcodeScannerInterface internal constructor(
     private val sessionRunner: ScannerSdkSessionRunner = ScannerSdkSessionRunner(
         postToMain = { operation -> Handler(Looper.getMainLooper()).post(operation) },
     ),
+    private val diagnostics: CaptureDiagnosticSink = CaptureDiagnosticSink.NONE,
 ) : IDcsSdkApiDelegate {
     private val tag = "FlutterZebraBarcode"
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -115,6 +118,7 @@ class BarcodeScannerInterface internal constructor(
         context: Context,
         onComplete: (Result<Unit>) -> Unit,
     ) {
+        diagnostics.record("barcode", "refresh", "started")
         try {
             if (!isInitialized) {
                 initialize(context.applicationContext)
@@ -125,6 +129,12 @@ class BarcodeScannerInterface internal constructor(
             emitEndpoints()
             enqueueDataWedgeHealthCheck(onComplete)
         } catch (error: Throwable) {
+            diagnostics.record(
+                "barcode",
+                "refresh",
+                "failed",
+                mapOf("error_type" to error::class.java.simpleName),
+            )
             onComplete(Result.failure(error))
         }
     }
@@ -241,6 +251,16 @@ class BarcodeScannerInterface internal constructor(
         val expectedEndpointId = scannerSdkEndpointId(scanner)
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTING) {}
         connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTING)
+        diagnostics.record(
+            "scanner_sdk",
+            "establish_session",
+            "started",
+            mapOf(
+                "scanner_id" to scanner.scannerID,
+                "barcode_model" to scanner.scannerModel,
+                "barcode_serial" to scanner.scannerHWSerialNumber,
+            ),
+        )
         sessionRunner.run(
             operation = ScannerSdkSessionOperation.ESTABLISH,
             scannerId = scanner.scannerID,
@@ -251,6 +271,16 @@ class BarcodeScannerInterface internal constructor(
         ) { operationResult ->
             operationResult.fold(
                 onSuccess = { result ->
+                    diagnostics.record(
+                        "scanner_sdk",
+                        "establish_session",
+                        if (result == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                            "completed"
+                        } else {
+                            "sdk_result"
+                        },
+                        mapOf("scanner_id" to scanner.scannerID, "result" to result.name),
+                    )
                     if (
                         result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS &&
                         currentScanner?.scannerID != scanner.scannerID
@@ -301,6 +331,15 @@ class BarcodeScannerInterface internal constructor(
                     }
                 },
                 onFailure = { error ->
+                    diagnostics.record(
+                        "scanner_sdk",
+                        "establish_session",
+                        "failed",
+                        mapOf(
+                            "scanner_id" to scanner.scannerID,
+                            "error_type" to error::class.java.simpleName,
+                        ),
+                    )
                     callbacks.onScannerConnectionStatusChanged(
                         ScannerConnectionStatus.DISCONNECTED,
                     ) {}
@@ -351,6 +390,12 @@ class BarcodeScannerInterface internal constructor(
         }
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTING) {}
         connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTING)
+        diagnostics.record(
+            "scanner_sdk",
+            "terminate_session",
+            "started",
+            mapOf("scanner_id" to scanner.scannerID),
+        )
         sessionRunner.run(
             operation = ScannerSdkSessionOperation.TERMINATE,
             scannerId = scanner.scannerID,
@@ -360,6 +405,16 @@ class BarcodeScannerInterface internal constructor(
         ) { operationResult ->
             operationResult.fold(
                 onSuccess = { result ->
+                    diagnostics.record(
+                        "scanner_sdk",
+                        "terminate_session",
+                        if (result == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                            "completed"
+                        } else {
+                            "sdk_result"
+                        },
+                        mapOf("scanner_id" to scanner.scannerID, "result" to result.name),
+                    )
                     if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
                         callbacks.onScannerConnectionStatusChanged(
                             ScannerConnectionStatus.ERROR,
@@ -377,6 +432,15 @@ class BarcodeScannerInterface internal constructor(
                     }
                 },
                 onFailure = { error ->
+                    diagnostics.record(
+                        "scanner_sdk",
+                        "terminate_session",
+                        "failed",
+                        mapOf(
+                            "scanner_id" to scanner.scannerID,
+                            "error_type" to error::class.java.simpleName,
+                        ),
+                    )
                     callbacks.onScannerConnectionStatusChanged(
                         ScannerConnectionStatus.ERROR,
                     ) {}
@@ -527,6 +591,16 @@ class BarcodeScannerInterface internal constructor(
 
     override fun dcssdkEventCommunicationSessionEstablished(scanner: DCSScannerInfo?) {
         Log.d(tag, "Scanner connected: ${scanner?.scannerName}")
+        diagnostics.record(
+            "scanner_sdk",
+            "communication_session",
+            "established",
+            mapOf(
+                "scanner_id" to scanner?.scannerID,
+                "barcode_model" to scanner?.scannerModel,
+                "barcode_serial" to scanner?.scannerHWSerialNumber,
+            ),
+        )
         currentScanner = scanner
         scanner?.let { activeEndpointId = scannerSdkEndpointId(it) }
         // Zebra starts its barcode-delivery thread only after this delegate
@@ -542,6 +616,12 @@ class BarcodeScannerInterface internal constructor(
 
     override fun dcssdkEventCommunicationSessionTerminated(scannerId: Int) {
         Log.d(tag, "Scanner disconnected: $scannerId")
+        diagnostics.record(
+            "scanner_sdk",
+            "communication_session",
+            "terminated",
+            mapOf("scanner_id" to scannerId),
+        )
         if (currentScanner?.scannerID == scannerId) {
             currentScanner = null
         }
@@ -554,6 +634,12 @@ class BarcodeScannerInterface internal constructor(
 
     override fun dcssdkEventBarcode(barcodeData: ByteArray?, barcodeType: Int, scannerId: Int) {
         val data = barcodeData?.toString(Charset.defaultCharset()) ?: return
+        diagnostics.record(
+            "barcode",
+            "decoded",
+            "received",
+            mapOf("scanner_id" to scannerId, "barcode_type" to barcodeType),
+        )
         val endpoint = currentEndpoints().firstOrNull { it.scannerId == scannerId.toLong() }
         emitBarcode(
             Barcode(
@@ -589,6 +675,7 @@ class BarcodeScannerInterface internal constructor(
             sendIntent = { context.sendOrderedBroadcast(it, null) },
             scheduleTimeout = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
             cancelTimeout = { runnable -> mainHandler.removeCallbacks(runnable) },
+            diagnostics = diagnostics,
         )
         registerDataWedgeReceiver(context)
         ensureScannerSdkInitialized(context)
@@ -814,10 +901,27 @@ class BarcodeScannerInterface internal constructor(
     private fun handleDataWedgeResult(intent: Intent) {
         if (intent.hasExtra(EXTRA_RESULT_ENUMERATE_SCANNERS)) {
             dataWedgeEndpoints = parseDataWedgeScanners(intent)
+            diagnostics.record(
+                "datawedge",
+                "enumerate_scanners",
+                "received",
+                mapOf(
+                    "endpoint_count" to dataWedgeEndpoints.size,
+                    "endpoints" to dataWedgeEndpoints.joinToString(",") {
+                        "${it.identifier}:${it.name}"
+                    },
+                ),
+            )
             emitEndpoints()
         }
         if (intent.hasExtra(EXTRA_RESULT_SCANNER_STATUS)) {
             dataWedgeScannerStatus = intent.getStringExtra(EXTRA_RESULT_SCANNER_STATUS)
+            diagnostics.record(
+                "datawedge",
+                "scanner_status",
+                "received",
+                mapOf("status" to dataWedgeScannerStatus),
+            )
             emitEndpoints()
         }
     }
@@ -826,6 +930,12 @@ class BarcodeScannerInterface internal constructor(
         val extras = intent.getBundleExtra(EXTRA_RESULT_NOTIFICATION) ?: return
         if (extras.getString(EXTRA_RESULT_NOTIFICATION_TYPE) == NOTIFICATION_SCANNER_STATUS) {
             dataWedgeScannerStatus = extras.getString(NOTIFICATION_SCANNER_STATUS)
+            diagnostics.record(
+                "datawedge",
+                "scanner_status_notification",
+                "received",
+                mapOf("status" to dataWedgeScannerStatus),
+            )
             emitEndpoints()
         }
     }
@@ -836,6 +946,12 @@ class BarcodeScannerInterface internal constructor(
             return
         }
         val data = intent.getStringExtra(DATAWEDGE_DATA_STRING) ?: return
+        diagnostics.record(
+            "barcode",
+            "decoded",
+            "received",
+            mapOf("source" to "datawedge"),
+        )
         val labelType = intent.getStringExtra(DATAWEDGE_LABEL_TYPE)
         val endpoint = activeEndpoint()
         emitBarcode(
