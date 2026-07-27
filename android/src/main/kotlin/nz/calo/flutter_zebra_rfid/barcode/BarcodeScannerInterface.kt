@@ -27,6 +27,43 @@ import com.zebra.scannercontrol.SDKHandler
 import java.nio.charset.Charset
 import java.util.Collections
 
+internal fun stableScannerSdkEndpointId(
+    scannerId: Int,
+    hardwareIdentity: String?,
+    scannerName: String?,
+): String {
+    val normalizedHardwareIdentity = hardwareIdentity
+        ?.trim()
+        ?.uppercase()
+        ?.replace(Regex("[^A-Z0-9]+"), "-")
+        ?.trim('-')
+        ?.takeIf { it.isNotEmpty() }
+    if (normalizedHardwareIdentity != null) {
+        return "scanner-sdk:hardware:$normalizedHardwareIdentity"
+    }
+
+    val normalizedName = scannerName
+        ?.trim()
+        ?.uppercase()
+        ?.replace(Regex("[^A-Z0-9]+"), "-")
+        ?.trim('-')
+        ?.takeIf { it.isNotEmpty() }
+    if (normalizedName != null) {
+        return "scanner-sdk:name:$normalizedName"
+    }
+
+    // The SDK index is only a last-resort runtime identity. The migration
+    // below deliberately prevents this form from being restored on restart.
+    return "scanner-sdk:runtime:$scannerId"
+}
+
+internal fun migratePreferredEndpointId(endpointId: String?): String? {
+    if (endpointId == null) return null
+    if (Regex("^scanner-sdk:\\d+$").matches(endpointId)) return null
+    if (Regex("^scanner-sdk:runtime:\\d+$").matches(endpointId)) return null
+    return endpointId
+}
+
 /**
  * Coordinates barcode scanners exposed through Zebra Scanner Control SDK and
  * Android DataWedge. DataWedge is needed for built-in Zebra terminal scanners;
@@ -44,6 +81,7 @@ class BarcodeScannerInterface internal constructor(
         Collections.synchronizedList(ArrayList())
 
     private var sdkHandler: SDKHandler? = null
+    @Volatile
     private var currentScanner: DCSScannerInfo? = null
     private var isInitialized = false
     private var applicationContext: Context? = null
@@ -122,21 +160,72 @@ class BarcodeScannerInterface internal constructor(
         connectToScannerInternal(scannerId, onComplete)
     }
 
+    fun enableScannerForCaptureDevice(
+        scannerId: Int,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        claimCaptureDeviceOwnership()
+        val scanner = currentScanner?.takeIf { it.scannerID == scannerId }
+        if (scanner == null) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("Scanner session is not connected"),
+                ),
+            )
+            return
+        }
+        val handler = sdkHandler
+        if (handler == null) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("Barcode Scanner SDK is not initialized"),
+                ),
+            )
+            return
+        }
+        sessionRunner.run(
+            operation = ScannerSdkSessionOperation.ENABLE,
+            scannerId = scannerId,
+            sdkCall = {
+                val inXml = "<inArgs><scannerID>$scannerId</scannerID></inArgs>"
+                handler.dcssdkExecuteCommandOpCodeInXMLForScanner(
+                    DCSSDKDefs.DCSSDK_COMMAND_OPCODE.DCSSDK_DEVICE_SCAN_ENABLE,
+                    inXml,
+                    StringBuilder(),
+                    scannerId,
+                )
+            },
+        ) { operationResult ->
+            operationResult.fold(
+                onSuccess = { result ->
+                    if (result == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                        Log.i(tag, "Scanner SDK barcode scanning re-enabled: $scannerId")
+                        onComplete(Result.success(Unit))
+                    } else {
+                        onComplete(
+                            Result.failure(
+                                IllegalStateException(
+                                    "Failed to enable barcode scanning for scanner " +
+                                        "$scannerId: $result",
+                                ),
+                            ),
+                        )
+                    }
+                },
+                onFailure = { error -> onComplete(Result.failure(error)) },
+            )
+        }
+    }
+
     private fun connectToScannerInternal(
         scannerId: Int,
         onComplete: (Result<Unit>) -> Unit,
     ) {
         val scanner = synchronized(availableScannerList) {
             availableScannerList.firstOrNull { it.scannerID == scannerId }
-        }
+        } ?: currentScanner?.takeIf { it.scannerID == scannerId }
         if (scanner == null) {
             onComplete(Result.failure(IllegalStateException("Scanner not available")))
-            return
-        }
-
-        if (scanner == currentScanner) {
-            setActiveEndpointInternal(scannerSdkEndpointId(scanner.scannerID))
-            onComplete(Result.success(Unit))
             return
         }
 
@@ -149,19 +238,23 @@ class BarcodeScannerInterface internal constructor(
             )
             return
         }
-        val expectedEndpointId = scannerSdkEndpointId(scanner.scannerID)
+        val expectedEndpointId = scannerSdkEndpointId(scanner)
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTING) {}
         connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTING)
         sessionRunner.run(
             operation = ScannerSdkSessionOperation.ESTABLISH,
             scannerId = scanner.scannerID,
             sdkCall = {
+                rearmScannerSdkEventDelivery(handler)
                 handler.dcssdkEstablishCommunicationSession(scanner.scannerID)
             },
         ) { operationResult ->
             operationResult.fold(
                 onSuccess = { result ->
-                    if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                    if (
+                        result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS &&
+                        currentScanner?.scannerID != scanner.scannerID
+                    ) {
                         callbacks.onScannerConnectionStatusChanged(
                             ScannerConnectionStatus.DISCONNECTED,
                         ) {}
@@ -186,6 +279,24 @@ class BarcodeScannerInterface internal constructor(
                         )
                     } else {
                         setActiveEndpointInternal(expectedEndpointId)
+                        if (
+                            result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS &&
+                            currentScanner?.scannerID == scanner.scannerID
+                        ) {
+                            // Scanner SDK can retain a session while its
+                            // barcode callback thread stops delivering after
+                            // foreground recovery. Rebinding the delegate and
+                            // subscriptions above is the readiness operation;
+                            // an already-established session may reject the
+                            // duplicate establish call even though it remains
+                            // the selected live session.
+                            callbacks.onScannerConnectionStatusChanged(
+                                ScannerConnectionStatus.CONNECTED,
+                            ) {}
+                            connectionStatusListener?.invoke(
+                                ScannerConnectionStatus.CONNECTED,
+                            )
+                        }
                         onComplete(Result.success(Unit))
                     }
                 },
@@ -299,6 +410,17 @@ class BarcodeScannerInterface internal constructor(
         }
     }
 
+    private fun rearmScannerSdkEventDelivery(handler: SDKHandler) {
+        val delegateResult = handler.dcssdkSetDelegate(this)
+        check(delegateResult == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+            "Failed to restore Scanner SDK event delegate: $delegateResult"
+        }
+        val subscriptionResult = handler.dcssdkSubsribeForEvents(scannerSdkNotificationsMask())
+        check(subscriptionResult == DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+            "Failed to restore Scanner SDK event subscriptions: $subscriptionResult"
+        }
+    }
+
     fun setActiveEndpoint(
         endpointId: String,
         onComplete: (Result<Unit>) -> Unit,
@@ -406,10 +528,16 @@ class BarcodeScannerInterface internal constructor(
     override fun dcssdkEventCommunicationSessionEstablished(scanner: DCSScannerInfo?) {
         Log.d(tag, "Scanner connected: ${scanner?.scannerName}")
         currentScanner = scanner
-        scanner?.let { activeEndpointId = scannerSdkEndpointId(it.scannerID) }
-        callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTED) {}
-        connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTED)
-        emitEndpoints()
+        scanner?.let { activeEndpointId = scannerSdkEndpointId(it) }
+        // Zebra starts its barcode-delivery thread only after this delegate
+        // callback returns. Keep Flutter/channel work off the SDK callback so a
+        // slow or failed client notification cannot leave decoded barcodes
+        // queued without a sender thread.
+        mainHandler.post {
+            callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTED) {}
+            connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTED)
+            emitEndpoints()
+        }
     }
 
     override fun dcssdkEventCommunicationSessionTerminated(scannerId: Int) {
@@ -417,9 +545,11 @@ class BarcodeScannerInterface internal constructor(
         if (currentScanner?.scannerID == scannerId) {
             currentScanner = null
         }
-        callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
-        connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
-        emitEndpoints()
+        mainHandler.post {
+            callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
+            connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
+            emitEndpoints()
+        }
     }
 
     override fun dcssdkEventBarcode(barcodeData: ByteArray?, barcodeType: Int, scannerId: Int) {
@@ -445,9 +575,16 @@ class BarcodeScannerInterface internal constructor(
 
     private fun initialize(context: Context) {
         applicationContext = context
-        preferredEndpointId = context
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(PREF_ACTIVE_ENDPOINT, null)
+        val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val storedPreferredEndpointId = preferences.getString(PREF_ACTIVE_ENDPOINT, null)
+        preferredEndpointId = migratePreferredEndpointId(storedPreferredEndpointId)
+        if (storedPreferredEndpointId != null && preferredEndpointId == null) {
+            // Scanner SDK list indexes are assigned dynamically and can refer
+            // to a different paired device after a process restart. Never
+            // restore the legacy numeric endpoint as a hardware preference.
+            preferences.edit().remove(PREF_ACTIVE_ENDPOINT).apply()
+            Log.i(tag, "Cleared legacy Scanner SDK endpoint preference")
+        }
         dataWedgeCoordinator = DataWedgeCommandCoordinator(
             sendIntent = { context.sendOrderedBroadcast(it, null) },
             scheduleTimeout = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
@@ -484,14 +621,7 @@ class BarcodeScannerInterface internal constructor(
                         "Suppressing Scanner SDK USB CDC on Zebra terminal so RFID sled USB remains owned by RFID SDK",
                     )
                 }
-                handler.dcssdkSetDelegate(this)
-                val notificationsMask =
-                    DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
-                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value or
-                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
-                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value or
-                        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
-                handler.dcssdkSubsribeForEvents(notificationsMask)
+                rearmScannerSdkEventDelivery(handler)
                 handler.dcssdkEnableAvailableScannersDetection(true)
             }
         } catch (e: SecurityException) {
@@ -529,6 +659,13 @@ class BarcodeScannerInterface internal constructor(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun scannerSdkNotificationsMask(): Int =
+        DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_APPEARANCE.value or
+            DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SCANNER_DISAPPEARANCE.value or
+            DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_ESTABLISHMENT.value or
+            DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_SESSION_TERMINATION.value or
+            DCSSDKDefs.DCSSDK_EVENT.DCSSDK_EVENT_BARCODE.value
+
     private fun getAvailableScannerList() {
         val handler = sdkHandler ?: return
         try {
@@ -552,29 +689,38 @@ class BarcodeScannerInterface internal constructor(
     private fun currentEndpoints(includeActive: Boolean = true): List<BarcodeScannerEndpoint> {
         val preferred = preferredEndpointId
         val endpoints = ArrayList<BarcodeScannerEndpoint>()
-        synchronized(availableScannerList) {
-            availableScannerList.forEach { scanner ->
-                val endpointId = scannerSdkEndpointId(scanner.scannerID)
-                endpoints.add(
-                    BarcodeScannerEndpoint(
-                        endpointId,
-                        scanner.scannerName ?: "Scanner ${scanner.scannerID}",
-                        inferSdkSource(scanner),
-                        BarcodeScannerMode.SCANNER_SDK,
-                        if (currentScanner?.scannerID == scanner.scannerID) {
-                            ScannerConnectionStatus.CONNECTED
-                        } else {
-                            ScannerConnectionStatus.DISCONNECTED
-                        },
-                        includeActive && endpointId == activeEndpointId,
-                        endpointId == preferred,
-                        null,
-                        null,
-                        scanner.scannerID.toLong(),
-                        scanner.scannerModel,
-                        scanner.scannerHWSerialNumber,
-                    )
+        fun addScannerSdkEndpoint(scanner: DCSScannerInfo) {
+            val endpointId = scannerSdkEndpointId(scanner)
+            endpoints.add(
+                BarcodeScannerEndpoint(
+                    endpointId,
+                    scanner.scannerName ?: "Scanner ${scanner.scannerID}",
+                    inferSdkSource(scanner),
+                    BarcodeScannerMode.SCANNER_SDK,
+                    if (currentScanner?.scannerID == scanner.scannerID) {
+                        ScannerConnectionStatus.CONNECTED
+                    } else {
+                        ScannerConnectionStatus.DISCONNECTED
+                    },
+                    includeActive && endpointId == activeEndpointId,
+                    endpointId == preferred,
+                    null,
+                    null,
+                    scanner.scannerID.toLong(),
+                    scanner.scannerModel,
+                    scanner.scannerHWSerialNumber,
                 )
+            )
+        }
+        synchronized(availableScannerList) {
+            availableScannerList.forEach(::addScannerSdkEndpoint)
+            currentScanner?.takeIf { connected ->
+                availableScannerList.none { it.scannerID == connected.scannerID }
+            }?.let { connected ->
+                // Discovery can briefly omit an already-established RFD
+                // Scanner SDK endpoint after foregrounding. Retain that exact
+                // session identity so the coordinator can re-arm it.
+                addScannerSdkEndpoint(connected)
             }
         }
         dataWedgeEndpoints.forEach { scanner ->
@@ -950,7 +1096,12 @@ class BarcodeScannerInterface internal constructor(
         return false
     }
 
-    private fun scannerSdkEndpointId(scannerId: Int): String = "scanner-sdk:$scannerId"
+    private fun scannerSdkEndpointId(scanner: DCSScannerInfo): String =
+        stableScannerSdkEndpointId(
+            scannerId = scanner.scannerID,
+            hardwareIdentity = scanner.scannerHWSerialNumber,
+            scannerName = scanner.scannerName,
+        )
 
     private fun dataWedgeEndpointId(identifier: String?, index: Int?): String =
         "datawedge:${identifier ?: "index-${index ?: "unknown"}"}"

@@ -7,6 +7,7 @@ import java.util.concurrent.Executors
 internal enum class ScannerSdkSessionOperation {
     ESTABLISH,
     TERMINATE,
+    ENABLE,
 }
 
 internal class ScannerSdkSessionRunner(
