@@ -81,6 +81,13 @@ internal fun shouldInitializeScannerSdk(
     return !(isZebra || isTcSeries)
 }
 
+internal fun shouldAwaitDataWedgeHealth(
+    manufacturer: String,
+    model: String,
+    product: String,
+    device: String,
+): Boolean = !shouldInitializeScannerSdk(manufacturer, model, product, device)
+
 /**
  * Coordinates barcode scanners exposed through Zebra Scanner Control SDK and
  * Android DataWedge. DataWedge is needed for built-in Zebra terminal scanners;
@@ -142,7 +149,25 @@ class BarcodeScannerInterface internal constructor(
             }
             getAvailableScannerList()
             emitEndpoints()
-            enqueueDataWedgeHealthCheck(onComplete)
+            val awaitDataWedgeHealth = shouldAwaitDataWedgeHealth(
+                Build.MANUFACTURER.orEmpty(),
+                Build.MODEL.orEmpty(),
+                Build.PRODUCT.orEmpty(),
+                Build.DEVICE.orEmpty(),
+            )
+            if (awaitDataWedgeHealth) {
+                enqueueDataWedgeHealthCheck(onComplete)
+            } else {
+                // Scanner SDK is authoritative for Samsung/RFD40+ topology.
+                // Keep DataWedge diagnostics best-effort so the TC22 readiness
+                // gate cannot introduce a startup delay on these devices.
+                onComplete(Result.success(Unit))
+                enqueueDataWedgeHealthCheck { result ->
+                    result.exceptionOrNull()?.let {
+                        Log.d(tag, "Background DataWedge health check failed", it)
+                    }
+                }
+            }
         } catch (error: Throwable) {
             diagnostics.record(
                 "barcode",
