@@ -73,6 +73,7 @@ class CaptureDevicePlanner {
             status: rfidStatus,
             model: reader.info?.modelVersion,
             serialNumber: reader.info?.serialNumber,
+            firmwareVersion: reader.info?.firmwareVersion,
             error: active ? state.activeRfidError : nil
         )
         let barcode = match.endpoint?.toCaptureCapability(

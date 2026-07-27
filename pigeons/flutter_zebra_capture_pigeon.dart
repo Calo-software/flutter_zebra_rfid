@@ -151,6 +151,7 @@ class CaptureRfidCapability {
     required this.status,
     this.model,
     this.serialNumber,
+    this.firmwareVersion,
     this.error,
   });
 
@@ -160,6 +161,7 @@ class CaptureRfidCapability {
   final CaptureCapabilityStatus status;
   final String? model;
   final String? serialNumber;
+  final String? firmwareVersion;
   final String? error;
 }
 

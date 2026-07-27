@@ -195,6 +195,7 @@ struct CaptureRfidCapability {
   var status: CaptureCapabilityStatus
   var model: String? = nil
   var serialNumber: String? = nil
+  var firmwareVersion: String? = nil
   var error: String? = nil
 
 
@@ -207,7 +208,8 @@ struct CaptureRfidCapability {
     let status = pigeonVar_list[3] as! CaptureCapabilityStatus
     let model: String? = nilOrValue(pigeonVar_list[4])
     let serialNumber: String? = nilOrValue(pigeonVar_list[5])
-    let error: String? = nilOrValue(pigeonVar_list[6])
+    let firmwareVersion: String? = nilOrValue(pigeonVar_list[6])
+    let error: String? = nilOrValue(pigeonVar_list[7])
 
     return CaptureRfidCapability(
       readerId: readerId,
@@ -216,6 +218,7 @@ struct CaptureRfidCapability {
       status: status,
       model: model,
       serialNumber: serialNumber,
+      firmwareVersion: firmwareVersion,
       error: error
     )
   }
@@ -227,6 +230,7 @@ struct CaptureRfidCapability {
       status,
       model,
       serialNumber,
+      firmwareVersion,
       error,
     ]
   }

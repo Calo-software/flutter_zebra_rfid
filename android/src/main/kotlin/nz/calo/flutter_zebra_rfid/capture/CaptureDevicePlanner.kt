@@ -86,6 +86,7 @@ internal class CaptureDevicePlanner(
             rfidStatus,
             reader.info?.modelVersion,
             reader.info?.serialNumber,
+            reader.info?.firmwareVersion,
             if (active) state.activeRfidError else null,
         )
         val barcode = match.endpoint?.toCaptureCapability(

@@ -8,7 +8,7 @@ import com.zebra.scannercontrol.SDKHandler
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.barcode.migratePreferredEndpointId
 import nz.calo.flutter_zebra_rfid.barcode.shouldInitializeScannerSdk
-import nz.calo.flutter_zebra_rfid.barcode.shouldAwaitDataWedgeHealth
+import nz.calo.flutter_zebra_rfid.barcode.shouldUseDataWedge
 import nz.calo.flutter_zebra_rfid.barcode.stableScannerSdkEndpointId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,9 +47,9 @@ internal class BarcodeScannerInterfaceTest {
     }
 
     @Test
-    fun onlyTerminalDataWedgeTopologyBlocksRefreshForHealthCheck() {
+    fun onlyZebraTerminalTopologyUsesDataWedge() {
         assertTrue(
-            shouldAwaitDataWedgeHealth(
+            shouldUseDataWedge(
                 manufacturer = "Zebra Technologies",
                 model = "TC22",
                 product = "TC22",
@@ -57,7 +57,7 @@ internal class BarcodeScannerInterfaceTest {
             ),
         )
         assertFalse(
-            shouldAwaitDataWedgeHealth(
+            shouldUseDataWedge(
                 manufacturer = "Samsung",
                 model = "SM-A546E",
                 product = "a54x",

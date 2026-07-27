@@ -216,6 +216,7 @@ data class CaptureRfidCapability (
   val status: CaptureCapabilityStatus,
   val model: String? = null,
   val serialNumber: String? = null,
+  val firmwareVersion: String? = null,
   val error: String? = null
 )
  {
@@ -227,8 +228,9 @@ data class CaptureRfidCapability (
       val status = pigeonVar_list[3] as CaptureCapabilityStatus
       val model = pigeonVar_list[4] as String?
       val serialNumber = pigeonVar_list[5] as String?
-      val error = pigeonVar_list[6] as String?
-      return CaptureRfidCapability(readerId, hardwareIdentity, displayName, status, model, serialNumber, error)
+      val firmwareVersion = pigeonVar_list[6] as String?
+      val error = pigeonVar_list[7] as String?
+      return CaptureRfidCapability(readerId, hardwareIdentity, displayName, status, model, serialNumber, firmwareVersion, error)
     }
   }
   fun toList(): List<Any?> {
@@ -239,6 +241,7 @@ data class CaptureRfidCapability (
       status,
       model,
       serialNumber,
+      firmwareVersion,
       error,
     )
   }

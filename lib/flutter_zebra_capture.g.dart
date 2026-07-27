@@ -15,8 +15,7 @@ PlatformException _createConnectionError(String channelName) {
   );
 }
 
-List<Object?> wrapResponse(
-    {Object? result, PlatformException? error, bool empty = false}) {
+List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty = false}) {
   if (empty) {
     return <Object?>[];
   }
@@ -161,6 +160,7 @@ class CaptureRfidCapability {
     required this.status,
     this.model,
     this.serialNumber,
+    this.firmwareVersion,
     this.error,
   });
 
@@ -176,6 +176,8 @@ class CaptureRfidCapability {
 
   String? serialNumber;
 
+  String? firmwareVersion;
+
   String? error;
 
   Object encode() {
@@ -186,6 +188,7 @@ class CaptureRfidCapability {
       status,
       model,
       serialNumber,
+      firmwareVersion,
       error,
     ];
   }
@@ -199,7 +202,8 @@ class CaptureRfidCapability {
       status: result[3]! as CaptureCapabilityStatus,
       model: result[4] as String?,
       serialNumber: result[5] as String?,
-      error: result[6] as String?,
+      firmwareVersion: result[6] as String?,
+      error: result[7] as String?,
     );
   }
 }
@@ -382,6 +386,7 @@ class CaptureDiagnosticEvent {
   }
 }
 
+
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -389,43 +394,43 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is CaptureDeviceStatus) {
       buffer.putUint8(129);
       writeValue(buffer, value.index);
-    } else if (value is CaptureCapabilityStatus) {
+    } else     if (value is CaptureCapabilityStatus) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    } else if (value is CaptureCapabilityType) {
+    } else     if (value is CaptureCapabilityType) {
       buffer.putUint8(131);
       writeValue(buffer, value.index);
-    } else if (value is CaptureDeviceTopology) {
+    } else     if (value is CaptureDeviceTopology) {
       buffer.putUint8(132);
       writeValue(buffer, value.index);
-    } else if (value is CaptureMatchConfidence) {
+    } else     if (value is CaptureMatchConfidence) {
       buffer.putUint8(133);
       writeValue(buffer, value.index);
-    } else if (value is CaptureBarcodeSource) {
+    } else     if (value is CaptureBarcodeSource) {
       buffer.putUint8(134);
       writeValue(buffer, value.index);
-    } else if (value is CaptureBarcodeMode) {
+    } else     if (value is CaptureBarcodeMode) {
       buffer.putUint8(135);
       writeValue(buffer, value.index);
-    } else if (value is CaptureReaderConfigBatchMode) {
+    } else     if (value is CaptureReaderConfigBatchMode) {
       buffer.putUint8(136);
       writeValue(buffer, value.index);
-    } else if (value is CaptureReaderBeeperVolume) {
+    } else     if (value is CaptureReaderBeeperVolume) {
       buffer.putUint8(137);
       writeValue(buffer, value.index);
-    } else if (value is CaptureReaderConfig) {
+    } else     if (value is CaptureReaderConfig) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else if (value is CaptureRfidCapability) {
+    } else     if (value is CaptureRfidCapability) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else if (value is CaptureBarcodeCapability) {
+    } else     if (value is CaptureBarcodeCapability) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else if (value is CaptureDevice) {
+    } else     if (value is CaptureDevice) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else if (value is CaptureDiagnosticEvent) {
+    } else     if (value is CaptureDiagnosticEvent) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
     } else {
@@ -459,9 +464,7 @@ class _PigeonCodec extends StandardMessageCodec {
         return value == null ? null : CaptureBarcodeMode.values[value];
       case 136:
         final int? value = readValue(buffer) as int?;
-        return value == null
-            ? null
-            : CaptureReaderConfigBatchMode.values[value];
+        return value == null ? null : CaptureReaderConfigBatchMode.values[value];
       case 137:
         final int? value = readValue(buffer) as int?;
         return value == null ? null : CaptureReaderBeeperVolume.values[value];
@@ -485,11 +488,9 @@ class FlutterZebraCapture {
   /// Constructor for [FlutterZebraCapture].  The [binaryMessenger] named argument is
   /// available for dependency injection.  If it is left null, the default
   /// BinaryMessenger will be used which routes to the host platform.
-  FlutterZebraCapture(
-      {BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
+  FlutterZebraCapture({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
       : pigeonVar_binaryMessenger = binaryMessenger,
-        pigeonVar_messageChannelSuffix =
-            messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
@@ -497,10 +498,8 @@ class FlutterZebraCapture {
   final String pigeonVar_messageChannelSuffix;
 
   Future<void> refreshCaptureDevices() async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.refreshCaptureDevices$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.refreshCaptureDevices$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
@@ -520,18 +519,15 @@ class FlutterZebraCapture {
     }
   }
 
-  Future<void> connectCaptureDevice(
-      String captureDeviceId, CaptureReaderConfig? rfidConfig) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.connectCaptureDevice$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+  Future<void> connectCaptureDevice(String captureDeviceId, CaptureReaderConfig? rfidConfig) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.connectCaptureDevice$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final List<Object?>? pigeonVar_replyList = await pigeonVar_channel
-        .send(<Object?>[captureDeviceId, rfidConfig]) as List<Object?>?;
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[captureDeviceId, rfidConfig]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -546,16 +542,14 @@ class FlutterZebraCapture {
   }
 
   Future<void> disconnectCaptureDevice(String captureDeviceId) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.disconnectCaptureDevice$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.disconnectCaptureDevice$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final List<Object?>? pigeonVar_replyList = await pigeonVar_channel
-        .send(<Object?>[captureDeviceId]) as List<Object?>?;
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[captureDeviceId]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -569,18 +563,15 @@ class FlutterZebraCapture {
     }
   }
 
-  Future<void> setCaptureDeviceBarcodeOverride(
-      String captureDeviceId, String barcodeEndpointId) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.setCaptureDeviceBarcodeOverride$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+  Future<void> setCaptureDeviceBarcodeOverride(String captureDeviceId, String barcodeEndpointId) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.setCaptureDeviceBarcodeOverride$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final List<Object?>? pigeonVar_replyList = await pigeonVar_channel
-        .send(<Object?>[captureDeviceId, barcodeEndpointId]) as List<Object?>?;
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[captureDeviceId, barcodeEndpointId]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -594,19 +585,15 @@ class FlutterZebraCapture {
     }
   }
 
-  Future<void> configureCaptureDevice(String captureDeviceId,
-      CaptureReaderConfig rfidConfig, bool shouldPersist) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.configureCaptureDevice$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+  Future<void> configureCaptureDevice(String captureDeviceId, CaptureReaderConfig rfidConfig, bool shouldPersist) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.configureCaptureDevice$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final List<Object?>? pigeonVar_replyList = await pigeonVar_channel
-            .send(<Object?>[captureDeviceId, rfidConfig, shouldPersist])
-        as List<Object?>?;
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[captureDeviceId, rfidConfig, shouldPersist]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -621,10 +608,8 @@ class FlutterZebraCapture {
   }
 
   Future<void> setCaptureDeviceForeground(bool foreground) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.setCaptureDeviceForeground$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.setCaptureDeviceForeground$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
@@ -645,10 +630,8 @@ class FlutterZebraCapture {
   }
 
   Future<List<CaptureDiagnosticEvent?>> captureDiagnostics() async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.captureDiagnostics$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.captureDiagnostics$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
@@ -669,16 +652,13 @@ class FlutterZebraCapture {
         message: 'Host platform returned null value for non-null return value.',
       );
     } else {
-      return (pigeonVar_replyList[0] as List<Object?>?)!
-          .cast<CaptureDiagnosticEvent?>();
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<CaptureDiagnosticEvent?>();
     }
   }
 
   Future<void> clearCaptureDiagnostics() async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.clearCaptureDiagnostics$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.clearCaptureDiagnostics$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
@@ -699,10 +679,8 @@ class FlutterZebraCapture {
   }
 
   Future<CaptureDevice?> activeCaptureDevice() async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.activeCaptureDevice$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCapture.activeCaptureDevice$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
@@ -732,29 +710,20 @@ abstract class FlutterZebraCaptureCallbacks {
 
   void onCaptureDeviceStatusChanged(CaptureDevice device);
 
-  static void setUp(
-    FlutterZebraCaptureCallbacks? api, {
-    BinaryMessenger? binaryMessenger,
-    String messageChannelSuffix = '',
-  }) {
-    messageChannelSuffix =
-        messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  static void setUp(FlutterZebraCaptureCallbacks? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
+    messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
-      final BasicMessageChannel<
-          Object?> pigeonVar_channel = BasicMessageChannel<
-              Object?>(
-          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onAvailableCaptureDevicesChanged$messageChannelSuffix',
-          pigeonChannelCodec,
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onAvailableCaptureDevicesChanged$messageChannelSuffix', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-              'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onAvailableCaptureDevicesChanged was null.');
+          'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onAvailableCaptureDevicesChanged was null.');
           final List<Object?> args = (message as List<Object?>?)!;
-          final List<CaptureDevice?>? arg_devices =
-              (args[0] as List<Object?>?)?.cast<CaptureDevice?>();
+          final List<CaptureDevice?>? arg_devices = (args[0] as List<Object?>?)?.cast<CaptureDevice?>();
           assert(arg_devices != null,
               'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onAvailableCaptureDevicesChanged was null, expected non-null List<CaptureDevice?>.');
           try {
@@ -762,26 +731,22 @@ abstract class FlutterZebraCaptureCallbacks {
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-                error: PlatformException(code: 'error', message: e.toString()));
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }
     }
     {
-      final BasicMessageChannel<
-          Object?> pigeonVar_channel = BasicMessageChannel<
-              Object?>(
-          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onActiveCaptureDeviceChanged$messageChannelSuffix',
-          pigeonChannelCodec,
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onActiveCaptureDeviceChanged$messageChannelSuffix', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-              'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onActiveCaptureDeviceChanged was null.');
+          'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onActiveCaptureDeviceChanged was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final CaptureDevice? arg_device = (args[0] as CaptureDevice?);
           try {
@@ -789,26 +754,22 @@ abstract class FlutterZebraCaptureCallbacks {
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-                error: PlatformException(code: 'error', message: e.toString()));
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }
     }
     {
-      final BasicMessageChannel<
-          Object?> pigeonVar_channel = BasicMessageChannel<
-              Object?>(
-          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onCaptureDeviceStatusChanged$messageChannelSuffix',
-          pigeonChannelCodec,
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onCaptureDeviceStatusChanged$messageChannelSuffix', pigeonChannelCodec,
           binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           assert(message != null,
-              'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onCaptureDeviceStatusChanged was null.');
+          'Argument for dev.flutter.pigeon.flutter_zebra_capture.FlutterZebraCaptureCallbacks.onCaptureDeviceStatusChanged was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final CaptureDevice? arg_device = (args[0] as CaptureDevice?);
           assert(arg_device != null,
@@ -818,9 +779,8 @@ abstract class FlutterZebraCaptureCallbacks {
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-                error: PlatformException(code: 'error', message: e.toString()));
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }

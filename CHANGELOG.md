@@ -1,3 +1,9 @@
+## 0.4.10 - 2026-07-28
+
+### Fixed
+- Skip DataWedge initialization and health commands on Samsung Scanner SDK Capture Devices.
+- Expose RFID Reader firmware through the Capture Device capability for support diagnostics.
+
 ## 0.4.9 - 2026-07-28
 
 ### Fixed

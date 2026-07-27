@@ -81,7 +81,7 @@ internal fun shouldInitializeScannerSdk(
     return !(isZebra || isTcSeries)
 }
 
-internal fun shouldAwaitDataWedgeHealth(
+internal fun shouldUseDataWedge(
     manufacturer: String,
     model: String,
     product: String,
@@ -149,24 +149,22 @@ class BarcodeScannerInterface internal constructor(
             }
             getAvailableScannerList()
             emitEndpoints()
-            val awaitDataWedgeHealth = shouldAwaitDataWedgeHealth(
+            val useDataWedge = shouldUseDataWedge(
                 Build.MANUFACTURER.orEmpty(),
                 Build.MODEL.orEmpty(),
                 Build.PRODUCT.orEmpty(),
                 Build.DEVICE.orEmpty(),
             )
-            if (awaitDataWedgeHealth) {
+            if (useDataWedge) {
                 enqueueDataWedgeHealthCheck(onComplete)
             } else {
-                // Scanner SDK is authoritative for Samsung/RFD40+ topology.
-                // Keep DataWedge diagnostics best-effort so the TC22 readiness
-                // gate cannot introduce a startup delay on these devices.
+                diagnostics.record(
+                    "datawedge",
+                    "refresh",
+                    "skipped_for_scanner_sdk_topology",
+                    mapOf("terminal_model" to Build.MODEL.orEmpty()),
+                )
                 onComplete(Result.success(Unit))
-                enqueueDataWedgeHealthCheck { result ->
-                    result.exceptionOrNull()?.let {
-                        Log.d(tag, "Background DataWedge health check failed", it)
-                    }
-                }
             }
         } catch (error: Throwable) {
             diagnostics.record(
@@ -711,16 +709,31 @@ class BarcodeScannerInterface internal constructor(
             preferences.edit().remove(PREF_ACTIVE_ENDPOINT).apply()
             Log.i(tag, "Cleared legacy Scanner SDK endpoint preference")
         }
-        dataWedgeCoordinator = DataWedgeCommandCoordinator(
-            sendIntent = { context.sendOrderedBroadcast(it, null) },
-            scheduleTimeout = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
-            cancelTimeout = { runnable -> mainHandler.removeCallbacks(runnable) },
-            diagnostics = diagnostics,
+        val useDataWedge = shouldUseDataWedge(
+            Build.MANUFACTURER.orEmpty(),
+            Build.MODEL.orEmpty(),
+            Build.PRODUCT.orEmpty(),
+            Build.DEVICE.orEmpty(),
         )
-        registerDataWedgeReceiver(context)
+        if (useDataWedge) {
+            dataWedgeCoordinator = DataWedgeCommandCoordinator(
+                sendIntent = { context.sendOrderedBroadcast(it, null) },
+                scheduleTimeout = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
+                cancelTimeout = { runnable -> mainHandler.removeCallbacks(runnable) },
+                diagnostics = diagnostics,
+            )
+            registerDataWedgeReceiver(context)
+        } else {
+            diagnostics.record(
+                "datawedge",
+                "initialization",
+                "skipped_for_scanner_sdk_topology",
+                mapOf("terminal_model" to Build.MODEL.orEmpty()),
+            )
+        }
         ensureScannerSdkInitialized(context)
         isInitialized = true
-        enqueueDataWedgeStartup()
+        if (useDataWedge) enqueueDataWedgeStartup()
     }
 
     private fun ensureScannerSdkInitialized(context: Context) {

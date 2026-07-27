@@ -48,6 +48,25 @@ internal class CaptureDevicePlannerTest {
   }
 
   @Test
+  fun buildDevices_exposesSelectedReaderFirmwareForDiagnostics() {
+    val device = androidPlanner.buildDevices(
+      readers = listOf(
+        reader(
+          name = "RFD40",
+          id = 1,
+          model = "RFD4031",
+          serial = "RFD40-123",
+          firmware = "6.0.12",
+        ),
+      ),
+      endpoints = emptyList(),
+      state = state(),
+    ).single()
+
+    assertEquals("6.0.12", device.rfid?.firmwareVersion)
+  }
+
+  @Test
   fun buildDevices_iosDoesNotInferBuiltInTerminalBarcodeEndpoint() {
     val devices = iosPlanner.buildDevices(
       readers = listOf(
@@ -228,12 +247,14 @@ internal class CaptureDevicePlannerTest {
     model: String? = null,
     serial: String? = null,
     hardwareIdentity: String? = null,
+    firmware: String? = null,
   ): Reader =
     Reader(
       name = name,
       id = id,
       info = ReaderInfo(
         transmitPowerLevels = emptyList<Any?>(),
+        firmwareVersion = firmware,
         modelVersion = model,
         scannerName = name,
         serialNumber = serial,
