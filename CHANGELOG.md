@@ -1,3 +1,11 @@
+## 0.4.9 - 2026-07-28
+
+### Fixed
+- Wait for DataWedge health and scanner enumeration before completing initial Capture Device discovery.
+- Adopt a late TC22 internal-imager endpoint and recover barcode capture without reconnecting healthy RFID.
+- Suppress Scanner SDK initialization on Zebra TC-series terminals while preserving it for Samsung Bluetooth RFD40+ devices.
+- Require a usable DataWedge scanner state before reporting the barcode capability connected.
+
 ## 0.4.8 - 2026-07-28
 
 ### Added

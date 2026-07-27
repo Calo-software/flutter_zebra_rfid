@@ -66,6 +66,21 @@ internal fun migratePreferredEndpointId(endpointId: String?): String? {
     return endpointId
 }
 
+internal fun shouldInitializeScannerSdk(
+    manufacturer: String,
+    model: String,
+    product: String,
+    device: String,
+): Boolean {
+    val values = listOf(manufacturer, model, product, device).map { it.uppercase() }
+    val isZebra = values.first().contains("ZEBRA") ||
+        values.first().contains("MOTOROLA")
+    val isTcSeries = values.drop(1).any {
+        it.startsWith("TC") || it.contains("TC22") || it.contains("TC27")
+    }
+    return !(isZebra || isTcSeries)
+}
+
 /**
  * Coordinates barcode scanners exposed through Zebra Scanner Control SDK and
  * Android DataWedge. DataWedge is needed for built-in Zebra terminal scanners;
@@ -685,6 +700,26 @@ class BarcodeScannerInterface internal constructor(
 
     private fun ensureScannerSdkInitialized(context: Context) {
         if (sdkHandler != null) return
+        if (
+            !shouldInitializeScannerSdk(
+                Build.MANUFACTURER.orEmpty(),
+                Build.MODEL.orEmpty(),
+                Build.PRODUCT.orEmpty(),
+                Build.DEVICE.orEmpty(),
+            )
+        ) {
+            diagnostics.record(
+                "scanner_sdk",
+                "initialization",
+                "suppressed_for_terminal_datawedge",
+                mapOf("terminal_model" to Build.MODEL.orEmpty()),
+            )
+            synchronized(availableScannerList) {
+                availableScannerList.clear()
+                callbacks.onAvailableScannersChanged(emptyList()) {}
+            }
+            return
+        }
         if (!hasScannerSdkBluetoothPermission(context)) {
             Log.w(
                 tag,
@@ -700,14 +735,7 @@ class BarcodeScannerInterface internal constructor(
         try {
             sdkHandler = SDKHandler(context).also { handler ->
                 handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_BT_NORMAL)
-                if (shouldEnableScannerSdkUsbCdc()) {
-                    handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
-                } else {
-                    Log.i(
-                        tag,
-                        "Suppressing Scanner SDK USB CDC on Zebra terminal so RFID sled USB remains owned by RFID SDK",
-                    )
-                }
+                handler.dcssdkSetOperationalMode(DCSSDKDefs.DCSSDK_MODE.DCSSDK_OPMODE_USB_CDC)
                 rearmScannerSdkEventDelivery(handler)
                 handler.dcssdkEnableAvailableScannersDetection(true)
             }
@@ -719,18 +747,6 @@ class BarcodeScannerInterface internal constructor(
             )
             sdkHandler = null
         }
-    }
-
-    private fun shouldEnableScannerSdkUsbCdc(): Boolean {
-        val manufacturer = Build.MANUFACTURER.orEmpty().uppercase()
-        val model = Build.MODEL.orEmpty().uppercase()
-        val product = Build.PRODUCT.orEmpty().uppercase()
-        val device = Build.DEVICE.orEmpty().uppercase()
-        val isZebra = manufacturer.contains("ZEBRA") || manufacturer.contains("MOTOROLA")
-        val isTcSeries = listOf(model, product, device).any {
-            it.startsWith("TC") || it.contains("TC22") || it.contains("TC27")
-        }
-        return !(isZebra || isTcSeries)
     }
 
     private fun hasScannerSdkBluetoothPermission(context: Context): Boolean {
@@ -1189,7 +1205,7 @@ class BarcodeScannerInterface internal constructor(
     }
 
     private fun isDataWedgeScannerReady(status: String?): Boolean =
-        status == "WAITING" || status == "SCANNING"
+        status == "WAITING" || status == "WAITFORTRIGGER" || status == "SCANNING"
 
     private fun isDataWedgeRfidIntent(intent: Intent): Boolean {
         val source = intent.getStringExtra(DATAWEDGE_SOURCE)

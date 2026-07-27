@@ -127,6 +127,7 @@ class CaptureDeviceCoordinator(
         barcodeInterface.endpointsChangedListener = {
             recordBarcodeEndpointSnapshot("endpoints_changed")
             refreshSelectedBarcodeEndpointSnapshot()
+            adoptLateBarcodeEndpointIfAvailable()
             emitDevices()
         }
         barcodeInterface.connectionStatusListener = { status ->
@@ -155,23 +156,49 @@ class CaptureDeviceCoordinator(
     override fun refreshCaptureDevices(callback: (Result<Unit>) -> Unit) {
         recordDiagnostic("capture_device", "refresh", "started")
         runCatching {
-            refreshDiscovery()
-            emitDevices()
-        }.fold(
-            onSuccess = {
-                recordDiagnostic("capture_device", "refresh", "completed")
-                callback(Result.success(Unit))
-            },
-            onFailure = {
-                recordDiagnostic(
-                    "capture_device",
-                    "refresh",
-                    "failed",
-                    mapOf("error_type" to it.javaClass.simpleName),
-                )
-                callback(Result.failure(it))
-            },
-        )
+            rfidInterface.getAvailableReaderList(ReaderConnectionType.ALL)
+        }.onFailure {
+            recordDiagnostic(
+                "capture_device",
+                "refresh",
+                "failed",
+                mapOf(
+                    "stage" to "rfid_discovery",
+                    "error_type" to it.javaClass.simpleName,
+                ),
+            )
+            callback(Result.failure(it))
+            return
+        }
+        barcodeInterface.refreshBarcodeScanners(context) { result ->
+            result.fold(
+                onSuccess = {
+                    refreshSelectedBarcodeEndpointSnapshot()
+                    recordReaderSnapshot("refresh_complete")
+                    recordBarcodeEndpointSnapshot("refresh_complete")
+                    emitDevices()
+                    recordDiagnostic("capture_device", "refresh", "completed")
+                    callback(Result.success(Unit))
+                },
+                onFailure = {
+                    recordDiagnostic(
+                        "capture_device",
+                        "refresh",
+                        "failed",
+                        mapOf(
+                            "stage" to "datawedge_health",
+                            "error_type" to it.javaClass.simpleName,
+                        ),
+                    )
+                    emitDevices()
+                    // DataWedge failure must not prevent the RFID-only portion
+                    // of a Capture Device from connecting. The coordinator
+                    // will expose a degraded barcode capability and recover it
+                    // when DataWedge later enumerates a usable endpoint.
+                    callback(Result.success(Unit))
+                },
+            )
+        }
     }
 
     override fun connectCaptureDevice(
@@ -1137,6 +1164,41 @@ class CaptureDeviceCoordinator(
         barcodeInterface.barcodeEndpoints()
             .firstOrNull { it.endpointId == selectedId }
             ?.let { selectedBarcodeEndpoint = it }
+    }
+
+    private fun adoptLateBarcodeEndpointIfAvailable() {
+        if (
+            disposed ||
+            activeCaptureDeviceId == null ||
+            activeRfidStatus != CaptureCapabilityStatus.CONNECTED
+        ) {
+            return
+        }
+        val active = buildDevices().firstOrNull { it.id == activeCaptureDeviceId }
+            ?: return
+        val endpointId = active.barcode?.endpointId ?: return
+        if (selectedBarcodeEndpoint?.endpointId == endpointId &&
+            activeBarcodeStatus == CaptureCapabilityStatus.CONNECTED
+        ) {
+            return
+        }
+        val endpoint = barcodeInterface.barcodeEndpoints()
+            .firstOrNull { it.endpointId == endpointId }
+            ?: return
+        selectedBarcodeEndpoint = endpoint
+        activeBarcodeStatus = CaptureCapabilityStatus.CONNECTING
+        activeBarcodeError = null
+        recordDiagnostic(
+            category = "barcode",
+            operation = "late_endpoint",
+            outcome = "adopted",
+            details = barcodeDetails(endpoint),
+        )
+        if (!lifecycleOperationActive) {
+            recoverBarcodeOnly("late_endpoint")
+        } else {
+            pendingReadiness = true
+        }
     }
 
     private fun emitDevices() {

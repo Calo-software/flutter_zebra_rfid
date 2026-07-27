@@ -28,6 +28,123 @@ import org.robolectric.Shadows
 @RunWith(RobolectricTestRunner::class)
 internal class CaptureDeviceCoordinatorTest {
     @Test
+    fun refreshWaitsForDataWedgeHealthAndDelayedEndpointEnumeration() {
+        val context = Mockito.mock(Context::class.java)
+        val rfid = Mockito.mock(RFIDReaderInterface::class.java)
+        val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
+        val callbacks = Mockito.mock(FlutterZebraCaptureCallbacks::class.java)
+        val endpoint = BarcodeScannerEndpoint(
+            endpointId = "datawedge:INTERNAL_IMAGER",
+            displayName = "TC22 internal imager",
+            source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+            mode = BarcodeScannerMode.DATA_WEDGE,
+            connectionStatus = ScannerConnectionStatus.CONNECTED,
+            active = false,
+            preferred = false,
+            zebraScannerIdentifier = "INTERNAL_IMAGER",
+        )
+        var endpoints = emptyList<BarcodeScannerEndpoint>()
+        var healthCompletion: ((Result<Unit>) -> Unit)? = null
+        var result: Result<Unit>? = null
+
+        Mockito.`when`(rfid.availableReadersSnapshot()).thenReturn(emptyList())
+        Mockito.`when`(barcode.barcodeEndpoints()).thenAnswer { endpoints }
+        Mockito.doAnswer { invocation ->
+            healthCompletion = invocation.getArgument(1)
+            null
+        }.`when`(barcode).refreshBarcodeScanners(
+            anyValue(),
+            anyValue(),
+        )
+
+        val coordinator = CaptureDeviceCoordinator(context, rfid, barcode, callbacks)
+        coordinator.refreshCaptureDevices { result = it }
+
+        assertNull(result)
+        assertNotNull(healthCompletion)
+
+        endpoints = listOf(endpoint)
+        healthCompletion!!.invoke(Result.success(Unit))
+
+        assertTrue(result!!.isSuccess)
+    }
+
+    @Test
+    fun lateTc22DataWedgeEndpointUsesBarcodeOnlyRecoveryWithoutRfidReconnect() {
+        val context = Mockito.mock(Context::class.java)
+        val rfid = Mockito.mock(RFIDReaderInterface::class.java)
+        val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
+        val callbacks = Mockito.mock(FlutterZebraCaptureCallbacks::class.java)
+        val reader = Reader(
+            name = "RFD40",
+            id = 0,
+            info = null,
+            hardwareIdentity = "USB:RFD40",
+        )
+        val endpoint = BarcodeScannerEndpoint(
+            endpointId = "datawedge:INTERNAL_IMAGER",
+            displayName = "TC22 internal imager",
+            source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+            mode = BarcodeScannerMode.DATA_WEDGE,
+            connectionStatus = ScannerConnectionStatus.DISCONNECTED,
+            active = false,
+            preferred = false,
+            zebraScannerIdentifier = "INTERNAL_IMAGER",
+        )
+        var endpoints = emptyList<BarcodeScannerEndpoint>()
+        var endpointsChanged: (() -> Unit)? = null
+        var rfidStatusListener: ((ReaderConnectionStatus) -> Unit)? = null
+
+        Mockito.doAnswer { invocation ->
+            endpointsChanged = invocation.getArgument(0)
+            null
+        }.`when`(barcode).endpointsChangedListener = anyValue()
+        Mockito.doAnswer { invocation ->
+            rfidStatusListener = invocation.getArgument(0)
+            null
+        }.`when`(rfid).connectionStatusListener = anyValue()
+        Mockito.`when`(rfid.availableReadersSnapshot()).thenReturn(listOf(reader))
+        Mockito.`when`(barcode.barcodeEndpoints()).thenAnswer { endpoints }
+        Mockito.doAnswer { invocation ->
+            invocation.getArgument<(Result<Unit>) -> Unit>(1)
+                .invoke(Result.success(Unit))
+            null
+        }.`when`(barcode).setActiveEndpointForCaptureDevice(
+            Mockito.anyString(),
+            anyValue(),
+        )
+        Mockito.doAnswer { invocation ->
+            invocation.getArgument<(Result<Unit>) -> Unit>(0)
+                .invoke(Result.success(Unit))
+            null
+        }.`when`(rfid).reassertCaptureDeviceTriggerOwnership(anyValue())
+
+        val coordinator = CaptureDeviceCoordinator(context, rfid, barcode, callbacks)
+        coordinator.connectCaptureDevice("capture:rfid:USB:RFD40", null) {}
+        rfidStatusListener!!.invoke(ReaderConnectionStatus.CONNECTED)
+
+        endpoints = listOf(endpoint)
+        endpointsChanged!!.invoke()
+
+        Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
+            0,
+            "USB:RFD40",
+            false,
+        )
+        Mockito.verify(barcode, Mockito.times(1))
+            .setActiveEndpointForCaptureDevice(
+                Mockito.anyString(),
+                anyValue(),
+            )
+        Mockito.verify(barcode, Mockito.never())
+            .connectToScannerForCaptureDevice(Mockito.anyInt(), anyValue())
+        assertEquals(
+            CaptureCapabilityStatus.CONNECTED,
+            coordinator.activeCaptureDevice()?.barcode?.status,
+        )
+    }
+
+    @Test
     fun comboCaptureDeviceRestoresBarcodeOnlyAfterRfidIsReady() {
         val context = Mockito.mock(Context::class.java)
         val rfid = Mockito.mock(RFIDReaderInterface::class.java)
