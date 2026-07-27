@@ -459,8 +459,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun connectScanner(scannerId: Long, callback: (Result<Unit>) -> Unit) {
         try {
-            scannerInterface!!.connectToScanner(scannerId.toInt())
-            callback(Result.success(Unit))
+            scannerInterface!!.connectToScanner(scannerId.toInt(), callback)
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }
@@ -468,8 +467,7 @@ class FlutterZebraRfidPlugin : FlutterPlugin,
 
     override fun disconnectScanner(callback: (Result<Unit>) -> Unit) {
         try {
-            scannerInterface!!.disconnectCurrentScanner()
-            callback(Result.success(Unit))
+            scannerInterface!!.disconnectCurrentScanner(callback)
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }

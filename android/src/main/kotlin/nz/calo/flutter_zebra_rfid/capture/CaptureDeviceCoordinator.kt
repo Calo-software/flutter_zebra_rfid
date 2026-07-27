@@ -115,7 +115,21 @@ class CaptureDeviceCoordinator(
                     val endpoint = barcodeInterface.barcodeEndpoints()
                         .firstOrNull { it.endpointId == barcode.endpointId }
                     if (endpoint?.mode == BarcodeScannerMode.SCANNER_SDK && endpoint.scannerId != null) {
-                        barcodeInterface.connectToScanner(endpoint.scannerId.toInt())
+                        barcodeInterface.connectToScanner(endpoint.scannerId.toInt()) { result ->
+                            result.fold(
+                                onSuccess = {
+                                    activeBarcodeError = null
+                                },
+                                onFailure = { error ->
+                                    activeBarcodeStatus = CaptureCapabilityStatus.ERROR
+                                    activeBarcodeError = error.message ?: error.toString()
+                                    Log.e(tag, "Barcode connect failed", error)
+                                },
+                            )
+                            emitDevices()
+                            callback(result)
+                        }
+                        return
                     } else {
                         activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
                     }
@@ -148,12 +162,13 @@ class CaptureDeviceCoordinator(
                 pendingRfidConfigApplied = false
             }
             rfidInterface.disconnectCurrentReader()
-            barcodeInterface.disconnectCurrentScanner()
-            if (activeCaptureDeviceId == captureDeviceId) {
-                activeCaptureDeviceId = null
+            barcodeInterface.disconnectCurrentScanner { result ->
+                if (activeCaptureDeviceId == captureDeviceId) {
+                    activeCaptureDeviceId = null
+                }
+                emitDevices()
+                callback(result)
             }
-            emitDevices()
-            callback(Result.success(Unit))
         } catch (e: Throwable) {
             callback(Result.failure(e))
         }

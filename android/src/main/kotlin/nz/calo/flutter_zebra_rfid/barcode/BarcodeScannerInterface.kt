@@ -32,8 +32,11 @@ import java.util.Collections
  * Android DataWedge. DataWedge is needed for built-in Zebra terminal scanners;
  * Scanner Control is still used for external scanners such as sled scanners.
  */
-class BarcodeScannerInterface(
-    private val callbacks: FlutterZebraBarcodeCallbacks
+class BarcodeScannerInterface internal constructor(
+    private val callbacks: FlutterZebraBarcodeCallbacks,
+    private val sessionRunner: ScannerSdkSessionRunner = ScannerSdkSessionRunner(
+        postToMain = { operation -> Handler(Looper.getMainLooper()).post(operation) },
+    ),
 ) : IDcsSdkApiDelegate {
     private val tag = "FlutterZebraBarcode"
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -87,37 +90,134 @@ class BarcodeScannerInterface(
         }
     }
 
-    fun connectToScanner(scannerId: Int) {
+    fun connectToScanner(
+        scannerId: Int,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
         val scanner = synchronized(availableScannerList) {
             availableScannerList.firstOrNull { it.scannerID == scannerId }
-        } ?: throw Error("Scanner not available")
-
-        if (scanner == currentScanner) {
-            setActiveEndpoint(scannerSdkEndpointId(scanner.scannerID))
+        }
+        if (scanner == null) {
+            onComplete(Result.failure(IllegalStateException("Scanner not available")))
             return
         }
 
-        val handler = sdkHandler ?: throw Error("Barcode Scanner SDK is not initialized")
+        if (scanner == currentScanner) {
+            setActiveEndpoint(scannerSdkEndpointId(scanner.scannerID))
+            onComplete(Result.success(Unit))
+            return
+        }
+
+        val handler = sdkHandler
+        if (handler == null) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("Barcode Scanner SDK is not initialized"),
+                ),
+            )
+            return
+        }
+        val expectedEndpointId = scannerSdkEndpointId(scanner.scannerID)
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.CONNECTING) {}
         connectionStatusListener?.invoke(ScannerConnectionStatus.CONNECTING)
-        val result = handler.dcssdkEstablishCommunicationSession(scanner.scannerID)
-        if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
-            callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTED) {}
-            connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
-            throw Error("Failed to connect to scanner ${scanner.scannerName}: $result")
+        sessionRunner.run(
+            operation = ScannerSdkSessionOperation.ESTABLISH,
+            scannerId = scanner.scannerID,
+            sdkCall = {
+                handler.dcssdkEstablishCommunicationSession(scanner.scannerID)
+            },
+        ) { operationResult ->
+            operationResult.fold(
+                onSuccess = { result ->
+                    if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                        callbacks.onScannerConnectionStatusChanged(
+                            ScannerConnectionStatus.DISCONNECTED,
+                        ) {}
+                        connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
+                        onComplete(
+                            Result.failure(
+                                IllegalStateException(
+                                    "Failed to connect to scanner ${scanner.scannerName}: $result",
+                                ),
+                            ),
+                        )
+                    } else if (
+                        activeEndpointId != null &&
+                        activeEndpointId != expectedEndpointId
+                    ) {
+                        onComplete(
+                            Result.failure(
+                                IllegalStateException(
+                                    "Scanner endpoint changed while connection was in progress",
+                                ),
+                            ),
+                        )
+                    } else {
+                        setActiveEndpoint(expectedEndpointId)
+                        onComplete(Result.success(Unit))
+                    }
+                },
+                onFailure = { error ->
+                    callbacks.onScannerConnectionStatusChanged(
+                        ScannerConnectionStatus.DISCONNECTED,
+                    ) {}
+                    connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTED)
+                    onComplete(Result.failure(error))
+                },
+            )
         }
-        setActiveEndpoint(scannerSdkEndpointId(scanner.scannerID))
     }
 
-    fun disconnectCurrentScanner() {
-        val scanner = currentScanner ?: return
+    fun disconnectCurrentScanner(onComplete: (Result<Unit>) -> Unit) {
+        val scanner = currentScanner
+        if (scanner == null) {
+            onComplete(Result.success(Unit))
+            return
+        }
+        val handler = sdkHandler
+        if (handler == null) {
+            onComplete(
+                Result.failure(
+                    IllegalStateException("Barcode Scanner SDK is not initialized"),
+                ),
+            )
+            return
+        }
         callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.DISCONNECTING) {}
         connectionStatusListener?.invoke(ScannerConnectionStatus.DISCONNECTING)
-        val result = sdkHandler?.dcssdkTerminateCommunicationSession(scanner.scannerID)
-        if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
-            callbacks.onScannerConnectionStatusChanged(ScannerConnectionStatus.ERROR) {}
-            connectionStatusListener?.invoke(ScannerConnectionStatus.ERROR)
-            throw Error("Failed to disconnect from current scanner")
+        sessionRunner.run(
+            operation = ScannerSdkSessionOperation.TERMINATE,
+            scannerId = scanner.scannerID,
+            sdkCall = {
+                handler.dcssdkTerminateCommunicationSession(scanner.scannerID)
+            },
+        ) { operationResult ->
+            operationResult.fold(
+                onSuccess = { result ->
+                    if (result != DCSSDKDefs.DCSSDK_RESULT.DCSSDK_RESULT_SUCCESS) {
+                        callbacks.onScannerConnectionStatusChanged(
+                            ScannerConnectionStatus.ERROR,
+                        ) {}
+                        connectionStatusListener?.invoke(ScannerConnectionStatus.ERROR)
+                        onComplete(
+                            Result.failure(
+                                IllegalStateException(
+                                    "Failed to disconnect from current scanner: $result",
+                                ),
+                            ),
+                        )
+                    } else {
+                        onComplete(Result.success(Unit))
+                    }
+                },
+                onFailure = { error ->
+                    callbacks.onScannerConnectionStatusChanged(
+                        ScannerConnectionStatus.ERROR,
+                    ) {}
+                    connectionStatusListener?.invoke(ScannerConnectionStatus.ERROR)
+                    onComplete(Result.failure(error))
+                },
+            )
         }
     }
 
@@ -191,6 +291,7 @@ class BarcodeScannerInterface(
             }
             dataWedgeCoordinator?.cancel()
             dataWedgeCoordinator = null
+            sessionRunner.dispose()
             sdkHandler = null
         } catch (e: Exception) {
             Log.w(tag, "Barcode dispose failed", e)
