@@ -65,7 +65,7 @@ internal fun CaptureDiagnosticSink.record(
     outcome: String,
 ) = record(category, operation, outcome, emptyMap())
 
-class CaptureDiagnosticStore(
+class CaptureDiagnosticStore internal constructor(
     directory: File,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val ioExecutor: Executor = Executors.newSingleThreadExecutor { runnable ->
@@ -74,11 +74,14 @@ class CaptureDiagnosticStore(
     private val maxEvents: Int = 500,
     private val maxAgeMs: Long = 15 * 60 * 1_000L,
     private val maxBytes: Int = 256 * 1_024,
+    private val encodedRecordObserver: () -> Unit = {},
 ) : CaptureDiagnosticSink {
     private val file = File(directory, FILE_NAME)
     private val records = ArrayDeque<CaptureDiagnosticRecord>()
+    private val encodedRecordSizes = ArrayDeque<Int>()
     private val persistScheduled = AtomicBoolean(false)
     private var nextSequence = 1L
+    private var encodedBytes = 0
     @Volatile
     private var persistDirty = false
 
@@ -93,16 +96,18 @@ class CaptureDiagnosticStore(
         details: Map<String, Any?>,
     ) {
         synchronized(records) {
-            records.addLast(
-                CaptureDiagnosticRecord(
-                    timestampMs = nowMillis(),
-                    sequence = nextSequence++,
-                    category = category.take(MAX_TEXT_LENGTH),
-                    operation = operation.take(MAX_TEXT_LENGTH),
-                    outcome = outcome.take(MAX_TEXT_LENGTH),
-                    details = sanitizeDetails(details),
-                ),
+            val record = CaptureDiagnosticRecord(
+                timestampMs = nowMillis(),
+                sequence = nextSequence++,
+                category = category.take(MAX_TEXT_LENGTH),
+                operation = operation.take(MAX_TEXT_LENGTH),
+                outcome = outcome.take(MAX_TEXT_LENGTH),
+                details = sanitizeDetails(details),
             )
+            val encodedSize = encodedRecordSize(record)
+            records.addLast(record)
+            encodedRecordSizes.addLast(encodedSize)
+            encodedBytes += encodedSize
             pruneLocked()
         }
         schedulePersist()
@@ -116,6 +121,8 @@ class CaptureDiagnosticStore(
     fun clear() {
         synchronized(records) {
             records.clear()
+            encodedRecordSizes.clear()
+            encodedBytes = 0
         }
         schedulePersist()
     }
@@ -133,7 +140,12 @@ class CaptureDiagnosticStore(
                 .map { CaptureDiagnosticRecord.fromJson(JSONObject(it)) }
         }.onSuccess { loaded ->
             synchronized(records) {
-                records.addAll(loaded)
+                loaded.forEach { record ->
+                    val encodedSize = encodedRecordSize(record)
+                    records.addLast(record)
+                    encodedRecordSizes.addLast(encodedSize)
+                    encodedBytes += encodedSize
+                }
                 nextSequence = (records.maxOfOrNull { it.sequence } ?: 0L) + 1L
                 pruneLocked()
             }
@@ -172,18 +184,24 @@ class CaptureDiagnosticStore(
     private fun pruneLocked() {
         val oldestAllowed = nowMillis() - maxAgeMs
         while (records.firstOrNull()?.timestampMs?.let { it < oldestAllowed } == true) {
-            records.removeFirst()
+            removeFirstLocked()
         }
         while (records.size > maxEvents) {
-            records.removeFirst()
+            removeFirstLocked()
         }
-        while (records.size > 1 && encodedSizeLocked() > maxBytes) {
-            records.removeFirst()
+        while (records.size > 1 && encodedBytes > maxBytes) {
+            removeFirstLocked()
         }
     }
 
-    private fun encodedSizeLocked(): Int = records.sumOf {
-        it.toJson().toString().toByteArray(StandardCharsets.UTF_8).size + 1
+    private fun removeFirstLocked() {
+        records.removeFirst()
+        encodedBytes -= encodedRecordSizes.removeFirst()
+    }
+
+    private fun encodedRecordSize(record: CaptureDiagnosticRecord): Int {
+        encodedRecordObserver()
+        return record.toJson().toString().toByteArray(StandardCharsets.UTF_8).size + 1
     }
 
     private fun sanitizeDetails(details: Map<String, Any?>): Map<String, String> =

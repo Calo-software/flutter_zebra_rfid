@@ -1,15 +1,20 @@
 package nz.calo.flutter_zebra_rfid
 
 import FlutterZebraBarcodeCallbacks
+import android.content.Intent
 import android.os.Looper
+import android.os.Bundle
 import com.zebra.scannercontrol.DCSSDKDefs
 import com.zebra.scannercontrol.DCSScannerInfo
 import com.zebra.scannercontrol.SDKHandler
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
+import nz.calo.flutter_zebra_rfid.barcode.DataWedgeReadinessLatch
 import nz.calo.flutter_zebra_rfid.barcode.migratePreferredEndpointId
 import nz.calo.flutter_zebra_rfid.barcode.shouldInitializeScannerSdk
 import nz.calo.flutter_zebra_rfid.barcode.shouldUseDataWedge
 import nz.calo.flutter_zebra_rfid.barcode.stableScannerSdkEndpointId
+import nz.calo.flutter_zebra_rfid.barcode.scannerStatusFromNotification
+import nz.calo.flutter_zebra_rfid.capture.CaptureDiagnosticSink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -26,6 +31,85 @@ import org.robolectric.annotation.LooperMode
 @RunWith(RobolectricTestRunner::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 internal class BarcodeScannerInterfaceTest {
+    @Test
+    fun decodedDataReachesFlutterBeforeDiagnosticBookkeeping() {
+        var delivered = false
+        val callbacks = Mockito.mock(FlutterZebraBarcodeCallbacks::class.java)
+        Mockito.doAnswer {
+            delivered = true
+            null
+        }.`when`(callbacks).onBarcodeRead(
+            anyValue(),
+            anyValue(),
+        )
+        val diagnostics = CaptureDiagnosticSink { _, operation, _, _ ->
+            if (operation == "decoded") {
+                assertTrue("diagnostics ran before barcode delivery", delivered)
+            }
+        }
+        val subject = BarcodeScannerInterface(
+            callbacks = callbacks,
+            diagnostics = diagnostics,
+        )
+        val intent = Intent().putExtra(
+            "com.symbol.datawedge.data_string",
+            "order-123",
+        )
+        val method = subject.javaClass.getDeclaredMethod(
+            "handleDataWedgeBarcode",
+            Intent::class.java,
+        )
+        method.isAccessible = true
+
+        method.invoke(subject, intent)
+
+        assertTrue(delivered)
+        subject.onDestroy()
+    }
+
+    @Test
+    fun unchangedEndpointSnapshotIsNotEmittedTwice() {
+        val callbacks = Mockito.mock(FlutterZebraBarcodeCallbacks::class.java)
+        val scanner = Mockito.mock(DCSScannerInfo::class.java)
+        Mockito.`when`(scanner.scannerID).thenReturn(7)
+        Mockito.`when`(scanner.scannerName).thenReturn("RFD40 barcode")
+        val subject = BarcodeScannerInterface(callbacks)
+        scannerList(subject).add(scanner)
+        val method = subject.javaClass.getDeclaredMethod("emitEndpoints")
+        method.isAccessible = true
+
+        method.invoke(subject)
+        method.invoke(subject)
+
+        Mockito.verify(callbacks, Mockito.times(1))
+            .onAvailableBarcodeScannersChanged(anyValue(), anyValue())
+        Mockito.verify(callbacks, Mockito.times(1))
+            .onActiveBarcodeScannerChanged(anyValue(), anyValue())
+        subject.onDestroy()
+    }
+
+    @Test
+    fun retainedReadinessCompletesOnceWhenWaitingNotificationArrives() {
+        var completions = 0
+        val latch = DataWedgeReadinessLatch { completions += 1 }
+
+        assertFalse(latch.observe("DISABLED"))
+        assertTrue(latch.observe("WAITING"))
+        assertFalse(latch.observe("WAITFORTRIGGER"))
+        assertEquals(1, completions)
+    }
+
+    @Test
+    fun scannerStatusNotificationReadsDocumentedStatusField() {
+        val notification = Bundle().apply {
+            putString("NOTIFICATION_TYPE", "SCANNER_STATUS")
+            putString("STATUS", "WAITING")
+            putString("PROFILE_NAME", "com.example.app.barcode")
+        }
+
+        assertEquals("WAITING", scannerStatusFromNotification(notification))
+    }
+
     @Test
     fun tc22UsesDataWedgeWithoutInitializingScannerSdk() {
         assertFalse(
@@ -258,5 +342,11 @@ internal class BarcodeScannerInterfaceTest {
             Thread.sleep(10)
         }
         assertTrue("Condition was not met within ${timeoutMs}ms", condition())
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> anyValue(): T {
+        Mockito.any<T>()
+        return null as T
     }
 }

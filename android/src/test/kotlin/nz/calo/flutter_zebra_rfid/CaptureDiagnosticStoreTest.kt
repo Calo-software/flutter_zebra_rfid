@@ -2,6 +2,7 @@ package nz.calo.flutter_zebra_rfid
 
 import java.nio.file.Files
 import java.util.concurrent.Executor
+import kotlin.system.measureTimeMillis
 import nz.calo.flutter_zebra_rfid.capture.CaptureDiagnosticStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +13,41 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 internal class CaptureDiagnosticStoreTest {
+    @Test
+    fun recordingAFullBufferDoesNotReencodeItsHistoryOnTheCaller() {
+        val directory = Files.createTempDirectory("capture-diagnostics").toFile()
+        var encodedRecords = 0
+        val store = CaptureDiagnosticStore(
+            directory = directory,
+            nowMillis = { 1_000L },
+            ioExecutor = Executor { },
+            maxBytes = 2 * 1024 * 1024,
+            encodedRecordObserver = { encodedRecords += 1 },
+        )
+
+        val elapsedMs = measureTimeMillis {
+            repeat(500) { index ->
+                store.record(
+                    "barcode",
+                    "event-$index",
+                    "received",
+                    mapOf("endpoint_status" to "WAITING"),
+                )
+            }
+        }
+
+        assertEquals(500, store.snapshot().size)
+        assertEquals(
+            "each record should be encoded once for byte accounting",
+            500,
+            encodedRecords,
+        )
+        assertTrue(
+            "recording blocked the caller for ${elapsedMs}ms",
+            elapsedMs < 250,
+        )
+    }
+
     @Test
     fun recordsOrderedPrivacySafeEvents() {
         val directory = Files.createTempDirectory("capture-diagnostics").toFile()

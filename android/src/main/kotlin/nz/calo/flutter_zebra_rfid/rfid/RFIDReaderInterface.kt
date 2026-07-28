@@ -84,6 +84,12 @@ internal fun readerConnectionTypeToDiscoveryTransports(type: ReaderConnectionTyp
     }
 }
 
+enum class CaptureDeviceBarcodeTriggerTarget {
+    NONE,
+    TERMINAL_IMAGER,
+    RFD_BARCODE_ENGINE,
+}
+
 internal fun batteryDataFromStatistics(statistics: BatteryStatistics): BatteryData? {
     val percentage = statistics.percentage.takeIf { it in 0..100 } ?: return null
     return BatteryData(
@@ -280,10 +286,14 @@ class RFIDReaderInterface(
     private var connectionOwnership = RfidConnectionOwnership.LEGACY
     private var managedHardwareIdentity: String? = null
     private var captureDeviceControlsBarcode = false
+    private var captureDeviceBarcodeTriggerTarget =
+        CaptureDeviceBarcodeTriggerTarget.NONE
     @Volatile private var captureDeviceTriggerRearmPending = false
     @Volatile private var captureDeviceTriggerPressObserved = false
     private var recoveryProbeStopRunnable: Runnable? = null
     private var eventsBoundReader: RFIDReader? = null
+    private var consecutiveCommandTimeouts = 0
+    private var commandTimeoutRecoveryRequested = false
 
     private val CONNECT_TIMEOUT_MS = 10_000L
     private val RETRY_BACKOFF_MS = 2_000L
@@ -382,6 +392,9 @@ class RFIDReaderInterface(
             lastErrorCode = null
             lastErrorMessage = null
         }
+        if (newState == InternalConnectionState.CONNECTED) {
+            recordResponsiveReaderActivity()
+        }
         internalState = newState
         externalStatus?.let { status ->
             mainHandler.post {
@@ -467,9 +480,9 @@ class RFIDReaderInterface(
             Log.d(TAG, "RFID event listener was already detached while retiring: $reason")
         }
         runCatching {
-            if (targetReader.isConnected) {
-                targetReader.disconnect()
-            }
+            // Zebra requires disconnect after a connection attempt even when
+            // isConnected is stale or false.
+            targetReader.disconnect()
         }.onFailure {
             Log.w(TAG, "Failed to disconnect RFID session while retiring: $reason", it)
         }
@@ -710,13 +723,13 @@ class RFIDReaderInterface(
     fun connectReaderForCaptureDevice(
         readerId: Long,
         hardwareIdentity: String,
-        controlsBarcode: Boolean,
+        barcodeTriggerTarget: CaptureDeviceBarcodeTriggerTarget,
     ): ReaderInfo? =
         connectReaderInternal(
             readerId = readerId,
             ownership = RfidConnectionOwnership.CAPTURE_DEVICE,
             hardwareIdentity = hardwareIdentity,
-            controlsBarcode = controlsBarcode,
+            barcodeTriggerTarget = barcodeTriggerTarget,
         )
 
     @Synchronized
@@ -724,7 +737,8 @@ class RFIDReaderInterface(
         readerId: Long,
         ownership: RfidConnectionOwnership,
         hardwareIdentity: String?,
-        controlsBarcode: Boolean = false,
+        barcodeTriggerTarget: CaptureDeviceBarcodeTriggerTarget =
+            CaptureDeviceBarcodeTriggerTarget.NONE,
     ): ReaderInfo? {
         Log.i(TAG, "========== CONNECT READER STARTED ==========")
         Log.i(TAG, "Requested reader ID: $readerId")
@@ -742,9 +756,12 @@ class RFIDReaderInterface(
 
         if (ownership == RfidConnectionOwnership.CAPTURE_DEVICE) {
             val identity = requireNotNull(hardwareIdentity)
+            val controlsBarcode =
+                barcodeTriggerTarget != CaptureDeviceBarcodeTriggerTarget.NONE
             connectionOwnership = ownership
             managedHardwareIdentity = identity
             captureDeviceControlsBarcode = controlsBarcode
+            captureDeviceBarcodeTriggerTarget = barcodeTriggerTarget
             captureDeviceTriggerRearmPending = controlsBarcode
             captureDeviceTriggerPressObserved = false
             autoReconnectEnabled = false
@@ -1514,7 +1531,9 @@ class RFIDReaderInterface(
         val targetReader = reader ?: return ReaderPowerStateDiagnostic(null)
         if (!targetReader.isConnected) return ReaderPowerStateDiagnostic(null)
         return try {
-            ReaderPowerStateDiagnostic(readerPowerStateLabel(targetReader.Config.readerPowerState))
+            val state = readerPowerStateLabel(targetReader.Config.readerPowerState)
+            recordResponsiveReaderActivity()
+            ReaderPowerStateDiagnostic(state)
         } catch (error: OperationFailureException) {
             val details = listOfNotNull(
                 error.results?.let { "result=$it" },
@@ -1522,6 +1541,13 @@ class RFIDReaderInterface(
                 error.vendorMessage?.takeIf { it.isNotBlank() }?.let { "vendor=$it" },
             ).joinToString(", ").ifBlank { "OperationFailureException" }
             Log.w(TAG, "Reader power-state diagnostics unavailable: $details", error)
+            if (error.results == RFIDResults.RFID_API_COMMAND_TIMEOUT) {
+                recordReaderCommandTimeout(targetReader, details)
+            } else {
+                // An explicit SDK response, including unsupported-command,
+                // proves the command channel is still responsive.
+                recordResponsiveReaderActivity()
+            }
             ReaderPowerStateDiagnostic("unavailable", details)
         } catch (error: InvalidUsageException) {
             val details = listOfNotNull(
@@ -1535,6 +1561,69 @@ class RFIDReaderInterface(
                 ?: error.javaClass.simpleName
             Log.w(TAG, "Reader power-state diagnostics unavailable: $details", error)
             ReaderPowerStateDiagnostic("unavailable", details)
+        }
+    }
+
+    @Synchronized
+    private fun recordResponsiveReaderActivity() {
+        consecutiveCommandTimeouts = 0
+        commandTimeoutRecoveryRequested = false
+    }
+
+    private fun recordReaderCommandTimeout(
+        targetReader: RFIDReader,
+        details: String,
+    ) {
+        val shouldRecover = synchronized(this) {
+            if (
+                reader !== targetReader ||
+                connectionOwnership != RfidConnectionOwnership.CAPTURE_DEVICE ||
+                internalState != InternalConnectionState.CONNECTED ||
+                lifecycleGate.hasActiveOperation() ||
+                commandTimeoutRecoveryRequested
+            ) {
+                false
+            } else {
+                consecutiveCommandTimeouts += 1
+                if (consecutiveCommandTimeouts >= 2) {
+                    commandTimeoutRecoveryRequested = true
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        if (!shouldRecover) return
+
+        Log.w(
+            TAG,
+            "RFID command channel timed out twice; retiring stale Capture Device session: $details",
+        )
+        lastDisconnectTimestamp = System.currentTimeMillis()
+        unexpectedDisconnectCount += 1
+        if (inventoryActive) {
+            inventoryActive = false
+            lastInventoryStopTimestamp = lastDisconnectTimestamp
+            lastInventoryStopReason = "RFID command timeout"
+        }
+        cancelInventoryWatchdog()
+        cancelScheduledPurge()
+        cancelRecoveryProbeStop()
+        captureDeviceTriggerRearmPending = captureDeviceControlsBarcode
+        captureDeviceTriggerPressObserved = false
+        lifecycleGate.invalidate()
+        updateConnectionState(
+            InternalConnectionState.DISCONNECTED,
+            ReaderConnectionStatus.DISCONNECTED,
+            "Reader command channel is unresponsive",
+        )
+        retireReaderSession(
+            targetReader = targetReader,
+            reason = "RFID command timeout",
+            disposeBeforeRediscovery = true,
+        )
+        mainHandler.post {
+            managedRecoveryRequestListener?.invoke("rfid_command_timeout")
         }
     }
 
@@ -1734,6 +1823,8 @@ class RFIDReaderInterface(
                         connectionOwnership = RfidConnectionOwnership.LEGACY
                         managedHardwareIdentity = null
                         captureDeviceControlsBarcode = false
+                        captureDeviceBarcodeTriggerTarget =
+                            CaptureDeviceBarcodeTriggerTarget.NONE
                         autoReconnectEnabled = true
                     }
                 }
@@ -2029,15 +2120,50 @@ class RFIDReaderInterface(
     private fun applyCaptureDeviceTriggerOwnership(targetReader: RFIDReader) {
         val triggerInfo = buildInventoryTriggerInfo()
         targetReader.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, false)
-        val keyLayoutResult = targetReader.Config.setKeylayoutType(
-            ENUM_NEW_KEYLAYOUT_TYPE.RFID,
-            ENUM_NEW_KEYLAYOUT_TYPE.SLED_SCAN,
+        val lowerTrigger = when (captureDeviceBarcodeTriggerTarget) {
+            CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER ->
+                ENUM_NEW_KEYLAYOUT_TYPE.TERMINAL_SCAN
+            CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE ->
+                ENUM_NEW_KEYLAYOUT_TYPE.SLED_SCAN
+            CaptureDeviceBarcodeTriggerTarget.NONE ->
+                error("Capture Device does not share the RFD trigger with barcode")
+        }
+        Log.i(
+            TAG,
+            "Applying RFD trigger layout: upper=RFID lower=${lowerTrigger.name}",
         )
-        check(keyLayoutResult == RFIDResults.RFID_API_SUCCESS) {
-            "Failed to restore RFD trigger ownership: $keyLayoutResult"
+        val keyLayoutResult = try {
+            targetReader.Config.setKeylayoutType(
+                ENUM_NEW_KEYLAYOUT_TYPE.RFID,
+                lowerTrigger,
+            )
+        } catch (error: OperationFailureException) {
+            if (error.results != RFIDResults.RFID_API_OPTION_NOT_ALLOWED) {
+                throw error
+            }
+            logUnsupportedCaptureDeviceKeyLayout()
+            null
+        }
+        when (keyLayoutResult) {
+            null, RFIDResults.RFID_API_SUCCESS -> Unit
+            RFIDResults.RFID_API_OPTION_NOT_ALLOWED ->
+                logUnsupportedCaptureDeviceKeyLayout()
+            else -> error("Failed to restore RFD trigger ownership: $keyLayoutResult")
         }
         targetReader.Config.startTrigger = triggerInfo.StartTrigger
         targetReader.Config.stopTrigger = triggerInfo.StopTrigger
+    }
+
+    private fun logUnsupportedCaptureDeviceKeyLayout() {
+        // USB-attached RFID-only RFD40 variants (including the TC22 sled
+        // topology) do not expose the programmable barcode key layout.
+        // Trigger mode plus start/stop triggers are sufficient for RFID
+        // ownership on those readers.
+        Log.w(
+            TAG,
+            "RFD key layout is not supported by this reader; " +
+                "continuing with RFID trigger configuration",
+        )
     }
 
     private fun bindReaderEvents(
@@ -2092,10 +2218,6 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Setting trigger mode...")
                 if (captureDeviceControlsBarcode) {
                     applyCaptureDeviceTriggerOwnership(reader!!)
-                    Log.d(
-                        TAG,
-                        "RFD trigger layout configured: upper=RFID lower=SLED_SCAN",
-                    )
                 } else {
                     reader!!.Config.setTriggerMode(
                         ENUM_TRIGGER_MODE.RFID_MODE,
@@ -2557,6 +2679,7 @@ class RFIDReaderInterface(
                 Log.d(TAG, "Tags read: $readTags")
                 if (readTags.isNotEmpty()) {
                     lastTagReadTimestamp = System.currentTimeMillis()
+                    recordResponsiveReaderActivity()
                 }
                 Handler(Looper.getMainLooper()).post {
                     if (readTags.isNotEmpty()) {

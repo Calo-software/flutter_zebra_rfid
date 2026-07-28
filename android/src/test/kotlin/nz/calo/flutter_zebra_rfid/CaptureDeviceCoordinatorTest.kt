@@ -15,6 +15,7 @@ import java.time.Duration
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.capture.CaptureDeviceCoordinator
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
+import nz.calo.flutter_zebra_rfid.rfid.CaptureDeviceBarcodeTriggerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -129,7 +130,7 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
             0,
             "USB:RFD40",
-            false,
+            CaptureDeviceBarcodeTriggerTarget.NONE,
         )
         Mockito.verify(barcode, Mockito.times(1))
             .setActiveEndpointForCaptureDevice(
@@ -206,7 +207,7 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
         )
         Mockito.verify(barcode, Mockito.never())
             .setActiveEndpointForCaptureDevice(Mockito.anyString())
@@ -345,7 +346,7 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(2)).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
         )
         Mockito.verify(barcode, Mockito.times(2)).connectToScannerForCaptureDevice(
             Mockito.eq(7),
@@ -592,7 +593,7 @@ internal class CaptureDeviceCoordinatorTest {
     }
 
     @Test
-    fun tc22ForegroundResumeWaitsForOneDataWedgeRecovery() {
+    fun tc22ForegroundResumeKeepsReadyDataWedgeAvailableWithoutRecovery() {
         val context = Mockito.mock(Context::class.java)
         val rfid = Mockito.mock(RFIDReaderInterface::class.java)
         val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
@@ -622,6 +623,16 @@ internal class CaptureDeviceCoordinatorTest {
         }.`when`(rfid).connectionStatusListener = anyValue()
         Mockito.`when`(rfid.availableReadersSnapshot()).thenReturn(listOf(reader))
         Mockito.`when`(barcode.barcodeEndpoints()).thenReturn(listOf(endpoint))
+        Mockito.`when`(
+            barcode.isRetainedDataWedgeEndpointReady("datawedge:INTERNAL"),
+        ).thenReturn(true)
+        Mockito.doAnswer { invocation ->
+            invocation.getArgument<(Boolean) -> Unit>(1).invoke(true)
+            null
+        }.`when`(barcode).verifyRetainedDataWedgeEndpointReady(
+            Mockito.anyString(),
+            anyValue(),
+        )
         Mockito.doAnswer { invocation ->
             dataWedgeCompletions.add(invocation.getArgument(1))
             null
@@ -647,19 +658,19 @@ internal class CaptureDeviceCoordinatorTest {
 
         coordinator.setCaptureDeviceForeground(false) {}
         coordinator.setCaptureDeviceForeground(true) {}
-        rfidStatusListener!!.invoke(ReaderConnectionStatus.CONNECTED)
 
-        assertEquals(2, dataWedgeCompletions.size)
-        Mockito.verify(rfid, Mockito.times(1))
-            .reassertCaptureDeviceTriggerOwnership(anyValue())
-        dataWedgeCompletions.last().invoke(Result.success(Unit))
-
+        assertEquals(
+            CaptureCapabilityStatus.CONNECTED,
+            coordinator.activeCaptureDevice()?.barcode?.status,
+        )
+        assertEquals(1, dataWedgeCompletions.size)
         Mockito.verify(rfid, Mockito.times(2))
             .reassertCaptureDeviceTriggerOwnership(anyValue())
-        Mockito.verify(rfid, Mockito.times(2)).connectReaderForCaptureDevice(
+        Mockito.verify(barcode, Mockito.times(1)).refreshBarcodeScanners(context)
+        Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
             0,
             "USB:RFD40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER,
         )
         Mockito.verify(barcode, Mockito.never()).connectToScannerForCaptureDevice(
             Mockito.anyInt(),
@@ -673,6 +684,85 @@ internal class CaptureDeviceCoordinatorTest {
             CaptureCapabilityStatus.CONNECTED,
             coordinator.activeCaptureDevice()?.barcode?.status,
         )
+    }
+
+    @Test
+    fun tc22ForegroundResumeRepairsDataWedgeWhenRetainedEndpointIsNotReady() {
+        val context = Mockito.mock(Context::class.java)
+        val rfid = Mockito.mock(RFIDReaderInterface::class.java)
+        val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
+        val callbacks = Mockito.mock(FlutterZebraCaptureCallbacks::class.java)
+        val reader = Reader(
+            name = "RFD40 Sled",
+            id = 0,
+            info = null,
+            hardwareIdentity = "USB:RFD40",
+        )
+        val endpoint = BarcodeScannerEndpoint(
+            endpointId = "datawedge:INTERNAL",
+            displayName = "TC22 internal imager",
+            source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+            mode = BarcodeScannerMode.DATA_WEDGE,
+            connectionStatus = ScannerConnectionStatus.CONNECTED,
+            active = true,
+            preferred = true,
+            scannerId = null,
+        )
+        var rfidStatusListener: ((ReaderConnectionStatus) -> Unit)? = null
+        val dataWedgeCompletions = mutableListOf<(Result<Unit>) -> Unit>()
+
+        Mockito.doAnswer { invocation ->
+            rfidStatusListener = invocation.getArgument(0)
+            null
+        }.`when`(rfid).connectionStatusListener = anyValue()
+        Mockito.`when`(rfid.availableReadersSnapshot()).thenReturn(listOf(reader))
+        Mockito.`when`(barcode.barcodeEndpoints()).thenReturn(listOf(endpoint))
+        Mockito.`when`(
+            barcode.isRetainedDataWedgeEndpointReady("datawedge:INTERNAL"),
+        ).thenReturn(false)
+        Mockito.doAnswer { invocation ->
+            invocation.getArgument<(Boolean) -> Unit>(1).invoke(false)
+            null
+        }.`when`(barcode).verifyRetainedDataWedgeEndpointReady(
+            Mockito.anyString(),
+            anyValue(),
+        )
+        Mockito.doAnswer { invocation ->
+            dataWedgeCompletions.add(invocation.getArgument(1))
+            null
+        }.`when`(barcode).setActiveEndpointForCaptureDevice(
+            Mockito.anyString(),
+            anyValue(),
+        )
+        Mockito.doAnswer { invocation ->
+            invocation.getArgument<(Result<Unit>) -> Unit>(0)
+                .invoke(Result.success(Unit))
+            null
+        }.`when`(rfid).reassertCaptureDeviceTriggerOwnership(anyValue())
+
+        val coordinator = CaptureDeviceCoordinator(context, rfid, barcode, callbacks)
+        coordinator.connectCaptureDevice(
+            "capture:rfid:USB:RFD40",
+            null,
+        ) {}
+        rfidStatusListener!!.invoke(ReaderConnectionStatus.CONNECTED)
+        dataWedgeCompletions.single().invoke(Result.success(Unit))
+
+        coordinator.setCaptureDeviceForeground(false) {}
+        coordinator.setCaptureDeviceForeground(true) {}
+        rfidStatusListener!!.invoke(ReaderConnectionStatus.CONNECTED)
+
+        assertEquals(2, dataWedgeCompletions.size)
+        assertEquals(
+            CaptureCapabilityStatus.CONNECTING,
+            coordinator.activeCaptureDevice()?.barcode?.status,
+        )
+        dataWedgeCompletions.last().invoke(Result.success(Unit))
+        assertEquals(
+            CaptureCapabilityStatus.CONNECTED,
+            coordinator.activeCaptureDevice()?.barcode?.status,
+        )
+        Mockito.verify(barcode, Mockito.times(2)).refreshBarcodeScanners(context)
     }
 
     @Test
@@ -738,14 +828,14 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
             0,
             "USB:RFD40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER,
         )
 
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1))
         Mockito.verify(rfid, Mockito.times(2)).connectReaderForCaptureDevice(
             0,
             "USB:RFD40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER,
         )
         Mockito.verify(barcode, Mockito.never()).connectToScannerForCaptureDevice(
             Mockito.anyInt(),
@@ -805,7 +895,7 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            false,
+            CaptureDeviceBarcodeTriggerTarget.NONE,
         )
         recoveryRequestListener!!.invoke("physical_reader_disconnect")
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
@@ -992,13 +1082,13 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(1)).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
         )
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         Mockito.verify(rfid, Mockito.times(2)).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            true,
+            CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
         )
         rfidStatusListener!!.invoke(ReaderConnectionStatus.CONNECTED)
 
@@ -1072,7 +1162,7 @@ internal class CaptureDeviceCoordinatorTest {
         Mockito.verify(rfid, Mockito.times(2)).connectReaderForCaptureDevice(
             0,
             "AA:BB:CC:40",
-            false,
+            CaptureDeviceBarcodeTriggerTarget.NONE,
         )
     }
 

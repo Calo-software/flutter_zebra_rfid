@@ -24,6 +24,27 @@ internal data class DataWedgeCommandResult(
     val response: Any? = null,
 )
 
+internal fun dataWedgeScannerRepairCommand(status: String?): DataWedgeCommand =
+    if (status == "IDLE") {
+        DataWedgeCommand(
+            label = "resume-scanner",
+            extraKey = "com.symbol.datawedge.api.SCANNER_INPUT_PLUGIN",
+            value = "RESUME_PLUGIN",
+            acceptedFailureCodes = setOf("SCANNER_ALREADY_RESUMED"),
+            completionDelayMs = 300L,
+            postCompletionDelayMs = 600L,
+        )
+    } else {
+        DataWedgeCommand(
+            label = "enable-scanner",
+            extraKey = "com.symbol.datawedge.api.SCANNER_INPUT_PLUGIN",
+            value = "ENABLE_PLUGIN",
+            acceptedFailureCodes = setOf("SCANNER_ALREADY_ENABLED"),
+            completionDelayMs = 300L,
+            postCompletionDelayMs = 600L,
+        )
+    }
+
 /**
  * Serializes DataWedge intent API calls and advances only after the matching
  * result arrives. DataWedge does not queue commands on behalf of callers.

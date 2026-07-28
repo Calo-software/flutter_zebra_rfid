@@ -48,6 +48,39 @@ internal class CaptureDevicePlannerTest {
   }
 
   @Test
+  fun buildDevices_tc22SelectsInternalImagerWhenCameraIsEnumeratedFirst() {
+    val devices = androidPlanner.buildDevices(
+      readers = listOf(
+        reader(
+          name = "RFD4030-G00B700-WR",
+          id = 1,
+          model = "RFD4030",
+        ),
+      ),
+      endpoints = listOf(
+        endpoint(
+          endpointId = "datawedge:INTERNAL_CAMERA",
+          displayName = "camera scanner",
+          source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+          mode = BarcodeScannerMode.DATA_WEDGE,
+          zebraScannerIdentifier = "INTERNAL_CAMERA",
+        ),
+        endpoint(
+          endpointId = "datawedge:INTERNAL_IMAGER",
+          displayName = "2D Barcode Imager",
+          source = BarcodeScannerSource.BUILT_IN_TERMINAL,
+          mode = BarcodeScannerMode.DATA_WEDGE,
+          zebraScannerIdentifier = "INTERNAL_IMAGER",
+        ),
+      ),
+      state = state(),
+    )
+
+    val sled = devices.single { it.topology == CaptureDeviceTopology.TC22RFID_SLED }
+    assertEquals("datawedge:INTERNAL_IMAGER", sled.barcode?.endpointId)
+  }
+
+  @Test
   fun buildDevices_exposesSelectedReaderFirmwareForDiagnostics() {
     val device = androidPlanner.buildDevices(
       readers = listOf(

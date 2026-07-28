@@ -2,6 +2,7 @@ package nz.calo.flutter_zebra_rfid.capture
 
 import BarcodeScannerMode
 import BarcodeScannerEndpoint
+import CaptureBarcodeSource
 import CaptureDiagnosticEvent
 import CaptureCapabilityStatus
 import CaptureDevice
@@ -23,6 +24,7 @@ import android.os.Looper
 import android.util.Log
 import nz.calo.flutter_zebra_rfid.barcode.BarcodeScannerInterface
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
+import nz.calo.flutter_zebra_rfid.rfid.CaptureDeviceBarcodeTriggerTarget
 import org.json.JSONObject
 
 /**
@@ -53,6 +55,7 @@ class CaptureDeviceCoordinator(
     private var selectedHardwareIdentity: String? = null
     private var selectedBarcodeEndpoint: BarcodeScannerEndpoint? = null
     private var foregroundResumeBarcodeEndpointId: String? = null
+    private var foregroundReadinessCheckGeneration = 0L
     private var barcodeSessionConnected = false
     private var activeRfidStatus: CaptureCapabilityStatus? = null
     private var activeBarcodeStatus: CaptureCapabilityStatus? = null
@@ -114,6 +117,17 @@ class CaptureDeviceCoordinator(
             emitDevices()
         }
         rfidInterface.managedRecoveryRequestListener = { reason ->
+            recordDiagnostic(
+                category = "rfid",
+                operation = "command_liveness",
+                outcome = "recovery_requested",
+                details = mapOf(
+                    "reason" to reason,
+                    "generation" to recoveryGeneration,
+                    "rfid_status" to activeRfidStatus?.name,
+                    "barcode_status" to activeBarcodeStatus?.name,
+                ),
+            )
             lifecycleOperationActive = false
             pendingReadiness = true
             scheduleRecovery(reason)
@@ -385,6 +399,7 @@ class CaptureDeviceCoordinator(
         }
         this.foreground = foreground
         if (!foreground) {
+            foregroundReadinessCheckGeneration += 1
             cancelRetry()
         } else if (activeCaptureDeviceId != null) {
             retryAttempt = 0
@@ -400,9 +415,90 @@ class CaptureDeviceCoordinator(
                 rfidRecoveryLifecycleFinished = false
                 rfidRecoveryActivityObserved = false
             }
-            requestReadiness("foreground_resume", explicit = true)
+            val endpoint = selectedBarcodeEndpoint
+            if (
+                activeBarcodeStatus == CaptureCapabilityStatus.CONNECTED &&
+                endpoint?.mode == BarcodeScannerMode.DATA_WEDGE
+            ) {
+                val checkGeneration = ++foregroundReadinessCheckGeneration
+                barcodeInterface.verifyRetainedDataWedgeEndpointReady(
+                    endpoint.endpointId,
+                ) { ready ->
+                    if (
+                        disposed ||
+                        !this.foreground ||
+                        checkGeneration != foregroundReadinessCheckGeneration ||
+                        selectedBarcodeEndpoint?.endpointId != endpoint.endpointId
+                    ) {
+                        return@verifyRetainedDataWedgeEndpointReady
+                    }
+                    foregroundResumeBarcodeEndpointId =
+                        endpoint.endpointId.takeIf { ready }
+                    if (ready && rfidWasReady) {
+                        rearmRetainedRfidAfterForeground(
+                            checkGeneration = checkGeneration,
+                            endpointId = endpoint.endpointId,
+                        )
+                    } else {
+                        requestReadiness("foreground_resume", explicit = true)
+                    }
+                }
+            } else {
+                foregroundReadinessCheckGeneration += 1
+                requestReadiness("foreground_resume", explicit = true)
+            }
         }
         callback(Result.success(Unit))
+    }
+
+    private fun rearmRetainedRfidAfterForeground(
+        checkGeneration: Long,
+        endpointId: String,
+    ) {
+        recordDiagnostic(
+            category = "rfid",
+            operation = "foreground_readiness",
+            outcome = "retained_session_check",
+            details = mapOf("barcode_endpoint_id" to endpointId),
+        )
+        rfidInterface.reassertCaptureDeviceTriggerOwnership { result ->
+            if (
+                disposed ||
+                !foreground ||
+                checkGeneration != foregroundReadinessCheckGeneration ||
+                selectedBarcodeEndpoint?.endpointId != endpointId
+            ) {
+                return@reassertCaptureDeviceTriggerOwnership
+            }
+            if (result.isSuccess) {
+                foregroundResumeBarcodeEndpointId = null
+                activeRfidError = null
+                activeRfidStatus = CaptureCapabilityStatus.CONNECTED
+                activeBarcodeError = null
+                activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
+                recordDiagnostic(
+                    category = "rfid",
+                    operation = "foreground_readiness",
+                    outcome = "retained_ready",
+                    details = mapOf("barcode_endpoint_id" to endpointId),
+                )
+                emitDevices()
+            } else {
+                recordDiagnostic(
+                    category = "rfid",
+                    operation = "foreground_readiness",
+                    outcome = "retained_check_failed",
+                    details = mapOf(
+                        "barcode_endpoint_id" to endpointId,
+                        "failure_type" to (
+                            result.exceptionOrNull()?.javaClass?.simpleName
+                                ?: "unknown"
+                            ),
+                    ),
+                )
+                requestReadiness("foreground_resume", explicit = true)
+            }
+        }
     }
 
     override fun activeCaptureDevice(): CaptureDevice? =
@@ -456,7 +552,10 @@ class CaptureDeviceCoordinator(
         foregroundResumeBarcodeEndpointId =
             if (
                 reason == "foreground_resume" &&
-                activeBarcodeStatus == CaptureCapabilityStatus.CONNECTED
+                activeBarcodeStatus == CaptureCapabilityStatus.CONNECTED &&
+                selectedBarcodeEndpoint?.endpointId?.let {
+                    barcodeInterface.isRetainedDataWedgeEndpointReady(it)
+                } == true
             ) {
                 selectedBarcodeEndpoint?.endpointId
             } else {
@@ -509,12 +608,17 @@ class CaptureDeviceCoordinator(
 
         activeRfidStatus = CaptureCapabilityStatus.CONNECTING
         emitDevices()
-        val controlsBarcode = device.barcode != null
+        val barcodeTriggerTarget = when (device.barcode?.source) {
+            CaptureBarcodeSource.BUILT_IN_TERMINAL ->
+                CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER
+            null -> CaptureDeviceBarcodeTriggerTarget.NONE
+            else -> CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE
+        }
         runCatching {
             rfidInterface.connectReaderForCaptureDevice(
                 readerId = rfid.readerId,
                 hardwareIdentity = rfid.hardwareIdentity,
-                controlsBarcode = controlsBarcode,
+                barcodeTriggerTarget = barcodeTriggerTarget,
             )
         }.onFailure {
             failRecovery(generation, "rfid_session_lost", it)
@@ -636,6 +740,27 @@ class CaptureDeviceCoordinator(
             foregroundResumeBarcodeEndpointId = null
             barcodeSessionConnected = false
             activeBarcodeStatus = CaptureCapabilityStatus.UNAVAILABLE
+            finishAfterBarcodeRestoration(generation)
+            return
+        }
+
+        val retainedEndpointId = foregroundResumeBarcodeEndpointId
+        if (
+            retainedEndpointId == barcode.endpointId &&
+            barcodeInterface.isRetainedDataWedgeEndpointReady(retainedEndpointId)
+        ) {
+            foregroundResumeBarcodeEndpointId = null
+            barcodeSessionConnected = true
+            activeBarcodeStatus = CaptureCapabilityStatus.CONNECTED
+            activeBarcodeError = null
+            recordDiagnostic(
+                category = "barcode",
+                operation = "foreground_readiness",
+                outcome = "retained_ready",
+                details = barcodeDetails(selectedBarcodeEndpoint).plus(
+                    "generation" to generation,
+                ),
+            )
             finishAfterBarcodeRestoration(generation)
             return
         }
@@ -1155,7 +1280,16 @@ class CaptureDeviceCoordinator(
 
     private fun refreshDiscovery() {
         rfidInterface.getAvailableReaderList(ReaderConnectionType.ALL)
-        barcodeInterface.refreshBarcodeScanners(context)
+        if (foregroundResumeBarcodeEndpointId == null) {
+            barcodeInterface.refreshBarcodeScanners(context)
+        } else {
+            recordDiagnostic(
+                category = "barcode",
+                operation = "foreground_readiness",
+                outcome = "retained_fast_path",
+                details = barcodeDetails(selectedBarcodeEndpoint),
+            )
+        }
         refreshSelectedBarcodeEndpointSnapshot()
     }
 

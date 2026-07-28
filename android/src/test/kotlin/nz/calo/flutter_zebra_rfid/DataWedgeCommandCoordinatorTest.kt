@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import nz.calo.flutter_zebra_rfid.barcode.DataWedgeCommand
 import nz.calo.flutter_zebra_rfid.barcode.DataWedgeCommandCoordinator
+import nz.calo.flutter_zebra_rfid.barcode.dataWedgeScannerRepairCommand
 import nz.calo.flutter_zebra_rfid.barcode.SEND_RESULT_COMPLETE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,6 +15,15 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 internal class DataWedgeCommandCoordinatorTest {
+    @Test
+    fun scannerRepairUsesStatusVerificationInsteadOfWaitingForLateCommandResult() {
+        val command = dataWedgeScannerRepairCommand("DISABLED")
+
+        assertEquals("enable-scanner", command.label)
+        assertEquals(300L, command.completionDelayMs)
+        assertEquals(600L, command.postCompletionDelayMs)
+    }
+
   @Test
   fun enqueue_sendsOnlyOneCommandUntilItsCorrelatedResultArrives() {
     val sent = mutableListOf<Intent>()

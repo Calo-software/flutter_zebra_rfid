@@ -179,7 +179,7 @@ internal class CaptureDevicePlanner(
 
         if (platform == CaptureDevicePlanningPlatform.ANDROID) {
             endpoints.firstOrNull {
-                it.source == BarcodeScannerSource.BUILT_IN_TERMINAL && looksLikeSled(reader)
+                looksLikeTerminalImager(it) && looksLikeSled(reader)
             }?.let {
                 return BarcodeMatch(
                     it,
@@ -242,6 +242,18 @@ internal class CaptureDevicePlanner(
     private fun looksLikeSled(reader: Reader): Boolean {
         val text = "${reader.name.orEmpty()} ${reader.info?.modelVersion.orEmpty()} ${reader.info?.scannerName.orEmpty()}".uppercase()
         return text.contains("RFD") || text.contains("SLED")
+    }
+
+    private fun looksLikeTerminalImager(endpoint: BarcodeScannerEndpoint): Boolean {
+        if (endpoint.source != BarcodeScannerSource.BUILT_IN_TERMINAL) {
+            return false
+        }
+        val identifier = endpoint.zebraScannerIdentifier.orEmpty().uppercase()
+        val name = endpoint.displayName.uppercase()
+        if (identifier.contains("CAMERA") || name.contains("CAMERA")) {
+            return false
+        }
+        return identifier.contains("IMAGER") || name.contains("IMAGER")
     }
 
     private fun nameTokensOverlap(reader: Reader, endpoint: BarcodeScannerEndpoint): Boolean {

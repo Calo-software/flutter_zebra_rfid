@@ -33,6 +33,7 @@ import nz.calo.flutter_zebra_rfid.rfid.batteryDataFromReaderEvent
 import nz.calo.flutter_zebra_rfid.rfid.buildInventoryTriggerInfo
 import nz.calo.flutter_zebra_rfid.rfid.describeSupportedRegions
 import nz.calo.flutter_zebra_rfid.rfid.RFIDReaderInterface
+import nz.calo.flutter_zebra_rfid.rfid.CaptureDeviceBarcodeTriggerTarget
 import nz.calo.flutter_zebra_rfid.rfid.readerConnectionTypeToDiscoveryTransports
 import nz.calo.flutter_zebra_rfid.rfid.readerPowerStateLabel
 import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleGate
@@ -153,6 +154,86 @@ internal class RFIDReaderInterfaceTest {
   }
 
   @Test
+  fun diagnostics_twoCommandTimeoutsRetireStaleCaptureDeviceSessionOnce() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val failure = Mockito.mock(OperationFailureException::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(failure.results).thenReturn(RFIDResults.RFID_API_COMMAND_TIMEOUT)
+    Mockito.`when`(failure.statusDescription).thenReturn("RFID_API_COMMAND_TIMEOUT")
+    Mockito.`when`(failure.vendorMessage).thenReturn("Response timeout")
+    Mockito.`when`(reader.Config.readerPowerState).thenThrow(failure)
+    setField(subject, "reader", reader)
+    setField(subject, "eventsBoundReader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+
+    var recoveryReason: String? = null
+    subject.managedRecoveryRequestListener = { recoveryReason = it }
+
+    var firstResult: Result<Diagnostics>? = null
+    subject.diagnosticsWithReaderPowerState { firstResult = it }
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      firstResult != null
+    }
+
+    assertNull(recoveryReason)
+    Mockito.verify(reader, Mockito.never()).disconnect()
+
+    var secondResult: Result<Diagnostics>? = null
+    subject.diagnosticsWithReaderPowerState { secondResult = it }
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      recoveryReason != null && secondResult != null
+    }
+
+    assertEquals("rfid_command_timeout", recoveryReason)
+    assertEquals(ReaderConnectionStatus.DISCONNECTED, subject.diagnostics().connectionState)
+    val ordered = Mockito.inOrder(reader.Events, reader)
+    ordered.verify(reader.Events).removeEventsListener(subject)
+    ordered.verify(reader).disconnect()
+    ordered.verify(reader).Dispose()
+    assertNull(getField<RFIDReader>(subject, "reader"))
+    assertNull(getField<RFIDReader>(subject, "eventsBoundReader"))
+  }
+
+  @Test
+  fun diagnostics_nonTimeoutSdkResponseResetsCommandTimeoutStreak() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val timeout = Mockito.mock(OperationFailureException::class.java)
+    val unsupported = Mockito.mock(OperationFailureException::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(timeout.results).thenReturn(RFIDResults.RFID_API_COMMAND_TIMEOUT)
+    Mockito.`when`(unsupported.results)
+      .thenReturn(RFIDResults.RFID_READER_FUNCTION_UNSUPPORTED)
+    Mockito.`when`(reader.Config.readerPowerState)
+      .thenThrow(timeout)
+      .thenThrow(unsupported)
+      .thenThrow(timeout)
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+
+    var recoveryReason: String? = null
+    subject.managedRecoveryRequestListener = { recoveryReason = it }
+
+    repeat(3) {
+      var result: Result<Diagnostics>? = null
+      subject.diagnosticsWithReaderPowerState { result = it }
+      waitUntil {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        result != null
+      }
+    }
+
+    assertNull(recoveryReason)
+    assertEquals(ReaderConnectionStatus.CONNECTED, subject.diagnostics().connectionState)
+    Mockito.verify(reader, Mockito.never()).disconnect()
+  }
+
+  @Test
   fun batteryStatistics_exposesExplicitPercentageAndHealth() {
     val statistics = BatteryStatistics().apply {
       percentage = 73
@@ -260,7 +341,7 @@ internal class RFIDReaderInterfaceTest {
     subject.connectReaderForCaptureDevice(
       readerId = 0,
       hardwareIdentity = "AA:BB:CC:40",
-      controlsBarcode = true,
+      barcodeTriggerTarget = CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
     )
 
     waitUntil {
@@ -274,6 +355,61 @@ internal class RFIDReaderInterfaceTest {
       ReaderConnectionStatus.CONNECTED,
       subject.diagnostics().connectionState,
     )
+  }
+
+  @Test
+  fun captureDevice_unsupportedKeyLayoutStillCompletesReaderSetup() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val readerDevice = Mockito.mock(ReaderDevice::class.java)
+    val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
+    val singulationControl = Antennas.SingulationControl().apply {
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
+    val unsupportedKeyLayout = Mockito.mock(OperationFailureException::class.java)
+
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(readerDevice.name).thenReturn("RFD4030-G00B700-WR")
+    Mockito.`when`(readerDevice.rfidReader).thenReturn(reader)
+    Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1)).thenReturn(antennaConfig)
+    Mockito.`when`(reader.Config.Antennas.getSingulationControl(1)).thenReturn(singulationControl)
+    Mockito.`when`(unsupportedKeyLayout.results)
+      .thenReturn(RFIDResults.RFID_API_OPTION_NOT_ALLOWED)
+    Mockito.`when`(unsupportedKeyLayout.vendorMessage)
+      .thenReturn("Option Not Allowed for this Command")
+    Mockito.doThrow(unsupportedKeyLayout).`when`(reader.Config)
+      .setKeylayoutType(
+        ENUM_NEW_KEYLAYOUT_TYPE.RFID,
+        ENUM_NEW_KEYLAYOUT_TYPE.TERMINAL_SCAN,
+      )
+
+    setField(subject, "reader", reader)
+    setField(subject, "readerDevice", readerDevice)
+    setField(subject, "availableRFIDReaderList", arrayListOf(readerDevice))
+
+    var recoveryReason: String? = null
+    subject.managedRecoveryRequestListener = { recoveryReason = it }
+
+    subject.connectReaderForCaptureDevice(
+      readerId = 0,
+      hardwareIdentity = "USB:RFD4030-G00B700-WR",
+      barcodeTriggerTarget = CaptureDeviceBarcodeTriggerTarget.TERMINAL_IMAGER,
+    )
+
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      subject.diagnostics().connectionState == ReaderConnectionStatus.CONNECTED ||
+        recoveryReason != null
+    }
+
+    assertNull(recoveryReason)
+    assertEquals(
+      ReaderConnectionStatus.CONNECTED,
+      subject.diagnostics().connectionState,
+    )
+    Mockito.verify(reader.Config).startTrigger = Mockito.any()
+    Mockito.verify(reader.Config).stopTrigger = Mockito.any()
+    Mockito.verify(reader, Mockito.never()).disconnect()
   }
 
   @Test
@@ -302,7 +438,7 @@ internal class RFIDReaderInterfaceTest {
     subject.connectReaderForCaptureDevice(
       readerId = 0,
       hardwareIdentity = "AA:BB:CC:40",
-      controlsBarcode = true,
+      barcodeTriggerTarget = CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
     )
 
     waitUntil {
@@ -345,7 +481,7 @@ internal class RFIDReaderInterfaceTest {
     subject.connectReaderForCaptureDevice(
       readerId = 0,
       hardwareIdentity = "AA:BB:CC:40",
-      controlsBarcode = true,
+      barcodeTriggerTarget = CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
     )
 
     waitUntil {
@@ -408,6 +544,11 @@ internal class RFIDReaderInterfaceTest {
     setField(subject, "reader", reader)
     setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
     setField(subject, "captureDeviceControlsBarcode", true)
+    setField(
+      subject,
+      "captureDeviceBarcodeTriggerTarget",
+      CaptureDeviceBarcodeTriggerTarget.RFD_BARCODE_ENGINE,
+    )
     setField(subject, "captureDeviceTriggerRearmPending", true)
 
     var result: Result<Unit>? = null

@@ -88,6 +88,33 @@ internal fun shouldUseDataWedge(
     device: String,
 ): Boolean = !shouldInitializeScannerSdk(manufacturer, model, product, device)
 
+internal fun scannerStatusFromNotification(notification: Bundle): String? {
+    if (notification.getString("NOTIFICATION_TYPE") != "SCANNER_STATUS") {
+        return null
+    }
+    return notification.getString("STATUS")
+}
+
+internal fun isDataWedgeScannerReadyStatus(status: String?): Boolean =
+    status == "WAITING" || status == "WAITFORTRIGGER" || status == "SCANNING"
+
+internal class DataWedgeReadinessLatch(
+    private val onReady: () -> Unit,
+) {
+    private var completed = false
+
+    fun observe(status: String?): Boolean {
+        if (completed || !isDataWedgeScannerReadyStatus(status)) return false
+        completed = true
+        onReady()
+        return true
+    }
+
+    fun cancel() {
+        completed = true
+    }
+}
+
 /**
  * Coordinates barcode scanners exposed through Zebra Scanner Control SDK and
  * Android DataWedge. DataWedge is needed for built-in Zebra terminal scanners;
@@ -118,6 +145,8 @@ class BarcodeScannerInterface internal constructor(
     private var activeEndpointId: String? = null
     private var preferredEndpointId: String? = null
     private var captureDeviceOwnsConnection = false
+    private var retainedReadinessLatch: DataWedgeReadinessLatch? = null
+    private var lastEmittedEndpoints: List<BarcodeScannerEndpoint>? = null
     var endpointsChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ScannerConnectionStatus) -> Unit)? = null
 
@@ -587,6 +616,87 @@ class BarcodeScannerInterface internal constructor(
     fun activeEndpoint(): BarcodeScannerEndpoint? =
         currentEndpoints().firstOrNull { it.endpointId == activeEndpointId }
 
+    fun isRetainedDataWedgeEndpointReady(endpointId: String): Boolean {
+        val endpoint = activeEndpoint() ?: return false
+        return endpoint.endpointId == endpointId &&
+            endpoint.mode == BarcodeScannerMode.DATA_WEDGE &&
+            endpoint.connectionStatus == ScannerConnectionStatus.CONNECTED &&
+            isDataWedgeScannerReady(dataWedgeScannerStatus)
+    }
+
+    fun verifyRetainedDataWedgeEndpointReady(
+        endpointId: String,
+        onComplete: (Boolean) -> Unit,
+    ) {
+        val endpoint = activeEndpoint()
+        if (
+            endpoint?.endpointId != endpointId ||
+            endpoint.mode != BarcodeScannerMode.DATA_WEDGE ||
+            endpoint.connectionStatus != ScannerConnectionStatus.CONNECTED
+        ) {
+            onComplete(false)
+            return
+        }
+        retainedReadinessLatch?.cancel()
+        var completed = false
+        fun finish(ready: Boolean) {
+            if (completed) return
+            completed = true
+            retainedReadinessLatch?.cancel()
+            retainedReadinessLatch = null
+            onComplete(ready)
+        }
+        retainedReadinessLatch = DataWedgeReadinessLatch {
+            diagnostics.record(
+                "datawedge",
+                "retained_readiness_notification",
+                "ready",
+                mapOf("status" to dataWedgeScannerStatus),
+            )
+            finish(true)
+        }
+        enqueueDataWedgeCommands(
+            commands = listOf(scannerStatusCommand()),
+            operation = "DataWedge retained readiness check",
+            onSuccess = {
+                val ready = isRetainedDataWedgeEndpointReady(endpointId)
+                diagnostics.record(
+                    "datawedge",
+                    "retained_readiness",
+                    if (ready) "ready" else "not_ready",
+                    mapOf("status" to dataWedgeScannerStatus),
+                )
+                if (ready) {
+                    finish(true)
+                } else {
+                    repairDataWedgeScannerState(
+                        onComplete = { result ->
+                            val repaired =
+                                result.isSuccess &&
+                                    isRetainedDataWedgeEndpointReady(endpointId)
+                            diagnostics.record(
+                                "datawedge",
+                                "retained_readiness_repair",
+                                if (repaired) "ready" else "failed",
+                                mapOf("status" to dataWedgeScannerStatus),
+                            )
+                            finish(repaired)
+                        },
+                        attempt = 1,
+                    )
+                }
+            },
+            onError = {
+                diagnostics.record(
+                    "datawedge",
+                    "retained_readiness",
+                    "failed",
+                )
+                finish(false)
+            },
+        )
+    }
+
     fun currentScanner(): BarcodeScanner? {
         val scanner = currentScanner ?: return null
         return BarcodeScanner(
@@ -598,6 +708,8 @@ class BarcodeScannerInterface internal constructor(
     }
 
     fun onDestroy() {
+        retainedReadinessLatch?.cancel()
+        retainedReadinessLatch = null
         try {
             if (dataWedgeReceiverRegistered) {
                 applicationContext?.unregisterReceiver(dataWedgeReceiver)
@@ -901,6 +1013,8 @@ class BarcodeScannerInterface internal constructor(
         val resolved = endpoints.map {
             it.copy(active = it.endpointId == active)
         }
+        if (resolved == lastEmittedEndpoints) return
+        lastEmittedEndpoints = resolved
         callbacks.onAvailableBarcodeScannersChanged(resolved) {}
         callbacks.onActiveBarcodeScannerChanged(resolved.firstOrNull { it.active }) {}
         endpointsChangedListener?.invoke()
@@ -909,8 +1023,13 @@ class BarcodeScannerInterface internal constructor(
     fun barcodeEndpoints(): List<BarcodeScannerEndpoint> = currentEndpoints()
 
     private fun emitBarcode(barcode: Barcode) {
-        mainHandler.post {
+        val deliver = {
             callbacks.onBarcodeRead(barcode) {}
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            deliver()
+        } else {
+            mainHandler.post(deliver)
         }
     }
 
@@ -982,14 +1101,15 @@ class BarcodeScannerInterface internal constructor(
 
     private fun handleDataWedgeNotification(intent: Intent) {
         val extras = intent.getBundleExtra(EXTRA_RESULT_NOTIFICATION) ?: return
-        if (extras.getString(EXTRA_RESULT_NOTIFICATION_TYPE) == NOTIFICATION_SCANNER_STATUS) {
-            dataWedgeScannerStatus = extras.getString(NOTIFICATION_SCANNER_STATUS)
+        scannerStatusFromNotification(extras)?.let { status ->
+            dataWedgeScannerStatus = status
             diagnostics.record(
                 "datawedge",
                 "scanner_status_notification",
                 "received",
                 mapOf("status" to dataWedgeScannerStatus),
             )
+            retainedReadinessLatch?.observe(status)
             emitEndpoints()
         }
     }
@@ -1000,12 +1120,6 @@ class BarcodeScannerInterface internal constructor(
             return
         }
         val data = intent.getStringExtra(DATAWEDGE_DATA_STRING) ?: return
-        diagnostics.record(
-            "barcode",
-            "decoded",
-            "received",
-            mapOf("source" to "datawedge"),
-        )
         val labelType = intent.getStringExtra(DATAWEDGE_LABEL_TYPE)
         val endpoint = activeEndpoint()
         emitBarcode(
@@ -1017,6 +1131,12 @@ class BarcodeScannerInterface internal constructor(
                 endpoint?.source ?: BarcodeScannerSource.BUILT_IN_TERMINAL,
                 endpoint?.displayName ?: "DataWedge scanner",
             )
+        )
+        diagnostics.record(
+            "barcode",
+            "decoded",
+            "received",
+            mapOf("source" to "datawedge"),
         )
     }
 
@@ -1151,23 +1271,7 @@ class BarcodeScannerInterface internal constructor(
         attempt: Int,
     ) {
         val status = dataWedgeScannerStatus
-        val command = if (status == "IDLE") {
-            DataWedgeCommand(
-                label = "resume-scanner",
-                extraKey = EXTRA_SCANNER_INPUT_PLUGIN,
-                value = "RESUME_PLUGIN",
-                acceptedFailureCodes = setOf("SCANNER_ALREADY_RESUMED"),
-                postCompletionDelayMs = DATAWEDGE_STATE_SETTLE_MS,
-            )
-        } else {
-            DataWedgeCommand(
-                label = "enable-scanner",
-                extraKey = EXTRA_SCANNER_INPUT_PLUGIN,
-                value = "ENABLE_PLUGIN",
-                acceptedFailureCodes = setOf("SCANNER_ALREADY_ENABLED"),
-                postCompletionDelayMs = DATAWEDGE_STATE_SETTLE_MS,
-            )
-        }
+        val command = dataWedgeScannerRepairCommand(status)
         Log.i(tag, "Repairing DataWedge scanner status=$status attempt=$attempt")
         enqueueDataWedgeCommands(
             commands = listOf(command),
@@ -1243,7 +1347,7 @@ class BarcodeScannerInterface internal constructor(
     }
 
     private fun isDataWedgeScannerReady(status: String?): Boolean =
-        status == "WAITING" || status == "WAITFORTRIGGER" || status == "SCANNING"
+        isDataWedgeScannerReadyStatus(status)
 
     private fun isDataWedgeRfidIntent(intent: Intent): Boolean {
         val source = intent.getStringExtra(DATAWEDGE_SOURCE)
@@ -1319,8 +1423,6 @@ class BarcodeScannerInterface internal constructor(
         private const val EXTRA_RESULT_SCANNER_STATUS =
             "com.symbol.datawedge.api.RESULT_SCANNER_STATUS"
         private const val EXTRA_SET_CONFIG = "com.symbol.datawedge.api.SET_CONFIG"
-        private const val EXTRA_SCANNER_INPUT_PLUGIN =
-            "com.symbol.datawedge.api.SCANNER_INPUT_PLUGIN"
         private const val EXTRA_GET_DATAWEDGE_STATUS =
             "com.symbol.datawedge.api.GET_DATAWEDGE_STATUS"
         private const val EXTRA_RESULT_GET_DATAWEDGE_STATUS =
@@ -1328,12 +1430,10 @@ class BarcodeScannerInterface internal constructor(
         private const val EXTRA_REGISTER_NOTIFICATION =
             "com.symbol.datawedge.api.REGISTER_FOR_NOTIFICATION"
         private const val EXTRA_RESULT_NOTIFICATION = "com.symbol.datawedge.api.NOTIFICATION"
-        private const val EXTRA_RESULT_NOTIFICATION_TYPE = "NOTIFICATION_TYPE"
         private const val EXTRA_APPLICATION_NAME = "com.symbol.datawedge.api.APPLICATION_NAME"
         private const val EXTRA_NOTIFICATION_TYPE = "com.symbol.datawedge.api.NOTIFICATION_TYPE"
         private const val NOTIFICATION_SCANNER_STATUS = "SCANNER_STATUS"
         private const val DATAWEDGE_PROFILE_SETTLE_MS = 750L
-        private const val DATAWEDGE_STATE_SETTLE_MS = 600L
         private const val DATAWEDGE_READY_ATTEMPTS = 3
         private const val DATAWEDGE_DATA_STRING = "com.symbol.datawedge.data_string"
         private const val DATAWEDGE_LABEL_TYPE = "com.symbol.datawedge.label_type"
