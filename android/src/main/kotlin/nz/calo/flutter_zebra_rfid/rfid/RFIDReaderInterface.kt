@@ -16,8 +16,13 @@ import ReaderErrorCode
 import ReaderError
 import Diagnostics
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.Handler
 import android.os.Looper
 import android.util.ArrayMap
@@ -259,6 +264,7 @@ class RFIDReaderInterface(
     private var locateOriginalBeeperVolume: BEEPER_VOLUME? = null
     // Flag to allow suppressing trigger-driven scanning
     @Volatile private var scanningEnabled: Boolean = true
+    @Volatile private var recoveryVerificationScanEnabled: Boolean = false
     private var scanningEnabledLastToggleMs: Long = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -319,6 +325,7 @@ class RFIDReaderInterface(
     private val MAX_RECONNECT_DELAY_MS = 15_000L
 
     private var lastBatteryData: BatteryData? = null
+    private var usbConnectionReceiverRegistered = false
     var readersChangedListener: (() -> Unit)? = null
     var connectionStatusListener: ((ReaderConnectionStatus) -> Unit)? = null
     var connectionErrorListener: ((ReaderError) -> Unit)? = null
@@ -421,6 +428,7 @@ class RFIDReaderInterface(
         cancelInventoryWatchdog()
         cancelScheduledPurge()
         cancelRecoveryProbeStop()
+        recoveryVerificationScanEnabled = false
         updateConnectionState(
             InternalConnectionState.DISCONNECTED,
             ReaderConnectionStatus.DISCONNECTED,
@@ -508,9 +516,111 @@ class RFIDReaderInterface(
         }
     }
 
+    private val usbConnectionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val device = usbDeviceFromIntent(intent) ?: return
+            handleUsbDeviceConnectionEvent(
+                action = intent.action,
+                vendorId = device.vendorId,
+                productName = device.productName,
+                manufacturerName = device.manufacturerName,
+            )
+        }
+    }
+
     init {
         Log.d(TAG, "Initializing RFID SDK...")
         Readers.attach(this)
+        registerUsbConnectionReceiver()
+    }
+
+    private fun registerUsbConnectionReceiver() {
+        if (usbConnectionReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            applicationContext.registerReceiver(
+                usbConnectionReceiver,
+                filter,
+                Context.RECEIVER_EXPORTED,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            applicationContext.registerReceiver(usbConnectionReceiver, filter)
+        }
+        usbConnectionReceiverRegistered = true
+    }
+
+    @Suppress("DEPRECATION")
+    private fun usbDeviceFromIntent(intent: Intent): UsbDevice? {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        } else {
+            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+        }
+    }
+
+    internal fun handleUsbDeviceConnectionEvent(
+        action: String?,
+        vendorId: Int,
+        productName: String?,
+        manufacturerName: String?,
+    ) {
+        if (
+            action != UsbManager.ACTION_USB_DEVICE_ATTACHED &&
+            action != UsbManager.ACTION_USB_DEVICE_DETACHED
+        ) {
+            return
+        }
+        if (internalState != InternalConnectionState.CONNECTED) {
+            Log.d(TAG, "Ignoring USB event while RFID state is $internalState")
+            return
+        }
+        if (!activeReaderUsesLocalUsbTransport()) {
+            Log.d(TAG, "Ignoring USB event for non-USB RFID session")
+            return
+        }
+
+        val selectedReaderName = readerDevice?.name.orEmpty()
+        val isZebraRfd =
+            vendorId == ZEBRA_USB_VENDOR_ID &&
+                listOf(productName, selectedReaderName).any {
+                    it?.trim()?.uppercase()?.startsWith("RFD") == true
+                }
+        if (!isZebraRfd) {
+            Log.d(
+                TAG,
+                "Ignoring unrelated USB event action=$action vendor=$vendorId " +
+                    "manufacturer=$manufacturerName product=$productName",
+            )
+            return
+        }
+
+        val reason = when (action) {
+            UsbManager.ACTION_USB_DEVICE_DETACHED -> "RFD USB device detached"
+            else -> "RFD USB device reattached after silent transport reset"
+        }
+        Log.w(
+            TAG,
+            "Detected $reason (vendor=$vendorId manufacturer=$manufacturerName " +
+                "product=$productName reader=$selectedReaderName)",
+        )
+        handleUnexpectedReaderDisconnect(reason)
+    }
+
+    private fun activeReaderUsesLocalUsbTransport(): Boolean {
+        val device = readerDevice ?: return false
+        val transportHints = listOf(
+            runCatching { device.address }.getOrNull(),
+            runCatching { device.transport }.getOrNull(),
+            runCatching { reader?.transport }.getOrNull(),
+        )
+        return transportHints.any { hint ->
+            val normalized = hint?.trim()?.uppercase().orEmpty()
+            normalized.contains("USB") || normalized.contains("SERIAL")
+        } || currentConnectionType == ReaderConnectionType.USB
     }
 
     fun getAvailableReaderList(
@@ -1699,6 +1809,13 @@ class RFIDReaderInterface(
         Log.d(TAG, "Scanning enabled set to $scanningEnabled")
     }
 
+    internal fun setRecoveryVerificationScanEnabled(enabled: Boolean) {
+        recoveryVerificationScanEnabled = enabled
+        Log.d(TAG, "Recovery verification scan enabled set to $enabled")
+    }
+
+    internal fun shouldForwardReadTagsToFlutter(): Boolean = scanningEnabled
+
     fun configureReader(
         config: ReaderConfig,
         shouldPersist: Boolean,
@@ -2390,7 +2507,11 @@ class RFIDReaderInterface(
 
     internal fun handleHandheldTriggerEvent(handheldEvent: HANDHELD_TRIGGER_EVENT_TYPE) {
         try {
-            if (!scanningEnabled) {
+            val verificationInteraction =
+                recoveryVerificationScanEnabled ||
+                    captureDeviceTriggerPressObserved ||
+                    recoveryProbeStopRunnable != null
+            if (!scanningEnabled && !verificationInteraction) {
                 Log.d(TAG, "Trigger event ignored (scanning disabled)")
                 return
             }
@@ -2418,7 +2539,12 @@ class RFIDReaderInterface(
                     Log.d(TAG, "Trigger pressed: Locate session active but waiting for purge completion")
                 } else {
                     // Normal inventory mode
-                    safeStartInventory("trigger pressed")
+                    val reason = if (!scanningEnabled) {
+                        "recovery verification trigger pressed"
+                    } else {
+                        "trigger pressed"
+                    }
+                    safeStartInventory(reason)
                     // Read all memory banks
                     val memoryBanksToRead = arrayOf(
                         MEMORY_BANK.MEMORY_BANK_EPC,
@@ -2676,6 +2802,7 @@ class RFIDReaderInterface(
         val readTags = reader?.Actions?.getReadTags(100)
         if (readTags != null) {
             try {
+                val forwardToFlutter = shouldForwardReadTagsToFlutter()
                 Log.d(TAG, "Tags read: $readTags")
                 if (readTags.isNotEmpty()) {
                     lastTagReadTimestamp = System.currentTimeMillis()
@@ -2685,12 +2812,19 @@ class RFIDReaderInterface(
                     if (readTags.isNotEmpty()) {
                         managedReadinessActivityListener?.invoke()
                     }
-                    callbacks.onTagsRead(readTags.map {
-                        RfidTag(
-                            it.tagID,
-                            it.peakRSSI.toLong()
+                    if (forwardToFlutter) {
+                        callbacks.onTagsRead(readTags.map {
+                            RfidTag(
+                                it.tagID,
+                                it.peakRSSI.toLong()
+                            )
+                        }) {}
+                    } else {
+                        Log.d(
+                            TAG,
+                            "Recovery verification tags withheld from Flutter workflow",
                         )
-                    }) {}
+                    }
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Error $e")
@@ -2787,6 +2921,11 @@ class RFIDReaderInterface(
 
 
     fun onDestroy() {
+        if (usbConnectionReceiverRegistered) {
+            runCatching { applicationContext.unregisterReceiver(usbConnectionReceiver) }
+                .onFailure { Log.w(TAG, "Failed to unregister RFID USB receiver", it) }
+            usbConnectionReceiverRegistered = false
+        }
         try {
             if (reader != null) {
                 reader!!.Events?.removeEventsListener(this)
@@ -2823,5 +2962,9 @@ class RFIDReaderInterface(
                 handleUnexpectedReaderDisconnect("device disappeared")
             }
         }
+    }
+
+    private companion object {
+        const val ZEBRA_USB_VENDOR_ID = 1504
     }
 }

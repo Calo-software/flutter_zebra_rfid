@@ -81,8 +81,9 @@ enum CaptureCapabilityStatus: Int {
   case unavailable = 0
   case disconnected = 1
   case connecting = 2
-  case connected = 3
-  case error = 4
+  case verifying = 3
+  case connected = 4
+  case error = 5
 }
 
 enum CaptureCapabilityType: Int {

@@ -65,8 +65,9 @@ enum class CaptureCapabilityStatus(val raw: Int) {
   UNAVAILABLE(0),
   DISCONNECTED(1),
   CONNECTING(2),
-  CONNECTED(3),
-  ERROR(4);
+  VERIFYING(3),
+  CONNECTED(4),
+  ERROR(5);
 
   companion object {
     fun ofRaw(raw: Int): CaptureCapabilityStatus? {

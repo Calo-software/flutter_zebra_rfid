@@ -144,6 +144,7 @@ extension CaptureCapabilityStatusLabelX on CaptureCapabilityStatus {
         CaptureCapabilityStatus.unavailable => 'Unavailable',
         CaptureCapabilityStatus.disconnected => 'Disconnected',
         CaptureCapabilityStatus.connecting => 'Connecting',
+        CaptureCapabilityStatus.verifying => 'Connected - scan to verify',
         CaptureCapabilityStatus.connected => 'Connected',
         CaptureCapabilityStatus.error => 'Error',
       };

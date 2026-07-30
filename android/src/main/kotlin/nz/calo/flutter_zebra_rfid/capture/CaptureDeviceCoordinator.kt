@@ -709,7 +709,8 @@ class CaptureDeviceCoordinator(
         lifecycleOperationActive = false
         pendingReadiness = false
         rfidRecoveryLifecycleFinished = true
-        activeRfidStatus = CaptureCapabilityStatus.CONNECTING
+        activeRfidStatus = CaptureCapabilityStatus.VERIFYING
+        rfidInterface.setRecoveryVerificationScanEnabled(true)
         activeBarcodeStatus = if (hasBarcode) {
             if (barcodeSessionConnected) {
                 CaptureCapabilityStatus.CONNECTED
@@ -971,6 +972,8 @@ class CaptureDeviceCoordinator(
             if (rfidRecoveryActivityObserved) {
                 confirmRecoveredRfidIfReady()
             } else {
+                activeRfidStatus = CaptureCapabilityStatus.VERIFYING
+                rfidInterface.setRecoveryVerificationScanEnabled(true)
                 logDebug(
                     "RFID and barcode sessions restored; awaiting real " +
                         "post-recovery tag generation=$generation",
@@ -994,6 +997,7 @@ class CaptureDeviceCoordinator(
             return
         }
         rfidRecoveryNeedsConfirmation = false
+        rfidInterface.setRecoveryVerificationScanEnabled(false)
         rfidWasReady = true
         activeRfidStatus = CaptureCapabilityStatus.CONNECTED
         activeRfidError = null
@@ -1003,6 +1007,7 @@ class CaptureDeviceCoordinator(
     }
 
     private fun resetRfidReadiness() {
+        rfidInterface.setRecoveryVerificationScanEnabled(false)
         rfidWasReady = false
         rfidTransportReady = false
         rfidRecoveryNeedsConfirmation = false
@@ -1027,6 +1032,7 @@ class CaptureDeviceCoordinator(
             ),
         )
         lifecycleOperationActive = false
+        rfidInterface.setRecoveryVerificationScanEnabled(false)
         activeRfidStatus = CaptureCapabilityStatus.ERROR
         activeRfidError = error.message ?: error.toString()
         pendingReadiness = true
@@ -1164,6 +1170,7 @@ class CaptureDeviceCoordinator(
         )
         pendingReadiness = false
         lifecycleOperationActive = false
+        rfidInterface.setRecoveryVerificationScanEnabled(false)
         activeRfidStatus = CaptureCapabilityStatus.ERROR
         activeRfidError = "Capture Device recovery exhausted: $reason"
         logWarning("recovery_exhausted reason=$reason")

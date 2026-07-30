@@ -439,7 +439,7 @@ internal class CaptureDeviceCoordinatorTest {
             recoverySequence,
         )
         assertEquals(
-            CaptureCapabilityStatus.CONNECTING,
+            CaptureCapabilityStatus.VERIFYING,
             coordinator.activeCaptureDevice()?.rfid?.status,
         )
 
@@ -848,7 +848,7 @@ internal class CaptureDeviceCoordinatorTest {
     }
 
     @Test
-    fun recoveredRfidRemainsConnectingUntilPostRecoveryTriggerActivity() {
+    fun recoveredRfidIsVerifyingUntilPostRecoveryTriggerActivity() {
         val context = Mockito.mock(Context::class.java)
         val rfid = Mockito.mock(RFIDReaderInterface::class.java)
         val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
@@ -903,7 +903,7 @@ internal class CaptureDeviceCoordinatorTest {
 
         assertTrue(
             coordinator.activeCaptureDevice()!!.rfid!!.status ==
-                CaptureCapabilityStatus.CONNECTING,
+                CaptureCapabilityStatus.VERIFYING,
         )
 
         readinessActivityListener!!.invoke()
@@ -1096,7 +1096,7 @@ internal class CaptureDeviceCoordinatorTest {
         barcodeCompletions.last().invoke(Result.success(Unit))
         assertTrue(
             coordinator.activeCaptureDevice()!!.rfid!!.status ==
-                CaptureCapabilityStatus.CONNECTING,
+                CaptureCapabilityStatus.VERIFYING,
         )
         assertTrue(
             coordinator.activeCaptureDevice()!!.barcode!!.status ==

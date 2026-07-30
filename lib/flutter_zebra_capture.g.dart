@@ -38,6 +38,7 @@ enum CaptureCapabilityStatus {
   unavailable,
   disconnected,
   connecting,
+  verifying,
   connected,
   error,
 }

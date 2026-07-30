@@ -328,7 +328,12 @@ internal fun deriveStatus(
 ): CaptureDeviceStatus {
     val statuses = listOfNotNull(rfidStatus, barcodeStatus)
     if (statuses.isEmpty()) return CaptureDeviceStatus.DISCONNECTED
-    if (statuses.any { it == CaptureCapabilityStatus.CONNECTING }) {
+    if (
+        statuses.any {
+            it == CaptureCapabilityStatus.CONNECTING ||
+                it == CaptureCapabilityStatus.VERIFYING
+        }
+    ) {
         return CaptureDeviceStatus.CONNECTING
     }
     val hasConnected = statuses.any { it == CaptureCapabilityStatus.CONNECTED }

@@ -1,3 +1,13 @@
+## 0.4.12 - 2026-07-30
+
+### Added
+- Detect physical Zebra RFD USB detach events immediately, including removal and reinsertion of a sled battery.
+- Expose an RFID `verifying` capability state while recovery waits for a real tag read.
+
+### Changed
+- Allow the recovery-confirmation RFID scan from anywhere in the host app.
+- Keep confirmation-only tag reads out of normal Flutter scanning workflows.
+
 ## 0.4.10 - 2026-07-28
 
 ### Fixed

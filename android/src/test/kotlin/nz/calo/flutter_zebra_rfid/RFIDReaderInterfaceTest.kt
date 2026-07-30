@@ -1,6 +1,7 @@
 package nz.calo.flutter_zebra_rfid
 
 import android.content.Context
+import android.hardware.usb.UsbManager
 import Diagnostics
 import FlutterZebraRfidCallbacks
 import androidx.test.core.app.ApplicationProvider
@@ -537,6 +538,126 @@ internal class RFIDReaderInterfaceTest {
   }
 
   @Test
+  fun captureDevice_matchingRfdUsbReattachInvalidatesSilentConnectedSession() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val readerDevice = ReaderDevice(
+      "RFD4030-G00B700-WR::",
+      "USB_PORT",
+      reader,
+    )
+    readerDevice.transport = "SERVICE_USB"
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    setField(subject, "reader", reader)
+    setField(subject, "readerDevice", readerDevice)
+    setField(subject, "eventsBoundReader", reader)
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+    setEnumField(subject, "internalState", "CONNECTED")
+
+    var recoveryReason: String? = null
+    subject.managedRecoveryRequestListener = { recoveryReason = it }
+
+    subject.handleUsbDeviceConnectionEvent(
+      action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+      vendorId = 1504,
+      productName = "RFD4030-G00B700-WR::::EA",
+      manufacturerName = "Zebra Technologies, Inc",
+    )
+
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      recoveryReason != null
+    }
+
+    assertEquals(ReaderConnectionStatus.DISCONNECTED, subject.diagnostics().connectionState)
+    assertEquals("physical_reader_disconnect", recoveryReason)
+    val ordered = Mockito.inOrder(reader.Events, reader)
+    ordered.verify(reader.Events).removeEventsListener(subject)
+    ordered.verify(reader).Dispose()
+  }
+
+  @Test
+  fun usbAttachIsIgnoredBeforeReaderSessionIsConnected() {
+    val subject = createSubject()
+    setField(
+      subject,
+      "readerDevice",
+      ReaderDevice("RFD4030-G00B700-WR::", "USB_PORT"),
+    )
+    var recoveryRequests = 0
+    subject.managedRecoveryRequestListener = { recoveryRequests += 1 }
+
+    subject.handleUsbDeviceConnectionEvent(
+      action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+      vendorId = 1504,
+      productName = "RFD4030-G00B700-WR::::EA",
+      manufacturerName = "Zebra Technologies, Inc",
+    )
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(ReaderConnectionStatus.DISCONNECTED, subject.diagnostics().connectionState)
+    assertEquals(0, recoveryRequests)
+  }
+
+  @Test
+  fun unrelatedUsbAttachIsIgnoredWhileRfdReaderIsConnected() {
+    val subject = createSubject()
+    val reader = mockReader()
+    setField(subject, "reader", reader)
+    setField(
+      subject,
+      "readerDevice",
+      ReaderDevice("RFD4030-G00B700-WR::", "USB_PORT", reader),
+    )
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+    setEnumField(subject, "internalState", "CONNECTED")
+    var recoveryRequests = 0
+    subject.managedRecoveryRequestListener = { recoveryRequests += 1 }
+
+    subject.handleUsbDeviceConnectionEvent(
+      action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+      vendorId = 1234,
+      productName = "USB keyboard",
+      manufacturerName = "Other",
+    )
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(ReaderConnectionStatus.CONNECTED, subject.diagnostics().connectionState)
+    assertEquals(0, recoveryRequests)
+  }
+
+  @Test
+  fun matchingRfdUsbDetachInvalidatesConnectedSession() {
+    val subject = createSubject()
+    val reader = mockReader()
+    setField(subject, "reader", reader)
+    setField(
+      subject,
+      "readerDevice",
+      ReaderDevice("RFD4030-G00B700-WR::", "USB_PORT", reader),
+    )
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+    setEnumField(subject, "internalState", "CONNECTED")
+    var recoveryReason: String? = null
+    subject.managedRecoveryRequestListener = { recoveryReason = it }
+
+    subject.handleUsbDeviceConnectionEvent(
+      action = UsbManager.ACTION_USB_DEVICE_DETACHED,
+      vendorId = 1504,
+      productName = "RFD4030-G00B700-WR::::EA",
+      manufacturerName = "Zebra Technologies, Inc",
+    )
+
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      recoveryReason != null
+    }
+
+    assertEquals(ReaderConnectionStatus.DISCONNECTED, subject.diagnostics().connectionState)
+    assertEquals("physical_reader_disconnect", recoveryReason)
+  }
+
+  @Test
   fun captureDevice_reassertsRfidTriggerOwnershipAfterBarcodeRestoration() {
     val subject = createSubject()
     val reader = mockReader()
@@ -806,6 +927,40 @@ internal class RFIDReaderInterfaceTest {
 
     assertEquals(false, subject.diagnostics().inventoryActive)
     Mockito.verify(reader.Actions.Inventory, Mockito.never()).perform()
+  }
+
+  @Test
+  fun recoveryVerificationAllowsTagProofWhileWorkflowScanningIsDisabled() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val tag = Mockito.mock(TagData::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(true)
+    Mockito.`when`(tag.tagID).thenReturn("verification-tag")
+    Mockito.`when`(tag.peakRSSI).thenReturn(-42)
+    Mockito.`when`(reader.Actions.getReadTags(100)).thenReturn(arrayOf(tag))
+    setField(subject, "reader", reader)
+    setEnumField(subject, "internalState", "CONNECTED")
+    setEnumField(subject, "connectionOwnership", "CAPTURE_DEVICE")
+    subject.setScanningEnabled(false)
+    subject.setRecoveryVerificationScanEnabled(true)
+    var readinessActivityCount = 0
+    subject.managedReadinessActivityListener = { readinessActivityCount += 1 }
+
+    subject.handleHandheldTriggerEvent(
+      HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_PRESSED,
+    )
+    subject.eventReadNotify(Mockito.mock(RfidReadEvents::class.java))
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(true, subject.diagnostics().inventoryActive)
+    assertEquals(1, readinessActivityCount)
+    assertFalse(subject.shouldForwardReadTagsToFlutter())
+    Mockito.verify(reader.Actions.Inventory).perform()
+
+    subject.handleHandheldTriggerEvent(
+      HANDHELD_TRIGGER_EVENT_TYPE.HANDHELD_TRIGGER_RELEASED,
+    )
+    assertEquals(false, subject.diagnostics().inventoryActive)
   }
 
   @Test
