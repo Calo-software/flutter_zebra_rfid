@@ -184,6 +184,14 @@ enum ReaderBeeperVolume {
   high,
 }
 
+/// EPC Gen2 inventory session used by the RFID Reader's singulation control.
+enum ReaderInventorySession {
+  s0,
+  s1,
+  s2,
+  s3,
+}
+
 class ReaderConfig {
   ReaderConfig({
     this.transmitPowerIndex,
@@ -195,6 +203,9 @@ class ReaderConfig {
     this.scanBatchMode,
     this.rfModeTableIndex,
     this.receiveSensitivityIndex,
+    this.inventorySession,
+    this.estimatedTagPopulation,
+    this.uniqueTagReporting,
   });
   final int? transmitPowerIndex;
   final int? tari;
@@ -206,6 +217,15 @@ class ReaderConfig {
   // Additional RF parameters (read-only for now on Android; setting may be added later)
   final int? rfModeTableIndex;
   final int? receiveSensitivityIndex;
+
+  /// Session S0-S3 used to track a tag's inventoried A/B flag.
+  final ReaderInventorySession? inventorySession;
+
+  /// Estimated tags in the RF field, used to tune singulation.
+  final int? estimatedTagPopulation;
+
+  /// Reports each EPC once until the reader tag database is purged.
+  final bool? uniqueTagReporting;
 }
 
 class ReaderInfo {

@@ -114,6 +114,14 @@ enum ReaderBeeperVolume: Int {
   case high = 3
 }
 
+/// EPC Gen2 inventory session used by the RFID Reader's singulation control.
+enum ReaderInventorySession: Int {
+  case s0 = 0
+  case s1 = 1
+  case s2 = 2
+  case s3 = 3
+}
+
 enum BatteryDataSource: Int {
   /// Standard battery event reported by the Zebra RFID SDK.
   case readerEvent = 0
@@ -223,6 +231,12 @@ struct ReaderConfig {
   var scanBatchMode: ReaderConfigBatchMode? = nil
   var rfModeTableIndex: Int64? = nil
   var receiveSensitivityIndex: Int64? = nil
+  /// Session S0-S3 used to track a tag's inventoried A/B flag.
+  var inventorySession: ReaderInventorySession? = nil
+  /// Estimated tags in the RF field, used to tune singulation.
+  var estimatedTagPopulation: Int64? = nil
+  /// Reports each EPC once until the reader tag database is purged.
+  var uniqueTagReporting: Bool? = nil
 
 
 
@@ -237,6 +251,9 @@ struct ReaderConfig {
     let scanBatchMode: ReaderConfigBatchMode? = nilOrValue(pigeonVar_list[6])
     let rfModeTableIndex: Int64? = isNullish(pigeonVar_list[7]) ? nil : (pigeonVar_list[7] is Int64? ? pigeonVar_list[7] as! Int64? : Int64(pigeonVar_list[7] as! Int32))
     let receiveSensitivityIndex: Int64? = isNullish(pigeonVar_list[8]) ? nil : (pigeonVar_list[8] is Int64? ? pigeonVar_list[8] as! Int64? : Int64(pigeonVar_list[8] as! Int32))
+    let inventorySession: ReaderInventorySession? = nilOrValue(pigeonVar_list[9])
+    let estimatedTagPopulation: Int64? = isNullish(pigeonVar_list[10]) ? nil : (pigeonVar_list[10] is Int64? ? pigeonVar_list[10] as! Int64? : Int64(pigeonVar_list[10] as! Int32))
+    let uniqueTagReporting: Bool? = nilOrValue(pigeonVar_list[11])
 
     return ReaderConfig(
       transmitPowerIndex: transmitPowerIndex,
@@ -247,7 +264,10 @@ struct ReaderConfig {
       batchMode: batchMode,
       scanBatchMode: scanBatchMode,
       rfModeTableIndex: rfModeTableIndex,
-      receiveSensitivityIndex: receiveSensitivityIndex
+      receiveSensitivityIndex: receiveSensitivityIndex,
+      inventorySession: inventorySession,
+      estimatedTagPopulation: estimatedTagPopulation,
+      uniqueTagReporting: uniqueTagReporting
     )
   }
   func toList() -> [Any?] {
@@ -261,6 +281,9 @@ struct ReaderConfig {
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+      inventorySession,
+      estimatedTagPopulation,
+      uniqueTagReporting,
     ]
   }
 }
@@ -536,26 +559,32 @@ private class FlutterZebraRfidPigeonCodecReader: FlutterStandardReader {
     case 135:
       let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
       if let enumResultAsInt = enumResultAsInt {
-        return BatteryDataSource(rawValue: enumResultAsInt)
+        return ReaderInventorySession(rawValue: enumResultAsInt)
       }
       return nil
     case 136:
-      return ReaderError.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return BatteryDataSource(rawValue: enumResultAsInt)
+      }
+      return nil
     case 137:
-      return Reader.fromList(self.readValue() as! [Any?])
+      return ReaderError.fromList(self.readValue() as! [Any?])
     case 138:
-      return BluetoothDevice.fromList(self.readValue() as! [Any?])
+      return Reader.fromList(self.readValue() as! [Any?])
     case 139:
-      return ReaderConfig.fromList(self.readValue() as! [Any?])
+      return BluetoothDevice.fromList(self.readValue() as! [Any?])
     case 140:
-      return ReaderInfo.fromList(self.readValue() as! [Any?])
+      return ReaderConfig.fromList(self.readValue() as! [Any?])
     case 141:
-      return ReaderRegion.fromList(self.readValue() as! [Any?])
+      return ReaderInfo.fromList(self.readValue() as! [Any?])
     case 142:
-      return RfidTag.fromList(self.readValue() as! [Any?])
+      return ReaderRegion.fromList(self.readValue() as! [Any?])
     case 143:
-      return BatteryData.fromList(self.readValue() as! [Any?])
+      return RfidTag.fromList(self.readValue() as! [Any?])
     case 144:
+      return BatteryData.fromList(self.readValue() as! [Any?])
+    case 145:
       return Diagnostics.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -583,35 +612,38 @@ private class FlutterZebraRfidPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ReaderBeeperVolume {
       super.writeByte(134)
       super.writeValue(value.rawValue)
-    } else if let value = value as? BatteryDataSource {
+    } else if let value = value as? ReaderInventorySession {
       super.writeByte(135)
       super.writeValue(value.rawValue)
-    } else if let value = value as? ReaderError {
+    } else if let value = value as? BatteryDataSource {
       super.writeByte(136)
-      super.writeValue(value.toList())
-    } else if let value = value as? Reader {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? ReaderError {
       super.writeByte(137)
       super.writeValue(value.toList())
-    } else if let value = value as? BluetoothDevice {
+    } else if let value = value as? Reader {
       super.writeByte(138)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderConfig {
+    } else if let value = value as? BluetoothDevice {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderInfo {
+    } else if let value = value as? ReaderConfig {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? ReaderRegion {
+    } else if let value = value as? ReaderInfo {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? RfidTag {
+    } else if let value = value as? ReaderRegion {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? BatteryData {
+    } else if let value = value as? RfidTag {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? Diagnostics {
+    } else if let value = value as? BatteryData {
       super.writeByte(144)
+      super.writeValue(value.toList())
+    } else if let value = value as? Diagnostics {
+      super.writeByte(145)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)

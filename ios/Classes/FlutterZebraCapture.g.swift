@@ -135,6 +135,13 @@ enum CaptureReaderBeeperVolume: Int {
   case high = 3
 }
 
+enum CaptureReaderInventorySession: Int {
+  case s0 = 0
+  case s1 = 1
+  case s2 = 2
+  case s3 = 3
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct CaptureReaderConfig {
   var transmitPowerIndex: Int64? = nil
@@ -146,6 +153,9 @@ struct CaptureReaderConfig {
   var scanBatchMode: CaptureReaderConfigBatchMode? = nil
   var rfModeTableIndex: Int64? = nil
   var receiveSensitivityIndex: Int64? = nil
+  var inventorySession: CaptureReaderInventorySession? = nil
+  var estimatedTagPopulation: Int64? = nil
+  var uniqueTagReporting: Bool? = nil
 
 
 
@@ -160,6 +170,9 @@ struct CaptureReaderConfig {
     let scanBatchMode: CaptureReaderConfigBatchMode? = nilOrValue(pigeonVar_list[6])
     let rfModeTableIndex: Int64? = isNullish(pigeonVar_list[7]) ? nil : (pigeonVar_list[7] is Int64? ? pigeonVar_list[7] as! Int64? : Int64(pigeonVar_list[7] as! Int32))
     let receiveSensitivityIndex: Int64? = isNullish(pigeonVar_list[8]) ? nil : (pigeonVar_list[8] is Int64? ? pigeonVar_list[8] as! Int64? : Int64(pigeonVar_list[8] as! Int32))
+    let inventorySession: CaptureReaderInventorySession? = nilOrValue(pigeonVar_list[9])
+    let estimatedTagPopulation: Int64? = isNullish(pigeonVar_list[10]) ? nil : (pigeonVar_list[10] is Int64? ? pigeonVar_list[10] as! Int64? : Int64(pigeonVar_list[10] as! Int32))
+    let uniqueTagReporting: Bool? = nilOrValue(pigeonVar_list[11])
 
     return CaptureReaderConfig(
       transmitPowerIndex: transmitPowerIndex,
@@ -170,7 +183,10 @@ struct CaptureReaderConfig {
       batchMode: batchMode,
       scanBatchMode: scanBatchMode,
       rfModeTableIndex: rfModeTableIndex,
-      receiveSensitivityIndex: receiveSensitivityIndex
+      receiveSensitivityIndex: receiveSensitivityIndex,
+      inventorySession: inventorySession,
+      estimatedTagPopulation: estimatedTagPopulation,
+      uniqueTagReporting: uniqueTagReporting
     )
   }
   func toList() -> [Any?] {
@@ -184,6 +200,9 @@ struct CaptureReaderConfig {
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+      inventorySession,
+      estimatedTagPopulation,
+      uniqueTagReporting,
     ]
   }
 }
@@ -450,14 +469,20 @@ private class FlutterZebraCapturePigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 138:
-      return CaptureReaderConfig.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as? Int)
+      if let enumResultAsInt = enumResultAsInt {
+        return CaptureReaderInventorySession(rawValue: enumResultAsInt)
+      }
+      return nil
     case 139:
-      return CaptureRfidCapability.fromList(self.readValue() as! [Any?])
+      return CaptureReaderConfig.fromList(self.readValue() as! [Any?])
     case 140:
-      return CaptureBarcodeCapability.fromList(self.readValue() as! [Any?])
+      return CaptureRfidCapability.fromList(self.readValue() as! [Any?])
     case 141:
-      return CaptureDevice.fromList(self.readValue() as! [Any?])
+      return CaptureBarcodeCapability.fromList(self.readValue() as! [Any?])
     case 142:
+      return CaptureDevice.fromList(self.readValue() as! [Any?])
+    case 143:
       return CaptureDiagnosticEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -494,20 +519,23 @@ private class FlutterZebraCapturePigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? CaptureReaderBeeperVolume {
       super.writeByte(137)
       super.writeValue(value.rawValue)
-    } else if let value = value as? CaptureReaderConfig {
+    } else if let value = value as? CaptureReaderInventorySession {
       super.writeByte(138)
-      super.writeValue(value.toList())
-    } else if let value = value as? CaptureRfidCapability {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? CaptureReaderConfig {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? CaptureBarcodeCapability {
+    } else if let value = value as? CaptureRfidCapability {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? CaptureDevice {
+    } else if let value = value as? CaptureBarcodeCapability {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? CaptureDiagnosticEvent {
+    } else if let value = value as? CaptureDevice {
       super.writeByte(142)
+      super.writeValue(value.toList())
+    } else if let value = value as? CaptureDiagnosticEvent {
+      super.writeByte(143)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)

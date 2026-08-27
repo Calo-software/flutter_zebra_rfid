@@ -221,8 +221,26 @@ private extension CaptureReaderConfig {
             batchMode: batchMode?.toReaderConfigBatchMode(),
             scanBatchMode: scanBatchMode?.toReaderConfigBatchMode(),
             rfModeTableIndex: rfModeTableIndex,
-            receiveSensitivityIndex: receiveSensitivityIndex
+            receiveSensitivityIndex: receiveSensitivityIndex,
+            inventorySession: inventorySession?.toReaderInventorySession(),
+            estimatedTagPopulation: estimatedTagPopulation,
+            uniqueTagReporting: uniqueTagReporting
         )
+    }
+}
+
+private extension CaptureReaderInventorySession {
+    func toReaderInventorySession() -> ReaderInventorySession {
+        switch self {
+        case .s0:
+            return .s0
+        case .s1:
+            return .s1
+        case .s2:
+            return .s2
+        case .s3:
+            return .s3
+        }
     }
 }
 

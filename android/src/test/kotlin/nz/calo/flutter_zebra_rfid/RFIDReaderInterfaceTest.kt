@@ -4,6 +4,8 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import Diagnostics
 import FlutterZebraRfidCallbacks
+import ReaderConfig
+import ReaderInventorySession
 import androidx.test.core.app.ApplicationProvider
 import com.zebra.rfid.api3.Actions
 import com.zebra.rfid.api3.Antennas
@@ -27,6 +29,7 @@ import com.zebra.rfid.api3.RfidReadEvents
 import com.zebra.rfid.api3.START_TRIGGER_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import com.zebra.rfid.api3.TagData
+import com.zebra.rfid.api3.UNIQUE_TAG_REPORT_SETTING
 import io.flutter.plugin.common.BinaryMessenger
 import nz.calo.flutter_zebra_rfid.rfid.buildRegulatoryConfigForSingleSupportedRegion
 import nz.calo.flutter_zebra_rfid.rfid.batteryDataFromStatistics
@@ -45,6 +48,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito
@@ -58,6 +62,113 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 internal class RFIDReaderInterfaceTest {
+
+  @Test
+  fun configureReader_appliesAndReportsInventorySettings() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
+    val singulationControl = Antennas.SingulationControl().apply {
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
+    Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1))
+      .thenReturn(antennaConfig)
+    Mockito.`when`(reader.Config.Antennas.getSingulationControl(1))
+      .thenReturn(singulationControl)
+    Mockito.`when`(reader.Config.setUniqueTagReport(true)).thenReturn(true)
+    Mockito.`when`(reader.Config.uniqueTagReport)
+      .thenReturn(UNIQUE_TAG_REPORT_SETTING.ENABLE)
+    setField(subject, "reader", reader)
+
+    subject.configureReader(
+      ReaderConfig(
+        inventorySession = ReaderInventorySession.S2,
+        estimatedTagPopulation = 200,
+        uniqueTagReporting = true,
+      ),
+      shouldPersist = false,
+    )
+
+    val applied = subject.getReaderConfig()
+    assertEquals(ReaderInventorySession.S2, applied.inventorySession)
+    assertEquals(200L, applied.estimatedTagPopulation)
+    assertEquals(true, applied.uniqueTagReporting)
+  }
+
+  @Test
+  fun configureReader_rejectsAnInventorySessionTheReaderDidNotApply() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
+    val requested = Antennas.SingulationControl().apply {
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
+    val applied = Antennas.SingulationControl().apply {
+      session = com.zebra.rfid.api3.SESSION.SESSION_S1
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
+    Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1))
+      .thenReturn(antennaConfig)
+    Mockito.`when`(reader.Config.Antennas.getSingulationControl(1))
+      .thenReturn(requested, applied)
+    setField(subject, "reader", reader)
+
+    val error = assertThrows(IllegalStateException::class.java) {
+      subject.configureReader(
+        ReaderConfig(inventorySession = ReaderInventorySession.S2),
+        shouldPersist = false,
+      )
+    }
+
+    assertTrue(error.message!!.contains("requested=SESSION_S2"))
+    assertTrue(error.message!!.contains("actual=SESSION_S1"))
+  }
+
+  @Test
+  fun configureReader_rejectsInvalidEstimatedTagPopulation() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
+    val singulationControl = Antennas.SingulationControl().apply {
+      Action = Mockito.mock(Antennas.SingulationControl.SingulationAction::class.java)
+    }
+    Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1))
+      .thenReturn(antennaConfig)
+    Mockito.`when`(reader.Config.Antennas.getSingulationControl(1))
+      .thenReturn(singulationControl)
+    setField(subject, "reader", reader)
+
+    val error = assertThrows(IllegalArgumentException::class.java) {
+      subject.configureReader(
+        ReaderConfig(estimatedTagPopulation = 0),
+        shouldPersist = false,
+      )
+    }
+
+    assertTrue(error.message!!.contains("between 1 and"))
+  }
+
+  @Test
+  fun configureReader_rejectsUnsupportedUniqueTagReportingChange() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val antennaConfig = Mockito.mock(Antennas.AntennaRfConfig::class.java)
+    Mockito.`when`(reader.Config.Antennas.getAntennaRfConfig(1))
+      .thenReturn(antennaConfig)
+    Mockito.`when`(reader.Config.setUniqueTagReport(false)).thenReturn(false)
+    Mockito.`when`(reader.Config.uniqueTagReport)
+      .thenReturn(UNIQUE_TAG_REPORT_SETTING.DISABLE)
+    setField(subject, "reader", reader)
+
+    val error = assertThrows(IllegalStateException::class.java) {
+      subject.configureReader(
+        ReaderConfig(uniqueTagReporting = false),
+        shouldPersist = false,
+      )
+    }
+
+    assertTrue(error.message!!.contains("configuration was rejected"))
+  }
 
   @Test
   fun readerPowerStateLabel_mapsZebraPowerStates() {

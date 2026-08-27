@@ -240,11 +240,76 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
         )
         
         singulationConfig?.setSlFlag(SRFID_SLFLAG_ALL)
-        singulationConfig?.setSession(SRFID_SESSION_S0)
+        if let session = config.inventorySession {
+            switch session {
+            case .s0: singulationConfig?.setSession(SRFID_SESSION_S0)
+            case .s1: singulationConfig?.setSession(SRFID_SESSION_S1)
+            case .s2: singulationConfig?.setSession(SRFID_SESSION_S2)
+            case .s3: singulationConfig?.setSession(SRFID_SESSION_S3)
+            }
+        }
+        if let population = config.estimatedTagPopulation {
+            guard population > 0 && population <= Int64(Int32.max) else {
+                completion(.failure(FlutterRfidError(
+                    code: "invalid_tag_population",
+                    message: "Estimated tag population must be between 1 and \(Int32.max)",
+                    details: nil
+                )))
+                return
+            }
+            singulationConfig?.setTagPopulation(Int32(population))
+        }
         singulationConfig?.setInventoryState(SRFID_INVENTORYSTATE_A)
         let singulationResult = _rfidApi.srfidSetSingulationConfiguration(readerId, aSingulationConfig: singulationConfig, aStatusMessage: &statusMessage)
         if (singulationResult != SRFID_RESULT_SUCCESS) {
-            _logger.error("Cannot configure singulation: \(statusMessage)")
+            completion(.failure(FlutterRfidError(
+                code: "singulation_rejected",
+                message: "Cannot configure singulation",
+                details: statusMessage
+            )))
+            return
+        }
+        if config.inventorySession != nil || config.estimatedTagPopulation != nil {
+            var applied: srfidSingulationConfig? = srfidSingulationConfig()
+            let readResult = _rfidApi.srfidGetSingulationConfiguration(
+                readerId,
+                aSingulationConfig: &applied,
+                aStatusMessage: &statusMessage
+            )
+            let sessionMatches = config.inventorySession == nil || applied?.getSession() == singulationConfig?.getSession()
+            let populationMatches = config.estimatedTagPopulation == nil || Int64(applied?.getTagPopulation() ?? -1) == config.estimatedTagPopulation
+            if readResult != SRFID_RESULT_SUCCESS || !sessionMatches || !populationMatches {
+                completion(.failure(FlutterRfidError(
+                    code: "singulation_verification_failed",
+                    message: "RFID Reader did not apply the requested inventory settings",
+                    details: statusMessage
+                )))
+                return
+            }
+        }
+
+        if let enabled = config.uniqueTagReporting {
+            let requested = srfidUniqueTagsReport()
+            requested.setUniqueTagsReportEnabled(enabled)
+            let setResult = _rfidApi.srfidSetUniqueTagReportConfiguration(
+                readerId,
+                aUtrConfiguration: requested,
+                aStatusMessage: &statusMessage
+            )
+            var applied: srfidUniqueTagsReport? = srfidUniqueTagsReport()
+            let readResult = _rfidApi.srfidGetUniqueTagReportConfiguration(
+                readerId,
+                aUtrConfiguration: &applied,
+                aStatusMessage: &statusMessage
+            )
+            if setResult != SRFID_RESULT_SUCCESS || readResult != SRFID_RESULT_SUCCESS || applied?.getEnabled() != enabled {
+                completion(.failure(FlutterRfidError(
+                    code: "unique_tag_reporting_verification_failed",
+                    message: "RFID Reader did not apply unique tag reporting",
+                    details: statusMessage
+                )))
+                return
+            }
         }
         
         // TRIGGER CONFIGURATION
@@ -470,7 +535,40 @@ class FlutterZebraRfidSdk: NSObject, FlutterZebraRfid, srfidISdkApiDelegate {
     }
 
     func readerConfig(completion: @escaping (Result<ReaderConfig, Error>) -> Void) {
-        completion(.success(ReaderConfig()))
+        guard let readerId = _srfidCurrentReader?.getReaderID() else {
+            completion(.failure(FlutterRfidError(
+                code: "0",
+                message: "No connected reader",
+                details: nil
+            )))
+            return
+        }
+        var statusMessage: NSString? = nil
+        var singulation: srfidSingulationConfig? = srfidSingulationConfig()
+        let singulationResult = _rfidApi.srfidGetSingulationConfiguration(
+            readerId,
+            aSingulationConfig: &singulation,
+            aStatusMessage: &statusMessage
+        )
+        var uniqueTags: srfidUniqueTagsReport? = srfidUniqueTagsReport()
+        let uniqueResult = _rfidApi.srfidGetUniqueTagReportConfiguration(
+            readerId,
+            aUtrConfiguration: &uniqueTags,
+            aStatusMessage: &statusMessage
+        )
+        var session: ReaderInventorySession? = nil
+        switch singulation?.getSession() {
+        case SRFID_SESSION_S0: session = .s0
+        case SRFID_SESSION_S1: session = .s1
+        case SRFID_SESSION_S2: session = .s2
+        case SRFID_SESSION_S3: session = .s3
+        default: session = nil
+        }
+        completion(.success(ReaderConfig(
+            inventorySession: singulationResult == SRFID_RESULT_SUCCESS ? session : nil,
+            estimatedTagPopulation: singulationResult == SRFID_RESULT_SUCCESS ? Int64(singulation?.getTagPopulation() ?? 0) : nil,
+            uniqueTagReporting: uniqueResult == SRFID_RESULT_SUCCESS ? uniqueTags?.getEnabled() : nil
+        )))
     }
 
     func supportedReaderRegions(completion: @escaping (Result<[ReaderRegion], Error>) -> Void) {

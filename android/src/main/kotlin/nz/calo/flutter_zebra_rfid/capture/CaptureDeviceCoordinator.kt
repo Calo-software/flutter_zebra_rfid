@@ -10,11 +10,13 @@ import CaptureDeviceStatus
 import CaptureReaderBeeperVolume
 import CaptureReaderConfig
 import CaptureReaderConfigBatchMode
+import CaptureReaderInventorySession
 import FlutterZebraCapture
 import FlutterZebraCaptureCallbacks
 import ReaderBeeperVolume
 import ReaderConfig
 import ReaderConfigBatchMode
+import ReaderInventorySession
 import ReaderConnectionStatus
 import ReaderConnectionType
 import ScannerConnectionStatus
@@ -1387,7 +1389,18 @@ private fun CaptureReaderConfig.toReaderConfig(): ReaderConfig = ReaderConfig(
     scanBatchMode?.toReaderConfigBatchMode(),
     rfModeTableIndex,
     receiveSensitivityIndex,
+    inventorySession?.toReaderInventorySession(),
+    estimatedTagPopulation,
+    uniqueTagReporting,
 )
+
+private fun CaptureReaderInventorySession.toReaderInventorySession(): ReaderInventorySession =
+    when (this) {
+        CaptureReaderInventorySession.S0 -> ReaderInventorySession.S0
+        CaptureReaderInventorySession.S1 -> ReaderInventorySession.S1
+        CaptureReaderInventorySession.S2 -> ReaderInventorySession.S2
+        CaptureReaderInventorySession.S3 -> ReaderInventorySession.S3
+    }
 
 private fun CaptureReaderBeeperVolume.toReaderBeeperVolume(): ReaderBeeperVolume =
     when (this) {

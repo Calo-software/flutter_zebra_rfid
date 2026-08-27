@@ -167,6 +167,19 @@ enum class CaptureReaderBeeperVolume(val raw: Int) {
   }
 }
 
+enum class CaptureReaderInventorySession(val raw: Int) {
+  S0(0),
+  S1(1),
+  S2(2),
+  S3(3);
+
+  companion object {
+    fun ofRaw(raw: Int): CaptureReaderInventorySession? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class CaptureReaderConfig (
   val transmitPowerIndex: Long? = null,
@@ -177,7 +190,10 @@ data class CaptureReaderConfig (
   val batchMode: CaptureReaderConfigBatchMode? = null,
   val scanBatchMode: CaptureReaderConfigBatchMode? = null,
   val rfModeTableIndex: Long? = null,
-  val receiveSensitivityIndex: Long? = null
+  val receiveSensitivityIndex: Long? = null,
+  val inventorySession: CaptureReaderInventorySession? = null,
+  val estimatedTagPopulation: Long? = null,
+  val uniqueTagReporting: Boolean? = null
 )
  {
   companion object {
@@ -191,7 +207,10 @@ data class CaptureReaderConfig (
       val scanBatchMode = pigeonVar_list[6] as CaptureReaderConfigBatchMode?
       val rfModeTableIndex = pigeonVar_list[7].let { num -> if (num is Int) num.toLong() else num as Long? }
       val receiveSensitivityIndex = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
-      return CaptureReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode, rfModeTableIndex, receiveSensitivityIndex)
+      val inventorySession = pigeonVar_list[9] as CaptureReaderInventorySession?
+      val estimatedTagPopulation = pigeonVar_list[10].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val uniqueTagReporting = pigeonVar_list[11] as Boolean?
+      return CaptureReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode, rfModeTableIndex, receiveSensitivityIndex, inventorySession, estimatedTagPopulation, uniqueTagReporting)
     }
   }
   fun toList(): List<Any?> {
@@ -205,6 +224,9 @@ data class CaptureReaderConfig (
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+      inventorySession,
+      estimatedTagPopulation,
+      uniqueTagReporting,
     )
   }
 }
@@ -419,26 +441,31 @@ private object FlutterZebraCapturePigeonCodec : StandardMessageCodec() {
         }
       }
       138.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          CaptureReaderConfig.fromList(it)
+        return (readValue(buffer) as Int?)?.let {
+          CaptureReaderInventorySession.ofRaw(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CaptureRfidCapability.fromList(it)
+          CaptureReaderConfig.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CaptureBarcodeCapability.fromList(it)
+          CaptureRfidCapability.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CaptureDevice.fromList(it)
+          CaptureBarcodeCapability.fromList(it)
         }
       }
       142.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          CaptureDevice.fromList(it)
+        }
+      }
+      143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           CaptureDiagnosticEvent.fromList(it)
         }
@@ -484,24 +511,28 @@ private object FlutterZebraCapturePigeonCodec : StandardMessageCodec() {
         stream.write(137)
         writeValue(stream, value.raw)
       }
-      is CaptureReaderConfig -> {
+      is CaptureReaderInventorySession -> {
         stream.write(138)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw)
       }
-      is CaptureRfidCapability -> {
+      is CaptureReaderConfig -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is CaptureBarcodeCapability -> {
+      is CaptureRfidCapability -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is CaptureDevice -> {
+      is CaptureBarcodeCapability -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is CaptureDiagnosticEvent -> {
+      is CaptureDevice -> {
         stream.write(142)
+        writeValue(stream, value.toList())
+      }
+      is CaptureDiagnosticEvent -> {
+        stream.write(143)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)

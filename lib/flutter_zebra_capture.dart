@@ -105,7 +105,20 @@ extension ReaderConfigCaptureX on rfid.ReaderConfig {
         scanBatchMode: scanBatchMode?.toCaptureReaderConfigBatchMode(),
         rfModeTableIndex: rfModeTableIndex,
         receiveSensitivityIndex: receiveSensitivityIndex,
+        inventorySession: inventorySession?.toCaptureReaderInventorySession(),
+        estimatedTagPopulation: estimatedTagPopulation,
+        uniqueTagReporting: uniqueTagReporting,
       );
+}
+
+extension _ReaderInventorySessionCaptureX on rfid.ReaderInventorySession {
+  CaptureReaderInventorySession toCaptureReaderInventorySession() =>
+      switch (this) {
+        rfid.ReaderInventorySession.s0 => CaptureReaderInventorySession.s0,
+        rfid.ReaderInventorySession.s1 => CaptureReaderInventorySession.s1,
+        rfid.ReaderInventorySession.s2 => CaptureReaderInventorySession.s2,
+        rfid.ReaderInventorySession.s3 => CaptureReaderInventorySession.s3,
+      };
 }
 
 extension _ReaderBeeperVolumeCaptureX on rfid.ReaderBeeperVolume {

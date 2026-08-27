@@ -10,6 +10,7 @@ import ReaderConfigBatchMode
 import ReaderConnectionStatus
 import ReaderConnectionType
 import ReaderInfo
+import ReaderInventorySession
 import ReaderRegion
 import RfidTag
 import ReaderErrorCode
@@ -64,6 +65,7 @@ import com.zebra.rfid.api3.STATUS_EVENT_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
 import com.zebra.rfid.api3.TagAccess
 import com.zebra.rfid.api3.TriggerInfo
+import com.zebra.rfid.api3.UNIQUE_TAG_REPORT_SETTING
 import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleCompletion
 import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleGate
 import nz.calo.flutter_zebra_rfid.capture.RfidLifecycleRequest
@@ -1893,6 +1895,62 @@ class RFIDReaderInterface(
             reader!!.Config.setScanBatchMode(mode)
         }
 
+        if (config.inventorySession != null || config.estimatedTagPopulation != null) {
+            val singulationControl = reader!!.Config.Antennas.getSingulationControl(1)
+            config.inventorySession?.let { session ->
+                singulationControl.session = when (session) {
+                    ReaderInventorySession.S0 -> SESSION.SESSION_S0
+                    ReaderInventorySession.S1 -> SESSION.SESSION_S1
+                    ReaderInventorySession.S2 -> SESSION.SESSION_S2
+                    ReaderInventorySession.S3 -> SESSION.SESSION_S3
+                }
+            }
+            config.estimatedTagPopulation?.let { population ->
+                require(population in 1L..Short.MAX_VALUE.toLong()) {
+                    "Estimated tag population must be between 1 and ${Short.MAX_VALUE}"
+                }
+                singulationControl.tagPopulation = population.toShort()
+            }
+            singulationControl.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
+            singulationControl.Action.slFlag = SL_FLAG.SL_ALL
+            reader!!.Config.Antennas.setSingulationControl(1, singulationControl)
+
+            val appliedSingulation = reader!!.Config.Antennas.getSingulationControl(1)
+            config.inventorySession?.let {
+                if (appliedSingulation.session != singulationControl.session) {
+                    throw IllegalStateException(
+                        "RFID inventory session verification failed: " +
+                            "requested=${singulationControl.session} " +
+                            "actual=${appliedSingulation.session}",
+                    )
+                }
+            }
+            config.estimatedTagPopulation?.let { population ->
+                if (appliedSingulation.tagPopulation.toLong() != population) {
+                    throw IllegalStateException(
+                        "RFID estimated tag population verification failed: " +
+                            "requested=$population " +
+                            "actual=${appliedSingulation.tagPopulation}",
+                    )
+                }
+            }
+        }
+
+        config.uniqueTagReporting?.let { enabled ->
+            if (!reader!!.Config.setUniqueTagReport(enabled)) {
+                throw IllegalStateException(
+                    "RFID unique tag reporting configuration was rejected: requested=$enabled",
+                )
+            }
+            val actual = reader!!.Config.uniqueTagReport == UNIQUE_TAG_REPORT_SETTING.ENABLE
+            if (actual != enabled) {
+                throw IllegalStateException(
+                    "RFID unique tag reporting verification failed: " +
+                        "requested=$enabled actual=$actual",
+                )
+            }
+        }
+
         if (shouldPersist) reader!!.Config.saveConfig()
 
     }
@@ -2403,22 +2461,26 @@ class RFIDReaderInterface(
         try {
             Log.d(TAG, "Reader Config:")
 
-            val antennaRfConfig = reader!!.Config.Antennas.getAntennaRfConfig(1)
-            val transmitPowerIndex = antennaRfConfig.transmitPowerIndex
+            val antennaRfConfig = runCatching {
+                reader!!.Config.Antennas.getAntennaRfConfig(1)
+            }.onFailure {
+                Log.w(TAG, "Unable to read antenna RF config; returning partial config", it)
+            }.getOrNull()
+            val transmitPowerIndex = antennaRfConfig?.transmitPowerIndex
             Log.d(TAG, "Transmit Power Index: $transmitPowerIndex")
 
-            val receiveSensitivityIndex = antennaRfConfig.receiveSensitivityIndex
+            val receiveSensitivityIndex = antennaRfConfig?.receiveSensitivityIndex
             // rfModeTableIndex getter not available; returning null for now.
             val rfModeIndex: Int? = null
             Log.d(TAG, "Receive Sensitivity Index: $receiveSensitivityIndex")
             Log.d(TAG, "RF Mode Table Index: $rfModeIndex")
 
-            val tari = antennaRfConfig.tari
+            val tari = antennaRfConfig?.tari
             Log.d(TAG, "Tari: $tari")
 
             var beeperVolume: ReaderBeeperVolume? = null
 
-            when (reader!!.Config.beeperVolume) {
+            when (runCatching { reader!!.Config.beeperVolume }.getOrNull()) {
                 BEEPER_VOLUME.HIGH_BEEP -> beeperVolume = ReaderBeeperVolume.HIGH
                 BEEPER_VOLUME.MEDIUM_BEEP -> beeperVolume = ReaderBeeperVolume.MEDIUM
                 BEEPER_VOLUME.LOW_BEEP -> beeperVolume = ReaderBeeperVolume.LOW
@@ -2427,7 +2489,7 @@ class RFIDReaderInterface(
             Log.d(TAG, "Beeper volume: $beeperVolume")
 
             var batchMode: ReaderConfigBatchMode? = null
-            when (reader!!.Config.batchModeConfig) {
+            when (runCatching { reader!!.Config.batchModeConfig }.getOrNull()) {
                 BATCH_MODE.AUTO -> batchMode = ReaderConfigBatchMode.AUTO
                 BATCH_MODE.ENABLE -> batchMode = ReaderConfigBatchMode.ENABLED
                 BATCH_MODE.DISABLE -> batchMode = ReaderConfigBatchMode.DISABLED
@@ -2435,24 +2497,48 @@ class RFIDReaderInterface(
             Log.d(TAG, "Batch mode: $batchMode")
 
             var scanBatchMode: ReaderConfigBatchMode? = null
-            when (reader!!.Config.scanBatchModeConfig) {
+            when (runCatching { reader!!.Config.scanBatchModeConfig }.getOrNull()) {
                 SCAN_BATCH_MODE.AUTO -> scanBatchMode = ReaderConfigBatchMode.AUTO
                 SCAN_BATCH_MODE.ENABLE -> scanBatchMode = ReaderConfigBatchMode.ENABLED
                 SCAN_BATCH_MODE.DISABLE -> scanBatchMode = ReaderConfigBatchMode.DISABLED
             }
             Log.d(TAG, "Scan batch mode: $scanBatchMode")
 
+            val dpoEnabled = runCatching {
+                reader!!.Config.dpoState == DYNAMIC_POWER_OPTIMIZATION.ENABLE
+            }.getOrNull()
+            val singulationControl = runCatching {
+                reader!!.Config.Antennas.getSingulationControl(1)
+            }.onFailure {
+                Log.w(TAG, "Unable to read singulation config", it)
+            }.getOrNull()
+            val inventorySession = when (singulationControl?.session) {
+                SESSION.SESSION_S0 -> ReaderInventorySession.S0
+                SESSION.SESSION_S1 -> ReaderInventorySession.S1
+                SESSION.SESSION_S2 -> ReaderInventorySession.S2
+                SESSION.SESSION_S3 -> ReaderInventorySession.S3
+                else -> null
+            }
+            val uniqueTagReporting = runCatching {
+                reader!!.Config.uniqueTagReport == UNIQUE_TAG_REPORT_SETTING.ENABLE
+            }.onFailure {
+                Log.w(TAG, "Unable to read unique tag reporting config", it)
+            }.getOrNull()
+
             return ReaderConfig(
-                transmitPowerIndex.toLong(),
-                tari.toLong(),
-                beeperVolume,
-                reader!!.Config.dpoState == DYNAMIC_POWER_OPTIMIZATION.ENABLE,
+                transmitPowerIndex = transmitPowerIndex?.toLong(),
+                tari = tari?.toLong(),
+                beeperVolume = beeperVolume,
+                enableDynamicPower = dpoEnabled,
                 // NOTE: SDK doesn't provide this LED blink read API reliably; leaving null
-                null,
-                batchMode,
-                scanBatchMode,
-                rfModeIndex?.toLong(),
-                receiveSensitivityIndex.toLong()
+                enableLedBlink = null,
+                batchMode = batchMode,
+                scanBatchMode = scanBatchMode,
+                rfModeTableIndex = rfModeIndex?.toLong(),
+                receiveSensitivityIndex = receiveSensitivityIndex?.toLong(),
+                inventorySession = inventorySession,
+                estimatedTagPopulation = singulationControl?.tagPopulation?.toLong(),
+                uniqueTagReporting = uniqueTagReporting,
             )
         } catch (e: Exception) {
             Log.d(TAG, "Error getting reader config: $e")

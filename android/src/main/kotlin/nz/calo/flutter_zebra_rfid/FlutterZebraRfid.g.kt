@@ -128,6 +128,20 @@ enum class ReaderBeeperVolume(val raw: Int) {
   }
 }
 
+/** EPC Gen2 inventory session used by the RFID Reader's singulation control. */
+enum class ReaderInventorySession(val raw: Int) {
+  S0(0),
+  S1(1),
+  S2(2),
+  S3(3);
+
+  companion object {
+    fun ofRaw(raw: Int): ReaderInventorySession? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 enum class BatteryDataSource(val raw: Int) {
   /** Standard battery event reported by the Zebra RFID SDK. */
   READER_EVENT(0),
@@ -226,7 +240,13 @@ data class ReaderConfig (
   val batchMode: ReaderConfigBatchMode? = null,
   val scanBatchMode: ReaderConfigBatchMode? = null,
   val rfModeTableIndex: Long? = null,
-  val receiveSensitivityIndex: Long? = null
+  val receiveSensitivityIndex: Long? = null,
+  /** Session S0-S3 used to track a tag's inventoried A/B flag. */
+  val inventorySession: ReaderInventorySession? = null,
+  /** Estimated tags in the RF field, used to tune singulation. */
+  val estimatedTagPopulation: Long? = null,
+  /** Reports each EPC once until the reader tag database is purged. */
+  val uniqueTagReporting: Boolean? = null
 )
  {
   companion object {
@@ -240,7 +260,10 @@ data class ReaderConfig (
       val scanBatchMode = pigeonVar_list[6] as ReaderConfigBatchMode?
       val rfModeTableIndex = pigeonVar_list[7].let { num -> if (num is Int) num.toLong() else num as Long? }
       val receiveSensitivityIndex = pigeonVar_list[8].let { num -> if (num is Int) num.toLong() else num as Long? }
-      return ReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode, rfModeTableIndex, receiveSensitivityIndex)
+      val inventorySession = pigeonVar_list[9] as ReaderInventorySession?
+      val estimatedTagPopulation = pigeonVar_list[10].let { num -> if (num is Int) num.toLong() else num as Long? }
+      val uniqueTagReporting = pigeonVar_list[11] as Boolean?
+      return ReaderConfig(transmitPowerIndex, tari, beeperVolume, enableDynamicPower, enableLedBlink, batchMode, scanBatchMode, rfModeTableIndex, receiveSensitivityIndex, inventorySession, estimatedTagPopulation, uniqueTagReporting)
     }
   }
   fun toList(): List<Any?> {
@@ -254,6 +277,9 @@ data class ReaderConfig (
       scanBatchMode,
       rfModeTableIndex,
       receiveSensitivityIndex,
+      inventorySession,
+      estimatedTagPopulation,
+      uniqueTagReporting,
     )
   }
 }
@@ -478,50 +504,55 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
       }
       135.toByte() -> {
         return (readValue(buffer) as Int?)?.let {
-          BatteryDataSource.ofRaw(it)
+          ReaderInventorySession.ofRaw(it)
         }
       }
       136.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderError.fromList(it)
+        return (readValue(buffer) as Int?)?.let {
+          BatteryDataSource.ofRaw(it)
         }
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Reader.fromList(it)
+          ReaderError.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BluetoothDevice.fromList(it)
+          Reader.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderConfig.fromList(it)
+          BluetoothDevice.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderInfo.fromList(it)
+          ReaderConfig.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ReaderRegion.fromList(it)
+          ReaderInfo.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RfidTag.fromList(it)
+          ReaderRegion.fromList(it)
         }
       }
       143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BatteryData.fromList(it)
+          RfidTag.fromList(it)
         }
       }
       144.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BatteryData.fromList(it)
+        }
+      }
+      145.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           Diagnostics.fromList(it)
         }
@@ -555,44 +586,48 @@ private object FlutterZebraRfidPigeonCodec : StandardMessageCodec() {
         stream.write(134)
         writeValue(stream, value.raw)
       }
-      is BatteryDataSource -> {
+      is ReaderInventorySession -> {
         stream.write(135)
         writeValue(stream, value.raw)
       }
-      is ReaderError -> {
+      is BatteryDataSource -> {
         stream.write(136)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw)
       }
-      is Reader -> {
+      is ReaderError -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is BluetoothDevice -> {
+      is Reader -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is ReaderConfig -> {
+      is BluetoothDevice -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is ReaderInfo -> {
+      is ReaderConfig -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is ReaderRegion -> {
+      is ReaderInfo -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is RfidTag -> {
+      is ReaderRegion -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is BatteryData -> {
+      is RfidTag -> {
         stream.write(143)
         writeValue(stream, value.toList())
       }
-      is Diagnostics -> {
+      is BatteryData -> {
         stream.write(144)
+        writeValue(stream, value.toList())
+      }
+      is Diagnostics -> {
+        stream.write(145)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)

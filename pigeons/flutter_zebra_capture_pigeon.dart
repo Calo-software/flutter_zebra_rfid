@@ -120,6 +120,13 @@ enum CaptureReaderBeeperVolume {
   high,
 }
 
+enum CaptureReaderInventorySession {
+  s0,
+  s1,
+  s2,
+  s3,
+}
+
 class CaptureReaderConfig {
   CaptureReaderConfig({
     this.transmitPowerIndex,
@@ -131,6 +138,9 @@ class CaptureReaderConfig {
     this.scanBatchMode,
     this.rfModeTableIndex,
     this.receiveSensitivityIndex,
+    this.inventorySession,
+    this.estimatedTagPopulation,
+    this.uniqueTagReporting,
   });
 
   final int? transmitPowerIndex;
@@ -142,6 +152,9 @@ class CaptureReaderConfig {
   final CaptureReaderConfigBatchMode? scanBatchMode;
   final int? rfModeTableIndex;
   final int? receiveSensitivityIndex;
+  final CaptureReaderInventorySession? inventorySession;
+  final int? estimatedTagPopulation;
+  final bool? uniqueTagReporting;
 }
 
 class CaptureRfidCapability {
