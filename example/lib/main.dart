@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 
 import 'package:flutter_zebra_rfid_example/barcode.dart';
 import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
@@ -16,7 +17,31 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  final _capture = FlutterZebraCaptureApi();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint("RFID_RECOVERY lifecycle=${state.name}");
+    _capture
+        .setCaptureDeviceForeground(state == AppLifecycleState.resumed)
+        .catchError((Object error) {
+          debugPrint("RFID_RECOVERY lifecycle error=$error");
+        });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   int _currentPage = 0;
 
   @override
@@ -41,9 +66,7 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
       home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Zebra RFID + Barcode example'),
-        ),
+        appBar: AppBar(title: const Text('Zebra RFID + Barcode example')),
         body: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: SafeArea(

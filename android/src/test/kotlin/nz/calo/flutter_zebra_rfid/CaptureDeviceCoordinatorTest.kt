@@ -1166,6 +1166,37 @@ internal class CaptureDeviceCoordinatorTest {
         )
     }
 
+    @Test
+    fun failedConnectionsUseEveryRetryDelayAndAllowExplicitRetryAfterExhaustion() {
+        val rfid = Mockito.mock(RFIDReaderInterface::class.java)
+        val barcode = Mockito.mock(BarcodeScannerInterface::class.java)
+        val reader = Reader(name = "RFD40", id = 0, info = null, hardwareIdentity = "USB:RFD40")
+        Mockito.`when`(rfid.availableReadersSnapshot()).thenReturn(listOf(reader))
+        Mockito.`when`(barcode.barcodeEndpoints()).thenReturn(emptyList())
+        Mockito.doThrow(IllegalStateException("transport unavailable"))
+            .`when`(rfid).connectReaderForCaptureDevice(
+                0, "USB:RFD40", CaptureDeviceBarcodeTriggerTarget.NONE,
+            )
+        val coordinator = CaptureDeviceCoordinator(
+            Mockito.mock(Context::class.java), rfid, barcode,
+            Mockito.mock(FlutterZebraCaptureCallbacks::class.java),
+        )
+        var result: Result<Unit>? = null
+        coordinator.connectCaptureDevice("capture:rfid:USB:RFD40", null) { result = it }
+        listOf(1L, 2L, 4L, 8L, 15L).forEachIndexed { index, seconds ->
+            assertNull(result)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(seconds))
+            Mockito.verify(rfid, Mockito.times(index + 2)).connectReaderForCaptureDevice(
+                0, "USB:RFD40", CaptureDeviceBarcodeTriggerTarget.NONE,
+            )
+        }
+        assertTrue(result!!.isFailure)
+        coordinator.connectCaptureDevice("capture:rfid:USB:RFD40", null) {}
+        Mockito.verify(rfid, Mockito.times(7)).connectReaderForCaptureDevice(
+            0, "USB:RFD40", CaptureDeviceBarcodeTriggerTarget.NONE,
+        )
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun <T> anyValue(): T {
         Mockito.any<T>()

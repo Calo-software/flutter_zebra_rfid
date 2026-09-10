@@ -1104,6 +1104,11 @@ class RFIDReaderInterface(
                 }
                 triggerDeviceStatus()
             } catch (e: InvalidUsageException) {
+                // Retire the failed transport before publishing a retryable state.
+                // Discovery may return this same SDK reader instance next time.
+                if (managedGeneration != null) {
+                    retireReaderSession(targetReader, "managed connect failed: ${e.javaClass.simpleName}")
+                }
                 synchronized(this) {
                     clearConnectTimeout()
                     Log.e(TAG, "InvalidUsageException during connect: ${e.message}", e)
@@ -1116,6 +1121,10 @@ class RFIDReaderInterface(
                             "Managed RFID connection failed",
                             e,
                         )
+                        // Retain failure evidence without turning an unavailable reader
+                        // into a terminal error or emitting another recovery request.
+                        lastErrorCode = ReaderErrorCode.SDK_INVALID_USAGE
+                        lastErrorMessage = e.info ?: e.message
                         mainHandler.post {
                             managedRecoveryRequestListener?.invoke("rfid_session_lost")
                         }
@@ -1159,6 +1168,11 @@ class RFIDReaderInterface(
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Reader region is not configured", e)
                 }
             } catch (e: OperationFailureException) {
+                // Retire the failed transport before publishing a retryable state.
+                // Discovery may return this same SDK reader instance next time.
+                if (managedGeneration != null) {
+                    retireReaderSession(targetReader, "managed connect failed: ${e.javaClass.simpleName}")
+                }
                 synchronized(this) {
                     clearConnectTimeout()
                     val readerUnavailable = isReaderUnavailableDuringConnect(e)
@@ -1178,6 +1192,10 @@ class RFIDReaderInterface(
                             "Managed RFID connection failed",
                             e,
                         )
+                        // Retain failure evidence without turning an unavailable reader
+                        // into a terminal error or emitting another recovery request.
+                        lastErrorCode = ReaderErrorCode.SDK_OPERATION_FAILURE
+                        lastErrorMessage = "${e.results}: ${e.statusDescription}; ${e.vendorMessage}"
                         mainHandler.post {
                             managedRecoveryRequestListener?.invoke("rfid_session_lost")
                         }
@@ -1209,6 +1227,11 @@ class RFIDReaderInterface(
                     updateConnectionState(InternalConnectionState.ERROR, ReaderConnectionStatus.ERROR, "Operation failed while connecting", e)
                 }
             } catch (e: Throwable) {
+                // Retire the failed transport before publishing a retryable state.
+                // Discovery may return this same SDK reader instance next time.
+                if (managedGeneration != null) {
+                    retireReaderSession(targetReader, "managed connect failed: ${e.javaClass.simpleName}")
+                }
                 synchronized(this) {
                     clearConnectTimeout()
                     Log.e(TAG, "Unexpected error during connect: ${e.message}", e)

@@ -5,8 +5,27 @@ import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
 import 'package:flutter_zebra_rfid_example/scan_log_page.dart';
 
 import 'package:flutter_zebra_rfid_example/main.dart';
+import 'package:flutter_zebra_rfid_example/recovery_panel.dart';
 
 void main() {
+  testWidgets('Recovery cycle counts only new reports after its marker',
+      (tester) async {
+    await tester.pumpWidget(_harness(const RecoveryPanel()));
+    final api = FlutterZebraRfidApi();
+    api.onTagsRead.add([RfidTag(id: 'TAG', rssi: -45)]);
+    await tester.pump();
+    expect(find.text('Cycle 0 · 1 RFID reports · 0 barcodes'), findsOneWidget);
+    await tester.tap(find.text('Recovery test'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mark cycle / reset counts'));
+    await tester.pump();
+    expect(find.text('Cycle 1 · 0 RFID reports · 0 barcodes'), findsOneWidget);
+    api.onTagsRead.add([RfidTag(id: 'TAG', rssi: -45)]);
+    await tester.pump();
+    expect(find.text('Cycle 1 · 1 RFID reports · 0 barcodes'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('API instances share native callback streams', () {
     final firstRfid = FlutterZebraRfidApi();
     final secondRfid = FlutterZebraRfidApi();

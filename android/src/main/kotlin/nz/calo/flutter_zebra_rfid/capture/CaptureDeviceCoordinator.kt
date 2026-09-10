@@ -531,7 +531,11 @@ class CaptureDeviceCoordinator(
         joinedCallbacks.clear()
     }
 
-    private fun requestReadiness(reason: String, explicit: Boolean) {
+    private fun requestReadiness(
+        reason: String,
+        explicit: Boolean,
+        scheduledRetry: Boolean = false,
+    ) {
         if (disposed || activeCaptureDeviceId == null) return
         if (!foreground) {
             pendingReadiness = true
@@ -542,7 +546,7 @@ class CaptureDeviceCoordinator(
             logDebug("duplicate_readiness_request reason=$reason")
             return
         }
-        if (retryAttempt >= retryDelaysMs.size && !explicit) {
+        if (retryAttempt >= retryDelaysMs.size && !explicit && !scheduledRetry) {
             exhaustRecovery(reason)
             return
         }
@@ -1095,7 +1099,7 @@ class CaptureDeviceCoordinator(
                 if (reason == "configuration_retry") {
                     retryConfiguration(generation)
                 } else {
-                    requestReadiness(reason, explicit = false)
+                    requestReadiness(reason, explicit = false, scheduledRetry = true)
                 }
             }
         }

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'recovery_panel.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 import 'package:flutter_zebra_rfid/shared_types.dart';
@@ -84,20 +86,27 @@ class _CaptureDashboardState extends State<CaptureDashboard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return CaptureDashboardView(
-      devices: _devices,
-      activeDevice: _activeDevice,
-      barcodeEndpoints: _barcodeEndpoints,
-      lastTag: _lastTag,
-      lastBarcode: _lastBarcode,
-      sledBattery: _sledBattery,
-      sledBatteryUpdatedAt: _sledBatteryUpdatedAt,
-      isLoading: _isLoading,
-      message: _message,
-      onRefresh: _refresh,
-      onConnect: _connect,
-      onDisconnect: _disconnect,
-      onOverrideBarcode: _overrideBarcode,
+    return Column(
+      children: [
+        const RecoveryPanel(),
+        Expanded(
+          child: CaptureDashboardView(
+            devices: _devices,
+            activeDevice: _activeDevice,
+            barcodeEndpoints: _barcodeEndpoints,
+            lastTag: _lastTag,
+            lastBarcode: _lastBarcode,
+            sledBattery: _sledBattery,
+            sledBatteryUpdatedAt: _sledBatteryUpdatedAt,
+            isLoading: _isLoading,
+            message: _message,
+            onRefresh: _refresh,
+            onConnect: _connect,
+            onDisconnect: _disconnect,
+            onOverrideBarcode: _overrideBarcode,
+          ),
+        ),
+      ],
     );
   }
 

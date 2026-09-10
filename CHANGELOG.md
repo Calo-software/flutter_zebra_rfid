@@ -1,3 +1,18 @@
+## 0.4.13 - 2026-09-10
+
+### Fixed
+- Retire failed managed Android RFID connections before requesting recovery, including when discovery returns the same SDK reader instance.
+- Execute the fifth scheduled recovery retry before reporting exhaustion.
+- Preserve SDK error details in diagnostics after managed connection failures.
+
+### Added
+- Example recovery panel with cycle markers, scan counts, diagnostic export and foreground/background reporting.
+- Regression tests and a TC22/RFD40 recovery test procedure with host log capture.
+
+### Validation
+- One TC22/RFD40 run succeeded for each of detach/reattach, sled battery replacement, background/resume and automatic recovery after retry exhaustion; post-recovery scans were confirmed by the operator.
+- The production serial-worker crash was not reproduced and is not established as fixed. Repeated-cycle validation remains outstanding.
+
 ## 0.4.12 - 2026-07-30
 
 ### Added

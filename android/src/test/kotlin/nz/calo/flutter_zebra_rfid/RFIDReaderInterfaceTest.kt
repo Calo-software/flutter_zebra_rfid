@@ -971,6 +971,32 @@ internal class RFIDReaderInterfaceTest {
   }
 
   @Test
+  fun managedConnectFailureDisconnectsBeforeRequestingRecovery() {
+    val subject = createSubject()
+    val reader = mockReader()
+    val readerDevice = Mockito.mock(ReaderDevice::class.java)
+    Mockito.`when`(reader.isConnected).thenReturn(false)
+    val failure = Mockito.mock(OperationFailureException::class.java)
+    Mockito.`when`(failure.results).thenReturn(RFIDResults.RFID_COMM_OPEN_ERROR)
+    Mockito.doThrow(failure).`when`(reader).connect()
+    Mockito.`when`(readerDevice.name).thenReturn("RFD40")
+    Mockito.`when`(readerDevice.rfidReader).thenReturn(reader)
+    setField(subject, "availableRFIDReaderList", arrayListOf(readerDevice))
+    var recoveryRequested = false
+    subject.managedRecoveryRequestListener = {
+      Mockito.verify(reader).disconnect()
+      assertEquals(ReaderErrorCode.SDK_OPERATION_FAILURE, subject.diagnostics().lastErrorCode)
+      assertTrue(subject.diagnostics().lastErrorMessage!!.contains("RFID_COMM_OPEN_ERROR"))
+      recoveryRequested = true
+    }
+    subject.connectReaderForCaptureDevice(0, "USB:RFD40", CaptureDeviceBarcodeTriggerTarget.NONE)
+    waitUntil {
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      recoveryRequested
+    }
+  }
+
+  @Test
   fun fastTriggerReleaseStopsInventoryImmediately() {
     val subject = createSubject()
     val reader = mockReader()
