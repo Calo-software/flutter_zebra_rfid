@@ -1,18 +1,11 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 group = "nz.calo.flutter_zebra_rfid"
 version = "1.0-SNAPSHOT"
 
 def pluginAndroidDir = buildscript.sourceFile.parentFile
-
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
-    }
-}
 
 android {
     namespace = "nz.calo.flutter_zebra_rfid"
@@ -32,13 +25,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     testOptions {
         unitTests.all {
-            useJUnitPlatform()
+            useJUnit()
             testLogging {
                 events("passed", "skipped", "failed")
                 showStandardStreams = false
@@ -50,6 +39,12 @@ android {
     }
     buildFeatures {
         buildConfig = false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
@@ -69,14 +64,6 @@ rootProject.allprojects { candidate ->
         maven { url = uri(zebraLocalMaven) }
     }
 }
-
-def localProperties = new Properties()
-def localPropertiesFile = file('local.properties')
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.withInputStream { localProperties.load(it) }
-}
-def flutterSdk = localProperties.getProperty('flutter.sdk')
-def flutterEmbeddingJar = flutterSdk == null ? null : file("${flutterSdk}/bin/cache/artifacts/engine/android-arm/flutter.jar")
 
 def deriveZebraSpec = { File aar ->
     def base = aar.name[0..-5] // strip .aar
@@ -145,17 +132,10 @@ dependencies {
     zebraCoordinateList.each { coord -> implementation(coord) }
 
     implementation("androidx.core:core-ktx:1.13.1")
-    if (flutterEmbeddingJar?.exists()) {
-        compileOnly(files(flutterEmbeddingJar))
-        testImplementation(files(flutterEmbeddingJar))
-    }
-
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:2.1.0")
     testImplementation("org.mockito:mockito-core:5.11.0")
     testImplementation("org.mockito:mockito-inline:5.2.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
-    testRuntimeOnly("org.junit.vintage:junit-vintage-engine:5.11.4")
 }
 // End Dependency Region (flatDir fallback)

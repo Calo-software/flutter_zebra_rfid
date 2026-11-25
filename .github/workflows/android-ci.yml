@@ -1,0 +1,77 @@
+name: Android and Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Flutter checks (${{ matrix.track }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - track: compatibility
+            flutter: '3.44.2'
+          - track: current
+            flutter: '3.50.1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ matrix.flutter }}
+          cache: true
+      - run: flutter pub get
+      - name: Verify the current example lockfile
+        if: matrix.track == 'current'
+        run: git diff --exit-code -- example/pubspec.lock
+      - run: flutter analyze --no-pub
+      - name: Run plugin Flutter tests
+        run: flutter test --no-pub
+      - name: Run example Flutter tests
+        working-directory: example
+        run: flutter test --no-pub
+
+  android:
+    name: Android build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.50.1'
+          cache: true
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - name: Build example release APK
+        working-directory: example
+        run: flutter build apk --release
+      - name: Check APK alignment for 16 KB pages
+        working-directory: example
+        run: '"$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 build/app/outputs/flutter-apk/app-release.apk'
+      - name: Run Android unit tests through the Flutter host
+        working-directory: example/android
+        run: ./gradlew --console=plain :flutter_zebra_rfid:testDebugUnitTest

@@ -1,9 +1,8 @@
-import 'package:flutter/material.dart';
-
 import 'package:flutter_zebra_rfid_example/barcode.dart';
 import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
 import 'package:flutter_zebra_rfid_example/rfid_page.dart';
 import 'package:flutter_zebra_rfid_example/scan_log_page.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   runApp(const MyApp());
