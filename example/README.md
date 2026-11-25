@@ -15,7 +15,8 @@ Demonstrates usage of the `flutter_zebra_rfid` plugin, including:
 
 | Item | Requirement |
 | ---- | ----------- |
-| Flutter SDK | 3.22+ (stable) |
+| Flutter SDK | 3.50 or later for the Android example build |
+| Android build tools | JDK 17, Android SDK Platform 36, Build Tools 36.0.0, and NDK 28.2.13676358 |
 | Android | Reader paired via Bluetooth or cabled (USB) |
 | iOS | (Parity in progress – core features tested on Android) |
 | Permissions | Bluetooth scan / connect granted (Android 12+) |
@@ -34,6 +35,23 @@ flutter run
 ```
 
 If multiple devices/emulators are attached provide `-d <deviceId>`.
+
+### Android CI checks
+
+From the repository root, run the analyzer, tests, and release build used by the Android and Flutter CI workflow.
+
+```bash
+flutter pub get
+flutter analyze --no-pub
+flutter test --no-pub
+cd example
+flutter test --no-pub
+flutter build apk --release
+cd android
+./gradlew --console=plain :flutter_zebra_rfid:testDebugUnitTest
+```
+
+On Windows, run `./gradlew.bat` in place of `./gradlew`. The example host supplies the Flutter Android embedding to the plugin's unit tests. The [hardware test matrix](../docs/CAPTURE_DEVICE_MANUAL_TEST_MATRIX.md) covers physical-reader verification.
 
 ---
 ## 3. Workflow Overview

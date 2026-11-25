@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 import 'package:flutter_zebra_rfid_example/capture_dashboard.dart';
-import 'package:flutter_zebra_rfid_example/scan_log_page.dart';
-
 import 'package:flutter_zebra_rfid_example/main.dart';
+import 'package:flutter_zebra_rfid_example/scan_log_page.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   test('API instances share native callback streams', () {

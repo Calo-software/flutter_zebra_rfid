@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_zebra_rfid/flutter_zebra_rfid.dart';
 import 'package:flutter_zebra_rfid_example/example_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 enum ScanLogEntryType { rfid, barcode }
 

@@ -1,3 +1,9 @@
+## 0.4.11
+
+### Changed
+- Require Flutter 3.44 and Dart 3.12 or later for compatibility with Flutter's Android Kotlin migration.
+- Build the Android example with built-in Kotlin, Android Gradle Plugin 9.3.1, and Gradle 9.5.0.
+
 ## 0.4.10 - 2026-07-28
 
 ### Fixed
